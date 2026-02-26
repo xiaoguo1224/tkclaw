@@ -1,5 +1,6 @@
 """Instance service: list, detail, delete, scale, restart, config save/apply."""
 
+import asyncio
 import json
 import logging
 import re as _re
@@ -141,6 +142,10 @@ async def delete_instance(instance_id: str, db: AsyncSession, delete_k8s: bool =
     """逻辑删除实例：标记 deleted_at，从 K8s 删除整个命名空间（级联删除所有资源）。"""
     instance = await get_instance(instance_id, db)
 
+    if instance.workspace_id:
+        from app.services.sse_listener import sse_listener_manager
+        await sse_listener_manager.disconnect(instance_id)
+
     if delete_k8s:
         cluster_result = await db.execute(
             select(Cluster).where(Cluster.id == instance.cluster_id, Cluster.deleted_at.is_(None))
@@ -197,6 +202,7 @@ async def restart_instance(instance_id: str, db: AsyncSession):
     if not cluster:
         raise NotFoundError("集群不存在")
 
+    prev_status = instance.status
     instance.status = InstanceStatus.restarting
     await db.commit()
 
@@ -205,12 +211,82 @@ async def restart_instance(instance_id: str, db: AsyncSession):
     name = _k8s_name(instance)
     desired = instance.replicas or 1
 
-    # scale 0 -> scale N: 先释放 ResourceQuota 再创建新 Pod，
-    # 避免 annotation patch 在配额紧约束下的滚动重启死锁
-    await k8s.scale_deployment(instance.namespace, name, 0)
-    await k8s.scale_deployment(instance.namespace, name, desired)
+    try:
+        await k8s.scale_deployment(instance.namespace, name, 0)
+        await k8s.scale_deployment(instance.namespace, name, desired)
+    except Exception as e:
+        logger.error("重启 scale 操作失败，回滚状态: instance=%s error=%s", instance.name, e)
+        instance.status = prev_status
+        await db.commit()
+        raise
 
     logger.info("实例 %s (%s) 已触发重启 (scale 0->%d)", instance.name, instance_id, desired)
+    asyncio.create_task(_monitor_restart(instance_id, cluster.id, cluster.kubeconfig_encrypted, instance.namespace, name))
+
+
+_RESTART_POLL_INTERVAL = 5
+_RESTART_TIMEOUT = 120
+
+
+def _broadcast_agent_status(workspace_id: str | None, instance_id: str, status: str) -> None:
+    if not workspace_id:
+        return
+    try:
+        from app.api.workspaces import broadcast_event
+        broadcast_event(workspace_id, "agent:status", {
+            "instance_id": instance_id,
+            "status": status,
+        })
+    except Exception:
+        logger.debug("广播 agent:status 失败: instance=%s", instance_id)
+
+
+async def _monitor_restart(
+    instance_id: str, cluster_id: str, kubeconfig_encrypted: str, namespace: str, deploy_name: str,
+) -> None:
+    """Poll K8s pod status after restart and update DB status when ready."""
+    from app.core.deps import async_session_factory
+
+    await asyncio.sleep(_RESTART_POLL_INTERVAL)
+
+    elapsed = 0
+    while elapsed < _RESTART_TIMEOUT:
+        try:
+            api_client = await k8s_manager.get_or_create(cluster_id, kubeconfig_encrypted)
+            k8s = K8sClient(api_client)
+            pods = await k8s.list_pods(namespace)
+            has_ready = any(
+                all(c.get("ready", False) for c in p.get("containers", []))
+                and len(p.get("containers", [])) > 0
+                for p in pods
+            )
+            if has_ready:
+                async with async_session_factory() as db:
+                    result = await db.execute(select(Instance).where(Instance.id == instance_id))
+                    inst = result.scalar_one_or_none()
+                    if inst and inst.status == InstanceStatus.restarting:
+                        inst.status = InstanceStatus.running
+                        await db.commit()
+                        logger.info("实例 %s 重启完成，状态已恢复为 running", inst.name)
+                        _broadcast_agent_status(inst.workspace_id, instance_id, "running")
+                return
+        except Exception as e:
+            logger.debug("重启监控轮询异常: instance=%s error=%s", instance_id, e)
+
+        await asyncio.sleep(_RESTART_POLL_INTERVAL)
+        elapsed += _RESTART_POLL_INTERVAL
+
+    logger.warning("重启监控超时 (%ds)，强制恢复状态: instance=%s", _RESTART_TIMEOUT, instance_id)
+    try:
+        async with async_session_factory() as db:
+            result = await db.execute(select(Instance).where(Instance.id == instance_id))
+            inst = result.scalar_one_or_none()
+            if inst and inst.status == InstanceStatus.restarting:
+                inst.status = InstanceStatus.running
+                await db.commit()
+                _broadcast_agent_status(inst.workspace_id, instance_id, "running")
+    except Exception:
+        logger.exception("重启超时后恢复状态失败: instance=%s", instance_id)
 
 
 async def get_deploy_history(instance_id: str, db: AsyncSession) -> list[DeployRecordInfo]:

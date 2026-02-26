@@ -1,13 +1,11 @@
 """Workspace CRUD + Agent management + Blackboard service."""
 
+import asyncio
 import logging
-from datetime import datetime, timezone
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.agent_share_config import AgentShareConfig
-from app.models.agent_subscription import AgentSubscription
 from app.models.blackboard import Blackboard
 from app.models.instance import Instance
 from app.models.workspace import Workspace
@@ -29,13 +27,16 @@ logger = logging.getLogger(__name__)
 
 
 def _agent_brief(inst: Instance) -> AgentBrief:
+    from app.services.sse_listener import sse_listener_manager
     return AgentBrief(
         instance_id=inst.id,
         name=inst.name,
         display_name=inst.agent_display_name,
+        slug=inst.slug,
         status=inst.status,
         hex_q=inst.hex_position_q,
         hex_r=inst.hex_position_r,
+        sse_connected=inst.id in sse_listener_manager.healthy_instances,
     )
 
 
@@ -185,13 +186,13 @@ async def add_agent(db: AsyncSession, workspace_id: str, data: AddAgentRequest) 
     inst.workspace_id = workspace_id
     inst.agent_display_name = data.display_name
 
-    share = AgentShareConfig(instance_id=inst.id, workspace_id=workspace_id)
-    db.add(share)
-    sub = AgentSubscription(instance_id=inst.id, workspace_id=workspace_id)
-    db.add(sub)
-
     await db.commit()
     await db.refresh(inst)
+
+    await _deploy_channel_plugin(inst, db, workspace_id)
+
+    asyncio.create_task(_send_welcome_message(workspace_id, inst))
+
     return _agent_brief(inst)
 
 
@@ -227,23 +228,13 @@ async def remove_agent(db: AsyncSession, workspace_id: str, instance_id: str) ->
     if inst is None:
         return False
 
+    await _remove_channel_plugin(inst, db)
+
     inst.workspace_id = None
     inst.hex_position_q = 0
     inst.hex_position_r = 0
     inst.agent_display_name = None
 
-    await db.execute(
-        delete(AgentShareConfig).where(
-            AgentShareConfig.instance_id == instance_id,
-            AgentShareConfig.workspace_id == workspace_id,
-        )
-    )
-    await db.execute(
-        delete(AgentSubscription).where(
-            AgentSubscription.instance_id == instance_id,
-            AgentSubscription.workspace_id == workspace_id,
-        )
-    )
     await db.commit()
     return True
 
@@ -273,7 +264,107 @@ async def update_agent(
     return _agent_brief(inst)
 
 
+# ── Channel Plugin Deploy ────────────────────────────
+
+async def _deploy_channel_plugin(inst: Instance, db: AsyncSession, workspace_id: str) -> None:
+    """Deploy clawbuddy channel plugin config + restart instance + connect SSE."""
+    try:
+        from app.services.llm_config_service import deploy_clawbuddy_channel_plugin
+        await deploy_clawbuddy_channel_plugin(inst, db, workspace_id)
+    except Exception as e:
+        logger.error("部署 channel plugin 失败（非致命）: instance=%s error=%s", inst.name, e)
+        return
+
+    try:
+        from app.services.llm_config_service import deploy_learning_channel_plugin
+        await deploy_learning_channel_plugin(inst, db)
+    except Exception as e:
+        logger.warning("部署 learning plugin 失败（非致命）: instance=%s error=%s", inst.name, e)
+
+    try:
+        from app.services.instance_service import restart_instance
+        await restart_instance(inst.id, db)
+        logger.info("已重启实例以加载 channel plugin: %s", inst.name)
+    except Exception as e:
+        logger.warning("重启实例失败（非致命）: instance=%s error=%s", inst.name, e)
+
+    if inst.ingress_domain:
+        from app.services.sse_listener import sse_listener_manager
+        await sse_listener_manager.connect(
+            inst.id,
+            inst.ingress_domain,
+            delay=15,
+            workspace_id=workspace_id,
+        )
+
+
+async def _remove_channel_plugin(inst: Instance, db: AsyncSession) -> None:
+    """Disconnect SSE + remove clawbuddy channel plugin config."""
+    from app.services.sse_listener import sse_listener_manager
+    await sse_listener_manager.disconnect(inst.id)
+
+    try:
+        from app.services.llm_config_service import remove_clawbuddy_channel_plugin
+        await remove_clawbuddy_channel_plugin(inst, db)
+    except Exception as e:
+        logger.error("移除 channel plugin 失败（非致命）: instance=%s error=%s", inst.name, e)
+
+
+WELCOME_MESSAGE = "你好！你刚刚加入了工作区，请向大家介绍一下你自己：你叫什么名字、你的能力和专长是什么。"
+WELCOME_DELAY_SECONDS = 20
+
+
+async def _send_welcome_message(workspace_id: str, inst: Instance) -> None:
+    """Wait for the instance to be ready, then trigger Agent self-introduction."""
+    agent_name = inst.agent_display_name or inst.name
+
+    await asyncio.sleep(WELCOME_DELAY_SECONDS)
+
+    try:
+        from app.api.workspaces import broadcast_event
+        from app.core.deps import async_session_factory
+        from app.services import workspace_message_service as msg_service
+
+        async with async_session_factory() as db:
+            await msg_service.record_message(
+                db,
+                workspace_id=workspace_id,
+                sender_type="system",
+                sender_id="system",
+                sender_name="System",
+                content=f"{agent_name} 已加入工作区",
+                message_type="system",
+            )
+
+        broadcast_event(workspace_id, "system:welcome", {
+            "agent_name": agent_name,
+            "instance_id": inst.id,
+            "content": f"{agent_name} 已加入工作区",
+        })
+
+        from app.services.collaboration_service import _invoke_target_agent
+        await _invoke_target_agent(
+            workspace_id=workspace_id,
+            target_instance=inst,
+            source_name="System",
+            message=WELCOME_MESSAGE,
+            depth=0,
+        )
+    except Exception as e:
+        logger.warning("发送欢迎消息失败（非致命）: instance=%s error=%s", inst.name, e)
+
+
 # ── Blackboard ───────────────────────────────────────
+
+def _bb_to_info(bb: Blackboard) -> BlackboardInfo:
+    return BlackboardInfo(
+        id=bb.id, workspace_id=bb.workspace_id, auto_summary=bb.auto_summary,
+        manual_notes=bb.manual_notes, summary_updated_at=bb.summary_updated_at,
+        objectives=bb.objectives, tasks=bb.tasks,
+        member_status=bb.member_status, performance=bb.performance,
+        updated_at=bb.updated_at,
+    )
+
 
 async def get_blackboard(db: AsyncSession, workspace_id: str) -> BlackboardInfo | None:
     result = await db.execute(
@@ -282,11 +373,7 @@ async def get_blackboard(db: AsyncSession, workspace_id: str) -> BlackboardInfo 
     bb = result.scalar_one_or_none()
     if bb is None:
         return None
-    return BlackboardInfo(
-        id=bb.id, workspace_id=bb.workspace_id, auto_summary=bb.auto_summary,
-        manual_notes=bb.manual_notes, summary_updated_at=bb.summary_updated_at,
-        updated_at=bb.updated_at,
-    )
+    return _bb_to_info(bb)
 
 
 async def update_blackboard(db: AsyncSession, workspace_id: str, data: BlackboardUpdate) -> BlackboardInfo | None:
@@ -296,14 +383,17 @@ async def update_blackboard(db: AsyncSession, workspace_id: str, data: Blackboar
     bb = result.scalar_one_or_none()
     if bb is None:
         return None
-    bb.manual_notes = data.manual_notes
+    if data.manual_notes is not None:
+        bb.manual_notes = data.manual_notes
+    if data.objectives is not None:
+        bb.objectives = data.objectives
+    if data.tasks is not None:
+        bb.tasks = data.tasks
+    if data.performance is not None:
+        bb.performance = data.performance
     await db.commit()
     await db.refresh(bb)
-    return BlackboardInfo(
-        id=bb.id, workspace_id=bb.workspace_id, auto_summary=bb.auto_summary,
-        manual_notes=bb.manual_notes, summary_updated_at=bb.summary_updated_at,
-        updated_at=bb.updated_at,
-    )
+    return _bb_to_info(bb)
 
 
 # ── Workspace Members ────────────────────────────────

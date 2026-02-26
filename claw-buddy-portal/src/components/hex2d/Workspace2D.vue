@@ -8,19 +8,20 @@ const props = defineProps<{
   agents: AgentBrief[]
   autoSummary: string
   manualNotes: string
+  selectedAgentId: string | null
+  selectedHex: { q: number, r: number } | null
 }>()
 
 const emit = defineEmits<{
-  (e: 'agent-click', id: string): void
+  (e: 'hex-click', payload: { q: number, r: number, type: 'empty' | 'agent' | 'blackboard', agentId?: string }): void
+  (e: 'agent-dblclick', id: string): void
   (e: 'agent-hover', id: string | null): void
-  (e: 'blackboard-click'): void
-  (e: 'add-agent-click'): void
 }>()
 
 const svgRef = ref<SVGSVGElement | null>(null)
-const { transformStr, zoomIn, zoomOut, resetView } = useSvgZoom(svgRef, { minZoom: 0.3, maxZoom: 3 })
+const { transformStr, zoomIn, zoomOut, resetView, panBy } = useSvgZoom(svgRef, { minZoom: 0.3, maxZoom: 3 })
 
-defineExpose({ zoomIn, zoomOut, resetView })
+defineExpose({ zoomIn, zoomOut, resetView, panBy })
 
 const hoveredId = ref<string | null>(null)
 
@@ -28,6 +29,13 @@ const SCALE = 60
 const HEX_RADIUS = HEX_SIZE * SCALE * 0.85
 const BB_RADIUS = HEX_RADIUS * 1.15
 const GRID_RANGE = 8
+
+const EDGE_X1 = -0.866 * HEX_RADIUS
+const EDGE_Y1 = -0.5 * HEX_RADIUS
+const EDGE_X2 = 0
+const EDGE_Y2 = -HEX_RADIUS
+const EDGE_MX = (EDGE_X1 + EDGE_X2) / 2
+const EDGE_MY = (EDGE_Y1 + EDGE_Y2) / 2
 
 const agentPositions = computed(() =>
   props.agents.map((a) => {
@@ -38,12 +46,17 @@ const agentPositions = computed(() =>
 
 const statusColors: Record<string, string> = {
   running: '#4ade80',
+  learning: '#60a5fa',
   active: '#4ade80',
   thinking: '#fbbf24',
   pending: '#fbbf24',
   idle: '#6b7280',
   error: '#f87171',
   failed: '#f87171',
+  restarting: '#f97316',
+  deploying: '#f97316',
+  updating: '#f97316',
+  creating: '#f97316',
 }
 
 const honeycombGrid = computed(() => {
@@ -73,29 +86,21 @@ function bbHexPoints(): string {
   return hexPolygonPoints(0, 0, BB_RADIUS)
 }
 
-function nextAddPosition(): { px: number; py: number } {
-  const idx = props.agents.length
-  const directions: [number, number][] = [[0, -1], [-1, 0], [-1, 1], [0, 1], [1, 0], [1, -1]]
-  let q = 1, r = 0, ring = 1
-  const positions: [number, number][] = []
-  while (positions.length <= idx) {
-    for (const [dq, dr] of directions) {
-      for (let s = 0; s < ring && positions.length <= idx; s++) {
-        positions.push([q, r])
-        q += dq; r += dr
-      }
+const emptyHexes = computed(() => {
+  const occupied = new Set<string>()
+  occupied.add('0:0')
+  for (const a of props.agents) occupied.add(`${a.hex_q}:${a.hex_r}`)
+  const hexes: { q: number, r: number, px: number, py: number }[] = []
+  for (let q = -GRID_RANGE; q <= GRID_RANGE; q++) {
+    for (let r = -GRID_RANGE; r <= GRID_RANGE; r++) {
+      if (Math.abs(q) + Math.abs(r) + Math.abs(-q - r) > GRID_RANGE * 2) continue
+      if (occupied.has(`${q}:${r}`)) continue
+      const { x, y } = axialToWorld(q, r)
+      hexes.push({ q, r, px: x * SCALE, py: y * SCALE })
     }
-    ring++; q++
   }
-  if (positions.length > idx) {
-    const [aq, ar] = positions[idx]
-    const { x, y } = axialToWorld(aq, ar)
-    return { px: x * SCALE, py: y * SCALE }
-  }
-  return { px: 200, py: 0 }
-}
-
-const addPos = computed(() => nextAddPosition())
+  return hexes
+})
 </script>
 
 <template>
@@ -134,13 +139,39 @@ const addPos = computed(() => nextAddPosition())
         mask="url(#grid-mask)"
       />
 
+      <!-- Empty hex clickable areas -->
+      <g
+        v-for="hex in emptyHexes"
+        :key="`empty-${hex.q}-${hex.r}`"
+        class="cursor-pointer"
+        :transform="`translate(${hex.px}, ${hex.py})`"
+        @click.stop="emit('hex-click', { q: hex.q, r: hex.r, type: 'empty' })"
+      >
+        <polygon
+          :points="hexPoints(0, 0)"
+          :fill="selectedHex?.q === hex.q && selectedHex?.r === hex.r ? '#60a5fa11' : 'transparent'"
+          :stroke="selectedHex?.q === hex.q && selectedHex?.r === hex.r ? '#60a5fa' : 'transparent'"
+          :stroke-width="selectedHex?.q === hex.q && selectedHex?.r === hex.r ? 2 : 0"
+          class="hover-empty-hex"
+        />
+      </g>
+
       <!-- Blackboard hex at center (q=0, r=0) -->
       <g
         class="cursor-pointer bb-hex"
-        @click="emit('blackboard-click')"
+        @click.stop="emit('hex-click', { q: 0, r: 0, type: 'blackboard' })"
         @pointerenter="hoveredId = '__blackboard__'"
         @pointerleave="hoveredId = null"
       >
+        <polygon
+          v-if="selectedHex?.q === 0 && selectedHex?.r === 0"
+          :points="bbHexPoints()"
+          fill="none"
+          stroke="#60a5fa"
+          stroke-width="3"
+          opacity="0.8"
+          class="animate-selected-ring"
+        />
         <polygon
           :points="bbHexPoints()"
           :fill="hoveredId === '__blackboard__' ? '#1e1e3a' : '#141428'"
@@ -175,53 +206,69 @@ const addPos = computed(() => nextAddPosition())
         :key="agent.instance_id"
         class="cursor-pointer transition-transform"
         :transform="`translate(${agent.px}, ${agent.py}) ${hoveredId === agent.instance_id ? 'scale(1.08)' : ''}`"
-        @click="emit('agent-click', agent.instance_id)"
+        @click.stop="emit('hex-click', { q: agent.hex_q, r: agent.hex_r, type: 'agent', agentId: agent.instance_id })"
+        @dblclick="emit('agent-dblclick', agent.instance_id)"
         @pointerenter="hoveredId = agent.instance_id; emit('agent-hover', agent.instance_id)"
         @pointerleave="hoveredId = null; emit('agent-hover', null)"
       >
+        <!-- Selection highlight ring -->
+        <polygon
+          v-if="props.selectedAgentId === agent.instance_id"
+          :points="hexPoints(0, 0)"
+          fill="none"
+          stroke="#60a5fa"
+          stroke-width="3.5"
+          opacity="0.8"
+          class="animate-selected-ring"
+        />
         <polygon
           :points="hexPoints(0, 0)"
-          :fill="(statusColors[agent.status] || '#a78bfa') + '22'"
-          :stroke="statusColors[agent.status] || '#a78bfa'"
+          :fill="agent.sse_connected ? (statusColors[agent.status] || '#a78bfa') + '22' : '#55556622'"
+          :stroke="agent.sse_connected ? (statusColors[agent.status] || '#a78bfa') : '#555566'"
           stroke-width="2"
+          :stroke-dasharray="agent.sse_connected ? 'none' : '6,4'"
+          :opacity="agent.sse_connected ? 1 : 0.6"
           :class="{
-            'animate-pulse': agent.status === 'running' || agent.status === 'active',
-            'animate-hex-thinking': agent.status === 'thinking' || agent.status === 'pending',
+            'animate-pulse': agent.sse_connected && (agent.status === 'running' || agent.status === 'active'),
+            'animate-hex-thinking': agent.sse_connected && (agent.status === 'thinking' || agent.status === 'pending' || agent.status === 'learning'),
           }"
         />
+        <!-- Status text along upper-left edge (inside hex) -->
         <text
-          y="-8"
+          :x="EDGE_MX" :y="EDGE_MY"
+          :transform="`rotate(-30, ${EDGE_MX}, ${EDGE_MY})`"
           text-anchor="middle"
-          fill="white"
+          dominant-baseline="middle"
+          dy="5"
+          :fill="agent.sse_connected ? (statusColors[agent.status] || '#a78bfa') : '#6b7280'"
+          font-size="7"
+        >
+          {{ agent.sse_connected ? agent.status : 'disconnected' }}
+        </text>
+        <text
+          y="0"
+          text-anchor="middle"
+          :fill="agent.sse_connected ? 'white' : '#9ca3af'"
           font-size="11"
           font-weight="500"
         >
           {{ agent.display_name || agent.name }}
         </text>
-        <text
-          y="10"
-          text-anchor="middle"
-          :fill="statusColors[agent.status] || '#a78bfa'"
-          font-size="9"
-        >
-          {{ agent.status }}
-        </text>
       </g>
 
-      <!-- Add agent placeholder -->
+      <!-- Selected hex highlight for agents -->
       <g
-        class="cursor-pointer opacity-40 hover:opacity-70 transition-opacity"
-        :transform="`translate(${addPos.px}, ${addPos.py})`"
-        @click="emit('add-agent-click')"
+        v-if="selectedHex && agents.some(a => a.hex_q === selectedHex!.q && a.hex_r === selectedHex!.r)"
+        :transform="`translate(${axialToWorld(selectedHex!.q, selectedHex!.r).x * SCALE}, ${axialToWorld(selectedHex!.q, selectedHex!.r).y * SCALE})`"
       >
         <polygon
           :points="hexPoints(0, 0)"
           fill="none"
-          stroke="#555577"
-          stroke-width="2"
-          stroke-dasharray="8,4"
+          stroke="#60a5fa"
+          stroke-width="3"
+          opacity="0.8"
+          class="animate-selected-ring"
         />
-        <text y="4" text-anchor="middle" fill="#888" font-size="24" font-weight="300">+</text>
       </g>
     </g>
   </svg>
@@ -245,10 +292,27 @@ const addPos = computed(() => nextAddPosition())
   animation: bb-ring-rotate 8s linear infinite;
 }
 
+@keyframes selected-ring-pulse {
+  0%, 100% { opacity: 0.8; stroke-width: 3.5; }
+  50% { opacity: 0.4; stroke-width: 2.5; }
+}
+.animate-selected-ring {
+  animation: selected-ring-pulse 1.5s ease-in-out infinite;
+}
+
 .bb-hex {
   transition: transform 0.2s ease;
 }
 .bb-hex:hover {
   transform: scale(1.04);
+}
+
+.hover-empty-hex {
+  transition: fill 0.15s ease, stroke 0.15s ease;
+}
+.hover-empty-hex:hover {
+  fill: #4ac8e808;
+  stroke: #4ac8e8;
+  stroke-width: 1;
 }
 </style>

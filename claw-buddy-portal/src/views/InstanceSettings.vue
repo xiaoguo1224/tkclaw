@@ -49,6 +49,7 @@ interface ProviderConfig {
 }
 
 const BUILTIN_PROVIDERS = new Set(['openai', 'anthropic', 'gemini', 'openrouter'])
+const WORKING_PLAN_PROVIDERS = new Set(['minimax-openai', 'minimax-anthropic'])
 
 // ── State ──
 
@@ -156,7 +157,7 @@ function addProvider(provider: string) {
   const pk = personalKeyForProvider(provider)
   providerConfigs.value.push({
     provider,
-    keySource: 'org',
+    keySource: WORKING_PLAN_PROVIDERS.has(provider) ? 'org' : 'personal',
     personalKeyNew: '',
     personalKeyMasked: pk?.api_key_masked ?? '',
     hasExistingPersonalKey: !!pk,
@@ -260,9 +261,9 @@ async function handleSave() {
       })),
     })
 
-    // 3. Restart OpenClaw
+    // 3. Restart OpenClaw (needs longer timeout: waits for pod ready)
     restarting.value = true
-    const res = await api.post(`/instances/${instanceId.value}/restart-openclaw`)
+    const res = await api.post(`/instances/${instanceId.value}/restart-openclaw`, null, { timeout: 120000 })
     const result = res.data.data
     if (result?.status === 'ok') {
       successMsg.value = '配置已保存，OpenClaw 已重启'
@@ -388,17 +389,29 @@ watch(instanceOrgId, (val) => {
             <!-- Key source selection -->
             <div class="space-y-2">
               <div class="flex gap-4 text-sm">
-                <label class="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="radio"
-                    :name="`ks-${cfg.provider}`"
-                    value="org"
-                    v-model="cfg.keySource"
-                    class="accent-primary"
-                    @change="markDirty"
-                  />
-                  组织 Key
-                </label>
+                <span class="relative group">
+                  <label
+                    class="flex items-center gap-1.5"
+                    :class="WORKING_PLAN_PROVIDERS.has(cfg.provider) ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'"
+                  >
+                    <input
+                      type="radio"
+                      :name="`ks-${cfg.provider}`"
+                      value="org"
+                      v-model="cfg.keySource"
+                      class="accent-primary"
+                      :disabled="!WORKING_PLAN_PROVIDERS.has(cfg.provider)"
+                      @change="markDirty"
+                    />
+                    Working Plan
+                  </label>
+                  <span
+                    v-if="!WORKING_PLAN_PROVIDERS.has(cfg.provider)"
+                    class="pointer-events-none absolute z-50 top-full left-1/2 -translate-x-1/2 mt-1.5 whitespace-nowrap rounded bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md border border-border invisible group-hover:visible"
+                  >
+                    该 Provider 暂未开放 Working Plan
+                  </span>
+                </span>
                 <label class="flex items-center gap-1.5 cursor-pointer">
                   <input
                     type="radio"
@@ -412,9 +425,9 @@ watch(instanceOrgId, (val) => {
                 </label>
               </div>
 
-              <!-- Org key hint -->
+              <!-- Working Plan hint -->
               <p v-if="cfg.keySource === 'org'" class="text-xs text-muted-foreground pl-0.5">
-                通过组织代理调用，无需输入 Key
+                使用组织统一配置的 Key，无需自行输入
               </p>
 
               <!-- Personal key -->

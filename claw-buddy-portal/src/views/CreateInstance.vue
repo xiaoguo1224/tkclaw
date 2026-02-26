@@ -6,6 +6,7 @@ import ModelSelect from '@/components/shared/ModelSelect.vue'
 import type { ModelItem } from '@/components/shared/ModelSelect.vue'
 import { pinyin } from 'pinyin-pro'
 import api from '@/services/api'
+import { resolveApiErrorMessage } from '@/i18n/error'
 import { useAuthStore } from '@/stores/auth'
 
 const router = useRouter()
@@ -13,6 +14,8 @@ const authStore = useAuthStore()
 
 const name = ref('')
 const slug = ref('')
+const randomSuffix = Math.random().toString(36).slice(2, 8)
+const fullSlug = computed(() => slug.value ? `${slug.value}-${randomSuffix}` : '')
 const slugManuallyEdited = ref(false)
 const slugChecking = ref(false)
 const slugConflict = ref(false)
@@ -63,7 +66,7 @@ function addProvider() {
   if (!newProvider.value) return
   llmConfigs.value.push({
     provider: newProvider.value,
-    keySource: 'org',
+    keySource: WORKING_PLAN_PROVIDERS.has(newProvider.value) ? 'org' : 'personal',
     personalKey: '',
     selectedModel: null,
   })
@@ -71,6 +74,7 @@ function addProvider() {
 }
 
 const BUILTIN_PROVIDERS = new Set(['openai', 'anthropic', 'gemini', 'openrouter'])
+const WORKING_PLAN_PROVIDERS = new Set(['minimax-openai', 'minimax-anthropic'])
 
 async function handleFetchModels(provider: string, callback: (models: ModelItem[], error?: string) => void) {
   const cfg = llmConfigs.value.find(c => c.provider === provider)
@@ -78,8 +82,8 @@ async function handleFetchModels(provider: string, callback: (models: ModelItem[
   if (cfg?.keySource === 'personal' && cfg.personalKey) {
     params.api_key = cfg.personalKey
   }
-  if (authStore.user?.org_id) {
-    params.org_id = authStore.user.org_id
+  if (authStore.user?.current_org_id) {
+    params.org_id = authStore.user.current_org_id
   }
   try {
     const res = await api.get(`/llm/providers/${provider}/models`, { params })
@@ -184,7 +188,7 @@ function debouncedSlugCheck() {
   slugChecking.value = true
   slugCheckTimer = setTimeout(async () => {
     try {
-      const res = await api.get('/instances/check-slug', { params: { slug: slug.value } })
+      const res = await api.get('/instances/check-slug', { params: { slug: fullSlug.value } })
       const data = res.data.data
       if (data?.conflict) {
         slugConflict.value = true
@@ -223,9 +227,18 @@ onMounted(async () => {
   }
 })
 
+const llmReady = computed(() => {
+  if (llmSkipped.value) return true
+  if (llmConfigs.value.length === 0) return false
+  return llmConfigs.value.every(c =>
+    BUILTIN_PROVIDERS.has(c.provider) || !!c.selectedModel
+  )
+})
+
 const canDeploy = computed(() =>
   !!name.value.trim() && !!slug.value && slugValid.value && !slugConflict.value && !slugChecking.value
   && !!selectedImage.value && clusters.value.length > 0 && !deploying.value
+  && llmReady.value
 )
 
 async function handleDeploy() {
@@ -256,7 +269,7 @@ async function handleDeploy() {
 
     const res = await api.post('/deploy', {
       name: name.value.trim(),
-      slug: slug.value,
+      slug: fullSlug.value,
       cluster_id: clusters.value[0].id,
       image_version: selectedImage.value,
       replicas: 1,
@@ -283,7 +296,7 @@ async function handleDeploy() {
       router.push('/instances')
     }
   } catch (e: any) {
-    error.value = e?.response?.data?.message || e?.response?.data?.detail || '部署失败'
+    error.value = resolveApiErrorMessage(e, '部署失败')
   } finally {
     deploying.value = false
   }
@@ -361,21 +374,22 @@ async function handleDeploy() {
               <label class="text-sm font-medium">实例标识</label>
               <span v-if="slug && !slugManuallyEdited" class="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">自动生成</span>
             </div>
-            <div class="relative">
-              <input
-                v-model="slug"
-                type="text"
-                placeholder="例如：my-assistant"
-                class="w-full px-4 py-2.5 rounded-lg bg-card border text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors"
-                :class="slugError ? 'border-destructive' : slug && slugValid && !slugConflict ? 'border-green-500' : 'border-border'"
-                @input="slugManuallyEdited = true"
-              />
-              <div v-if="slugChecking" class="absolute right-3 top-1/2 -translate-y-1/2">
-                <Loader2 class="w-4 h-4 animate-spin text-muted-foreground" />
+            <div class="flex items-center gap-0">
+              <div class="flex-1">
+                <input
+                  v-model="slug"
+                  type="text"
+                  placeholder="例如：my-assistant"
+                  class="w-full px-4 py-2.5 rounded-l-lg bg-card border text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors"
+                  :class="slugError ? 'border-destructive' : slug && slugValid && !slugConflict ? 'border-green-500' : 'border-border'"
+                  @input="slugManuallyEdited = true"
+                />
               </div>
-              <div v-else-if="slug && slugValid && !slugConflict && !slugChecking" class="absolute right-3 top-1/2 -translate-y-1/2">
-                <Check class="w-4 h-4 text-green-500" />
-              </div>
+              <span class="h-[42px] flex items-center gap-1.5 px-2.5 rounded-r-lg border border-l-0 border-border bg-muted text-sm font-mono text-muted-foreground select-none whitespace-nowrap">
+                -{{ randomSuffix }}
+                <Loader2 v-if="slugChecking" class="w-4 h-4 animate-spin text-muted-foreground" />
+                <Check v-else-if="slug && slugValid && !slugConflict && !slugChecking" class="w-4 h-4 text-green-500" />
+              </span>
             </div>
             <p v-if="slugError" class="text-xs text-destructive flex items-center gap-1">
               <AlertCircle class="w-3 h-3" />
@@ -537,9 +551,13 @@ async function handleDeploy() {
 
               <div class="space-y-2">
                 <div class="flex gap-4 text-sm">
-                  <label class="flex items-center gap-1.5 cursor-pointer">
-                    <input type="radio" :name="`llm-${cfg.provider}`" value="org" v-model="cfg.keySource" class="accent-primary" />
-                    组织 Key
+                  <label
+                    class="flex items-center gap-1.5"
+                    :class="WORKING_PLAN_PROVIDERS.has(cfg.provider) ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'"
+                    :title="WORKING_PLAN_PROVIDERS.has(cfg.provider) ? '' : '暂未开放'"
+                  >
+                    <input type="radio" :name="`llm-${cfg.provider}`" value="org" v-model="cfg.keySource" class="accent-primary" :disabled="!WORKING_PLAN_PROVIDERS.has(cfg.provider)" />
+                    Working Plan
                   </label>
                   <label class="flex items-center gap-1.5 cursor-pointer">
                     <input type="radio" :name="`llm-${cfg.provider}`" value="personal" v-model="cfg.keySource" class="accent-primary" />
@@ -548,7 +566,7 @@ async function handleDeploy() {
                 </div>
 
                 <p v-if="cfg.keySource === 'org'" class="text-xs text-muted-foreground pl-0.5">
-                  通过组织代理调用，无需输入 Key
+                  使用组织统一配置的 Key，无需自行输入
                 </p>
 
                 <div v-if="cfg.keySource === 'personal'" class="relative">
@@ -580,7 +598,7 @@ async function handleDeploy() {
                 <button
                   v-for="p in unusedProviders"
                   :key="p"
-                  class="px-4 py-3 rounded-lg border border-border bg-card text-sm text-left hover:border-primary/50 hover:bg-primary/5 transition-colors cursor-pointer"
+                  class="px-4 py-3 rounded-lg border border-border bg-card text-sm text-left hover:border-primary/50 hover:bg-primary/5 transition-colors"
                   @click="newProvider = p; addProvider()"
                 >
                   {{ PROVIDER_LABELS[p] || p }}
@@ -609,7 +627,7 @@ async function handleDeploy() {
           </button>
           <button
             v-if="!llmSkipped"
-            class="w-full py-2.5 px-4 rounded-lg border border-border text-sm text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors text-center cursor-pointer"
+            class="w-full py-2.5 px-4 rounded-lg border border-border text-sm text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors text-center"
             @click="llmSkipped = true; llmConfigs.splice(0); handleDeploy()"
           >
             跳过，稍后配置大模型

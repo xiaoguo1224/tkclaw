@@ -277,6 +277,7 @@ async def deploy_instance(
         service_type="ClusterIP",
         ingress_domain=None,
         proxy_token=gateway_token,
+        wp_api_key=f"clawbuddy-wp-{_secrets.token_hex(32)}",
         env_vars=_json.dumps(env_vars),
         advanced_config=_json.dumps(req.advanced_config) if req.advanced_config else None,
         storage_class=req.storage_class,
@@ -587,9 +588,16 @@ async def _execute_deploy_inner(ctx, async_session_factory, get_config, total) -
                 instance.available_replicas = dep_status.get("available_replicas", 0)
                 await db.commit()
 
-                # 注入 gateway.token + trustedProxies 到 openclaw.json
-                from app.services.llm_config_service import ensure_openclaw_gateway_config
+                # 注入 gateway 配置 + LLM provider 配置到 openclaw.json
+                from app.services.llm_config_service import (
+                    ensure_openclaw_gateway_config,
+                    sync_openclaw_llm_config,
+                )
                 await ensure_openclaw_gateway_config(instance, db)
+                try:
+                    await sync_openclaw_llm_config(instance, db)
+                except Exception as e:
+                    logger.warning("部署后同步 LLM 配置失败（非致命）: %s", e)
 
                 _publish(total, "完成", status="success", message="部署成功")
                 logger.info("部署成功: %s (namespace=%s)", ctx.name, ctx.namespace)

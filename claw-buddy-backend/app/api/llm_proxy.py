@@ -110,7 +110,7 @@ async def _check_quota(org_key_id: str, org_limit: int | None, sys_limit: int | 
     total_used = int(result.scalar())
 
     if org_limit is not None and total_used >= org_limit:
-        return False, f"组织 Key 额度已用尽 ({total_used}/{org_limit} tokens)"
+        return False, f"Working Plan 额度已用尽 ({total_used}/{org_limit} tokens)"
     if sys_limit is not None and total_used >= sys_limit:
         return False, f"系统额度已用尽 ({total_used}/{sys_limit} tokens)"
     return True, ""
@@ -177,14 +177,21 @@ async def llm_proxy(provider: str, path: str, request: Request):
         return JSONResponse(status_code=401, content={"error": "Missing proxy token"})
 
     async with async_session_factory() as db:
-        # 1. Lookup instance by proxy_token
         result = await db.execute(
             select(Instance).where(
-                Instance.proxy_token == proxy_token,
+                Instance.wp_api_key == proxy_token,
                 Instance.deleted_at.is_(None),
             )
         )
         instance = result.scalar_one_or_none()
+        if instance is None:
+            result = await db.execute(
+                select(Instance).where(
+                    Instance.proxy_token == proxy_token,
+                    Instance.deleted_at.is_(None),
+                )
+            )
+            instance = result.scalar_one_or_none()
         if instance is None:
             return JSONResponse(status_code=401, content={"error": "Invalid proxy token"})
 
@@ -221,7 +228,7 @@ async def llm_proxy(provider: str, path: str, request: Request):
             org_key = key_result.scalar_one_or_none()
             if org_key is None:
                 return JSONResponse(status_code=404, content={
-                    "error": f"当前组织未配置 {provider} 的 Key，请联系管理员"
+                    "error": f"当前组织未配置 {provider} 的 Working Plan Key，请联系管理员"
                 })
             real_key = org_key.api_key
             base_url = org_key.base_url
@@ -323,13 +330,18 @@ async def _handle_stream(
 
     async def stream_generator():
         nonlocal usage_data
+        seen_done = False
         try:
             async for line in resp.aiter_lines():
                 if is_org_key and org_key_id:
                     parsed = _parse_usage_from_sse_chunk(line)
                     if parsed:
                         usage_data = parsed
+                if line.strip() == "data: [DONE]":
+                    seen_done = True
                 yield line + "\n"
+            if not seen_done:
+                yield "data: [DONE]\n\n"
         finally:
             await resp.aclose()
             if is_org_key and org_key_id and usage_data:

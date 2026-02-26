@@ -10,12 +10,19 @@
   },
   "dependencies": {
     "@microsoft/fetch-event-source": "^2.0.1",
+    "@tailwindcss/typography": "^0.5.19",
+    "@tiptap/extension-mention": "^3.20.0",
+    "@tiptap/extension-placeholder": "^3.20.0",
+    "@tiptap/starter-kit": "^3.20.0",
+    "@tiptap/suggestion": "^3.20.0",
+    "@tiptap/vue-3": "^3.20.0",
     "axios": "^1.13.5",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "d3-selection": "^3.0.0",
     "d3-zoom": "^3.0.0",
     "lucide-vue-next": "^0.563.0",
+    "marked": "^17.0.3",
     "pinia": "^3.0.4",
     "pinyin-pro": "^3.28.0",
     "reka-ui": "^2.8.0",
@@ -23,6 +30,7 @@
     "three": "^0.183.0",
     "troika-three-text": "^0.52.4",
     "vue": "^3.5.25",
+    "vue-i18n": "^11.1.12",
     "vue-router": "^4.6.4"
   },
   "devDependencies": {

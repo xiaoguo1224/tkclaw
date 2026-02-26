@@ -276,8 +276,8 @@ function formatTime(ts: string | null): string {
           <ArrowLeft class="w-4 h-4" />
         </Button>
         <h1 class="text-2xl font-bold">{{ detail?.name || '加载中...' }}</h1>
-        <Badge v-if="detail" :variant="detail.status === 'running' ? 'default' : 'destructive'">
-          {{ detail.status }}
+        <Badge v-if="detail" :variant="detail.status === 'running' || detail.status === 'learning' ? 'default' : 'destructive'">
+          {{ detail.status === 'learning' ? '学习中' : detail.status }}
         </Badge>
       </div>
       <div v-if="detail" class="flex items-center gap-2">
@@ -343,6 +343,7 @@ function formatTime(ts: string | null): string {
                   <span class="text-muted-foreground">状态</span>
                   <StatusDot :status="
                     detail.status === 'running' ? 'running'
+                    : detail.status === 'learning' ? 'learning'
                     : detail.status === 'failed' ? 'failed'
                     : ['pending', 'deploying', 'creating', 'updating'].includes(detail.status) ? 'pending'
                     : 'unknown'
@@ -548,7 +549,7 @@ function formatTime(ts: string | null): string {
                   <div v-for="cfg in llmConfigs" :key="cfg.provider" class="flex items-center justify-between p-3 rounded-lg border border-border">
                     <div class="flex items-center gap-3">
                       <Badge variant="outline">{{ cfg.provider }}</Badge>
-                      <span class="text-sm">{{ cfg.key_source === 'org' ? '组织 Key' : '个人 Key' }}</span>
+                      <span class="text-sm">{{ cfg.key_source === 'org' ? 'Working Plan' : '个人 Key' }}</span>
                       <span v-if="cfg.key_label" class="text-xs text-muted-foreground">({{ cfg.key_label }})</span>
                     </div>
                     <span v-if="cfg.api_key_masked" class="font-mono text-xs text-muted-foreground">{{ cfg.api_key_masked }}</span>

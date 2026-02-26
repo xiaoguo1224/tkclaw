@@ -1,115 +1,881 @@
 <script setup lang="ts">
-import { ref, nextTick, watch } from 'vue'
-import { useWorkspaceStore } from '@/stores/workspace'
-import { Send, Loader2 } from 'lucide-vue-next'
+import { ref, nextTick, watch, computed, onMounted, type Ref } from 'vue'
+import { useEditor, EditorContent } from '@tiptap/vue-3'
+import StarterKit from '@tiptap/starter-kit'
+import Placeholder from '@tiptap/extension-placeholder'
+import { Extension } from '@tiptap/core'
+import { PluginKey } from '@tiptap/pm/state'
+import { useWorkspaceStore, type GroupChatMessage, type AgentBrief } from '@/stores/workspace'
+import { useAuthStore } from '@/stores/auth'
+import { Send, Loader2, Bot, User, AtSign, Slash, RotateCw, Trash2, Activity, XCircle, Copy, ThumbsUp, ThumbsDown } from 'lucide-vue-next'
+import { useToast } from '@/composables/useToast'
+import api from '@/services/api'
+import { resolveApiErrorMessage } from '@/i18n/error'
+import { marked } from 'marked'
+import { AgentMention } from './extensions/agentMention'
+import { SlashCommand } from './extensions/slashCommand'
+
+marked.setOptions({ breaks: true, gfm: true })
 
 const props = defineProps<{
   workspaceId: string
-  agentId: string
 }>()
 
 const store = useWorkspaceStore()
+const authStore = useAuthStore()
+const toast = useToast()
 
-interface ChatMessage {
-  role: 'user' | 'assistant'
-  content: string
-}
-
-const messages = ref<ChatMessage[]>([])
-const input = ref('')
-const sending = ref(false)
 const messagesEl = ref<HTMLElement | null>(null)
 
+const messages = computed(() => store.chatMessages)
+const sending = computed(() => store.chatLoading)
+const typingAgents = computed(() => store.typingAgents)
+const agents = computed(() => store.currentWorkspace?.agents || [])
+const userAvatarUrl = computed(() => authStore.user?.avatar_url)
+
+const typingNames = computed(() => {
+  const names = Array.from(typingAgents.value.values())
+  if (names.length === 0) return ''
+  if (names.length === 1) return `${names[0]} 正在输入...`
+  return `${names.join(', ')} 正在输入...`
+})
+
+const AGENT_COLORS = [
+  '#8b5cf6', '#3b82f6', '#10b981', '#f59e0b', '#ef4444',
+  '#ec4899', '#6366f1', '#14b8a6', '#f97316', '#a855f7',
+]
+
+const agentColorMap = new Map<string, string>()
+function getAgentColor(senderId: string): string {
+  if (!agentColorMap.has(senderId)) {
+    const color = AGENT_COLORS[agentColorMap.size % AGENT_COLORS.length] ?? '#8b5cf6'
+    agentColorMap.set(senderId, color)
+  }
+  return agentColorMap.get(senderId)!
+}
+
+function agentLabel(a: AgentBrief): string {
+  return a.display_name || a.name
+}
+
+function agentSlug(senderId: string): string | null {
+  const a = agents.value.find(x => x.instance_id === senderId)
+  return a?.slug ?? null
+}
+
+const slugTooltipId = ref<string | null>(null)
+
+function onSlugEnter(e: MouseEvent, msgId: string) {
+  const el = (e.currentTarget as HTMLElement).querySelector('.slug-text')
+  if (el && el.scrollWidth > el.clientWidth) {
+    slugTooltipId.value = msgId
+  }
+}
+
+async function copySlug(agentId: string) {
+  const slug = agentSlug(agentId)
+  if (!slug) return
+  await navigator.clipboard.writeText(slug)
+  toast.success('实例标识已复制')
+}
+
+// ── Commands ────────────────────────────────────────
+const COMMANDS = [
+  { name: 'status', label: '显示所有 Agent 状态', icon: Activity, needsAgent: false, immediate: true },
+  { name: 'clear', label: '清空聊天记录', icon: XCircle, needsAgent: false, immediate: true },
+  { name: 'restart', label: '重启 Agent', icon: RotateCw, needsAgent: true, immediate: false },
+  { name: 'remove', label: '移除 Agent', icon: Trash2, needsAgent: true, immediate: false },
+]
+
+// ── Suggestion state ─────────────────────────────────
+interface SuggestionItem {
+  id: string
+  label: string
+  [key: string]: any
+}
+
+interface SuggestionState {
+  items: SuggestionItem[]
+  selectedIndex: number
+  command: (item: SuggestionItem) => void
+}
+
+const mentionState = ref<SuggestionState | null>(null)
+const commandState = ref<SuggestionState | null>(null)
+const pendingCommand = ref<{ id: string; label: string } | null>(null)
+
+function createSuggestionRenderer(stateRef: Ref<SuggestionState | null>) {
+  return () => {
+    let idx = 0
+    return {
+      onStart(p: any) {
+        idx = 0
+        stateRef.value = { items: p.items, selectedIndex: 0, command: p.command }
+      },
+      onUpdate(p: any) {
+        idx = 0
+        stateRef.value = p.items.length
+          ? { items: p.items, selectedIndex: 0, command: p.command }
+          : null
+      },
+      onKeyDown({ event }: { event: KeyboardEvent }): boolean {
+        if (!stateRef.value || !stateRef.value.items.length) return false
+        const len = stateRef.value.items.length
+        if (event.key === 'ArrowUp') {
+          idx = (idx - 1 + len) % len
+          stateRef.value = { ...stateRef.value, selectedIndex: idx }
+          return true
+        }
+        if (event.key === 'ArrowDown') {
+          idx = (idx + 1) % len
+          stateRef.value = { ...stateRef.value, selectedIndex: idx }
+          return true
+        }
+        if (event.key === 'Enter' || event.key === 'Tab') {
+          const selected = stateRef.value.items[idx]
+          if (selected) stateRef.value.command(selected)
+          return true
+        }
+        if (event.key === 'Escape') {
+          stateRef.value = null
+          return true
+        }
+        return false
+      },
+      onExit() {
+        stateRef.value = null
+      },
+    }
+  }
+}
+
+// ── Slash command execution ───────────────────────
+function insertSystemMessage(content: string, persist = true) {
+  if (persist) {
+    store.sendSystemMessage(props.workspaceId, content)
+  } else {
+    store.chatMessages.push({
+      id: `sys-local-${Date.now()}`,
+      sender_type: 'system',
+      sender_id: 'system',
+      sender_name: 'System',
+      content,
+      message_type: 'system',
+      created_at: new Date().toISOString(),
+    })
+  }
+  scrollToBottom()
+}
+
+function executeSlashCommand(name: string, arg?: string) {
+  switch (name) {
+    case 'status': {
+      const lines = agents.value.map(a => `${agentLabel(a)}: ${a.status}`)
+      insertSystemMessage(lines.length ? lines.join('\n') : '工作区内没有 Agent')
+      break
+    }
+    case 'clear':
+      store.chatMessages.splice(0, store.chatMessages.length)
+      insertSystemMessage('聊天记录已清空', false)
+      break
+    case 'restart':
+      if (arg) doRestartAgent(arg)
+      else insertSystemMessage('用法: /restart @AgentName')
+      break
+    case 'remove':
+      if (arg) doRemoveAgent(arg)
+      else insertSystemMessage('用法: /remove @AgentName')
+      break
+    default:
+      insertSystemMessage(`未知命令: /${name}`)
+  }
+}
+
+async function doRestartAgent(name: string) {
+  const agent = agents.value.find(a => agentLabel(a) === name)
+  if (!agent) { insertSystemMessage(`找不到 Agent: ${name}`); return }
+  insertSystemMessage(`正在重启 ${name}...`)
+  try {
+    await api.post(`/instances/${agent.instance_id}/restart`)
+    insertSystemMessage(`${name} 已触发重启`)
+  } catch (e: any) {
+    insertSystemMessage(`重启失败: ${resolveApiErrorMessage(e, e?.message || '重启失败')}`)
+  }
+}
+
+async function doRemoveAgent(name: string) {
+  const agent = agents.value.find(a => agentLabel(a) === name)
+  if (!agent) { insertSystemMessage(`找不到 Agent: ${name}`); return }
+  insertSystemMessage(`正在移除 ${name}...`)
+  try {
+    await store.removeAgent(props.workspaceId, agent.instance_id)
+    insertSystemMessage(`${name} 已从工作区移除`)
+  } catch (e: any) {
+    insertSystemMessage(`移除失败: ${resolveApiErrorMessage(e, e?.message || '移除失败')}`)
+  }
+}
+
+// ── Content extraction ─────────────────────────────
+function getEditorContent(): { text: string; mentions: string[]; commands: string[] } {
+  const json = editor.value?.getJSON()
+  if (!json?.content) return { text: '', mentions: [], commands: [] }
+  const parts: string[] = []
+  const mentions: string[] = []
+  const commands: string[] = []
+
+  for (const block of json.content) {
+    if (!block.content) { parts.push('\n'); continue }
+    for (const node of block.content as any[]) {
+      if (node.type === 'text') {
+        parts.push(node.text || '')
+      } else if (node.type === 'agentMention') {
+        parts.push(`@${node.attrs?.label || ''}`)
+        if (node.attrs?.id) mentions.push(node.attrs.id)
+      } else if (node.type === 'slashCommand') {
+        const agentLbl = node.attrs?.agentLabel
+        parts.push(`/${node.attrs?.label || ''}${agentLbl ? ' @' + agentLbl : ''}`)
+        if (node.attrs?.id) commands.push(node.attrs.id)
+        if (node.attrs?.agentId) mentions.push(node.attrs.agentId)
+      }
+    }
+    parts.push('\n')
+  }
+
+  return {
+    text: parts.join('').trim(),
+    mentions: [...new Set(mentions)],
+    commands: [...new Set(commands)],
+  }
+}
+
+// ── Message send ──────────────────────────────────
+async function sendMessage() {
+  if (!editor.value || editor.value.isEmpty) return
+  if (sending.value) return
+
+  const { text, mentions, commands } = getEditorContent()
+  editor.value.commands.clearContent()
+
+  if (commands.length > 0) {
+    for (const cmdName of commands) {
+      const mentionedAgent = mentions.length > 0
+        ? agents.value.find(a => a.instance_id === mentions[0])
+        : undefined
+      executeSlashCommand(cmdName, mentionedAgent ? agentLabel(mentionedAgent) : undefined)
+    }
+    return
+  }
+
+  if (text.startsWith('/')) {
+    const words = text.split(/\s+/)
+    const cmd = words[0].slice(1)
+    const arg = words.slice(1).join(' ').replace(/^@/, '')
+    executeSlashCommand(cmd, arg || undefined)
+    return
+  }
+
+  if (!text.trim()) return
+
+  await store.sendWorkspaceMessage(props.workspaceId, text, mentions.length > 0 ? mentions : undefined)
+  scrollToBottom()
+}
+
+// ── Editor ────────────────────────────────────────────
+const AGENT_MENTION_KEY = new PluginKey('agentMention')
+const SLASH_COMMAND_KEY = new PluginKey('slashCommand')
+
+const editorEmpty = ref(true)
+
+const editor = useEditor({
+  extensions: [
+    StarterKit.configure({
+      heading: false,
+      bold: false,
+      italic: false,
+      strike: false,
+      code: false,
+      codeBlock: false,
+      blockquote: false,
+      bulletList: false,
+      orderedList: false,
+      listItem: false,
+      horizontalRule: false,
+      gapcursor: false,
+      dropcursor: false,
+    }),
+    Placeholder.configure({
+      placeholder: '输入消息到工作区，@ 提及 Agent，/ 执行命令',
+    }),
+    AgentMention.configure({
+      suggestion: {
+        pluginKey: AGENT_MENTION_KEY,
+        char: '@',
+        items: ({ query }: { query: string }) => {
+          const q = query.toLowerCase()
+          return agents.value
+            .filter(a => agentLabel(a).toLowerCase().includes(q))
+            .slice(0, 10)
+            .map(a => ({
+              id: a.instance_id,
+              label: agentLabel(a),
+              status: a.status,
+              slug: a.slug,
+            }))
+        },
+        render: createSuggestionRenderer(mentionState),
+        command: ({ editor: ed, range, props: p }: any) => {
+          const pending = pendingCommand.value
+          if (pending) {
+            ed.chain().focus().insertContentAt(range, [
+              { type: 'slashCommand', attrs: {
+                id: pending.id, label: pending.label,
+                agentId: p.id, agentLabel: p.label,
+              }},
+              { type: 'text', text: ' ' },
+            ]).run()
+            pendingCommand.value = null
+            return
+          }
+          const nodeAfter = ed.view.state.selection.$to.nodeAfter
+          if (nodeAfter?.text?.startsWith(' ')) range.to += 1
+          ed.chain().focus().insertContentAt(range, [
+            { type: 'agentMention', attrs: { id: p.id, label: p.label, status: p.status, slug: p.slug } },
+            { type: 'text', text: ' ' },
+          ]).run()
+        },
+      },
+    }),
+    SlashCommand.configure({
+      suggestion: {
+        pluginKey: SLASH_COMMAND_KEY,
+        char: '/',
+        items: ({ query }: { query: string }) => {
+          const q = query.toLowerCase()
+          return COMMANDS
+            .filter(c => c.name.includes(q) || c.label.includes(q))
+            .map(c => ({
+              id: c.name,
+              label: c.name,
+              displayLabel: c.label,
+              icon: c.icon,
+              immediate: c.immediate,
+              needsAgent: c.needsAgent,
+            }))
+        },
+        render: createSuggestionRenderer(commandState),
+        command: ({ editor: ed, range, props: p }: any) => {
+          if (p.immediate) {
+            ed.chain().focus().deleteRange(range).run()
+            nextTick(() => executeSlashCommand(p.id))
+            return
+          }
+          if (p.needsAgent) {
+            ed.chain().focus().deleteRange(range).run()
+            pendingCommand.value = { id: p.id, label: p.label }
+            nextTick(() => {
+              ed.chain().focus().insertContent('@').run()
+            })
+            return
+          }
+          const nodeAfter = ed.view.state.selection.$to.nodeAfter
+          const overrideSpace = nodeAfter?.text?.startsWith(' ')
+          if (overrideSpace) range.to += 1
+          ed.chain().focus().insertContentAt(range, [
+            { type: 'slashCommand', attrs: { id: p.id, label: p.label } },
+            { type: 'text', text: ' ' },
+          ]).run()
+          window.getSelection()?.collapseToEnd()
+        },
+      },
+    }),
+    Extension.create({
+      name: 'sendOnEnter',
+      addKeyboardShortcuts() {
+        return {
+          Enter: () => {
+            sendMessage()
+            return true
+          },
+        }
+      },
+    }),
+  ],
+  editorProps: {
+    attributes: {
+      class: 'chat-editor-content scrollbar-compact',
+    },
+  },
+  onUpdate: ({ editor: ed }) => {
+    editorEmpty.value = ed.isEmpty
+  },
+})
+
+// ── Trigger buttons ──────────────────────────────
+function triggerMention() {
+  if (!editor.value) return
+  const text = editor.value.getText()
+  const prefix = text.length > 0 && !text.endsWith(' ') && !text.endsWith('\n') ? ' @' : '@'
+  editor.value.chain().focus().insertContent(prefix).run()
+}
+
+function triggerSlash() {
+  if (!editor.value) return
+  editor.value.chain().focus().setContent('/').run()
+}
+
+// ── Message content parsing (highlight @mentions) ─
+function parseContent(content: string): Array<{ type: 'text' | 'mention'; value: string }> {
+  if (!content) return [{ type: 'text', value: '...' }]
+  const agentNames = new Set(agents.value.map(a => agentLabel(a)))
+  const segments: Array<{ type: 'text' | 'mention'; value: string }> = []
+  const regex = /@(\S+)/g
+  let lastIdx = 0
+  let m
+  while ((m = regex.exec(content)) !== null) {
+    if (agentNames.has(m[1])) {
+      if (m.index > lastIdx) segments.push({ type: 'text', value: content.slice(lastIdx, m.index) })
+      segments.push({ type: 'mention', value: m[0] })
+      lastIdx = m.index + m[0].length
+    }
+  }
+  if (lastIdx < content.length) segments.push({ type: 'text', value: content.slice(lastIdx) })
+  return segments.length ? segments : [{ type: 'text', value: content }]
+}
+
+// ── Markdown rendering ──────────────────────────────
+const GENE_SLUG_RE = /`([a-z][a-z0-9-]*(?:-[a-z0-9]+)*)`/g
+
+function renderMarkdown(content: string): string {
+  if (!content) return ''
+  let html = marked.parse(content) as string
+  html = html.replace(GENE_SLUG_RE, (_match, slug) => {
+    return `<a href="/gene-market" class="gene-slug-link" data-gene-slug="${slug}">${slug}</a>`
+  })
+  return html
+}
+
+const feedbackGiven = ref<Record<string, 'up' | 'down'>>({})
+
+async function handleFeedback(msg: GroupChatMessage, type: 'up' | 'down') {
+  const key = msg.id
+  feedbackGiven.value[key] = type
+  try {
+    const geneStore = await import('@/stores/gene').then(m => m.useGeneStore())
+    const agent = agents.value.find((a: AgentBrief) => a.instance_id === msg.sender_id)
+    if (agent) {
+      const instanceGenes = await api.get(`/instances/${agent.instance_id}/genes`)
+      const installed = instanceGenes.data?.data || []
+      for (const ig of installed) {
+        if (ig.status === 'installed' && ig.gene_id) {
+          await geneStore.logEffectiveness(
+            agent.instance_id,
+            ig.gene_id,
+            type === 'up' ? 'user_positive' : 'user_negative',
+          )
+        }
+      }
+    }
+  } catch (e) {
+    console.error('Feedback error:', e)
+  }
+}
+
+// ── Misc ──────────────────────────────────────────
 function scrollToBottom() {
   nextTick(() => {
-    if (messagesEl.value) {
-      messagesEl.value.scrollTop = messagesEl.value.scrollHeight
-    }
+    if (messagesEl.value) messagesEl.value.scrollTop = messagesEl.value.scrollHeight
   })
 }
 
-async function sendMessage() {
-  const text = input.value.trim()
-  if (!text || sending.value) return
+watch(messages, scrollToBottom, { deep: true })
 
-  messages.value.push({ role: 'user', content: text })
-  input.value = ''
-  sending.value = true
-  scrollToBottom()
+onMounted(() => {
+  store.fetchChatHistory(props.workspaceId)
+})
 
-  const history = messages.value.slice(0, -1).map((m) => ({
-    role: m.role,
-    content: m.content,
-  }))
-
-  messages.value.push({ role: 'assistant', content: '' })
-  const assistantIdx = messages.value.length - 1
-
+function formatTime(dateStr: string): string {
   try {
-    const stream = store.sendMessage(props.workspaceId, props.agentId, text, history)
-    for await (const chunk of stream) {
-      messages.value[assistantIdx].content += chunk
-      scrollToBottom()
-    }
-  } catch (e: any) {
-    messages.value[assistantIdx].content = `错误: ${e.message || '无法连接到 Agent'}`
-  } finally {
-    sending.value = false
-    scrollToBottom()
+    return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  } catch {
+    return ''
   }
 }
 
-function handleKeydown(e: KeyboardEvent) {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault()
-    sendMessage()
-  }
+function selectSuggestionItem(state: SuggestionState, item: SuggestionItem) {
+  state.command(item)
+}
+
+function updateSuggestionIndex(state: SuggestionState, idx: number) {
+  state.selectedIndex = idx
 }
 </script>
 
 <template>
   <div class="flex flex-col h-full">
     <!-- Messages -->
-    <div ref="messagesEl" class="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-h-0">
-      <div v-if="messages.length === 0" class="flex items-center justify-center h-full text-muted-foreground text-sm">
-        开始和 Agent 对话吧
-      </div>
+    <div ref="messagesEl" class="messages-scroll flex-1 px-4 py-3 space-y-3 min-h-0">
       <div
-        v-for="(msg, i) in messages"
-        :key="i"
-        class="flex"
-        :class="msg.role === 'user' ? 'justify-end' : 'justify-start'"
+        v-if="messages.length === 0"
+        class="flex items-center justify-center h-full text-muted-foreground text-sm"
       >
-        <div
-          class="max-w-[75%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap"
-          :class="msg.role === 'user'
-            ? 'bg-primary text-primary-foreground'
-            : 'bg-muted text-foreground'"
-        >
-          {{ msg.content || '...' }}
+        发送消息开始群聊，所有 Agent 都会看到
+      </div>
+
+      <div v-for="msg in messages" :key="msg.id">
+        <!-- System message -->
+        <div v-if="msg.sender_type === 'system'" class="flex justify-center">
+          <span class="text-xs text-muted-foreground bg-muted/50 rounded-lg px-3 py-1 whitespace-pre-wrap">
+            {{ msg.content }}
+          </span>
+        </div>
+
+        <!-- User / Agent message -->
+        <div v-else class="flex gap-2" :class="msg.sender_type === 'user' ? 'flex-row-reverse' : 'flex-row'">
+          <!-- Avatar -->
+          <img
+            v-if="msg.sender_type === 'user' && userAvatarUrl"
+            :src="userAvatarUrl"
+            class="w-7 h-7 rounded-full shrink-0 object-cover"
+          />
+          <div
+            v-else
+            class="w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-white text-xs"
+            :style="{
+              backgroundColor: msg.sender_type === 'agent'
+                ? getAgentColor(msg.sender_id)
+                : '#6b7280',
+            }"
+          >
+            <Bot v-if="msg.sender_type === 'agent'" class="w-3.5 h-3.5" />
+            <User v-else class="w-3.5 h-3.5" />
+          </div>
+
+          <!-- Bubble -->
+          <div class="flex flex-col" :class="msg.sender_type === 'user' ? 'max-w-[75%] items-end' : 'max-w-[92%] items-start'">
+            <div class="flex items-center gap-1.5 mb-0.5 max-w-full min-w-0 group/header">
+              <span
+                class="text-xs font-medium truncate max-w-[120px] cursor-default"
+                :style="{ color: msg.sender_type === 'agent' ? getAgentColor(msg.sender_id) : undefined }"
+                :title="msg.sender_name"
+              >{{ msg.sender_name }}</span>
+              <span
+                v-if="msg.sender_type === 'agent' && agentSlug(msg.sender_id)"
+                class="slug-tag"
+                @click="copySlug(msg.sender_id)"
+                @mouseenter="onSlugEnter($event, msg.id)"
+                @mouseleave="slugTooltipId = null"
+              >
+                <span class="slug-text">{{ agentSlug(msg.sender_id) }}</span>
+                <Copy class="slug-copy-icon" />
+                <span v-if="slugTooltipId === msg.id" class="slug-tooltip">{{ agentSlug(msg.sender_id) }}</span>
+              </span>
+              <span class="text-[10px] text-muted-foreground shrink-0">{{ formatTime(msg.created_at) }}</span>
+              <span
+                v-if="msg.message_type === 'collaboration'"
+                class="text-[10px] px-1 py-0.5 rounded bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300 shrink-0"
+              >
+                collaboration
+              </span>
+            </div>
+            <div
+              v-if="msg.sender_type === 'agent'"
+              class="rounded-lg px-3 py-2 text-sm bg-muted text-foreground chat-markdown"
+              v-html="renderMarkdown(msg.content)"
+            />
+            <div
+              v-if="msg.sender_type === 'agent' && !msg.streaming && msg.content"
+              class="flex items-center gap-1 mt-1"
+            >
+              <button
+                class="p-1 rounded hover:bg-muted/80 transition-colors"
+                :class="feedbackGiven[msg.id] === 'up' ? 'text-green-500' : 'text-muted-foreground/50 hover:text-green-500'"
+                @click="handleFeedback(msg, 'up')"
+              >
+                <ThumbsUp class="w-3 h-3" />
+              </button>
+              <button
+                class="p-1 rounded hover:bg-muted/80 transition-colors"
+                :class="feedbackGiven[msg.id] === 'down' ? 'text-red-500' : 'text-muted-foreground/50 hover:text-red-500'"
+                @click="handleFeedback(msg, 'down')"
+              >
+                <ThumbsDown class="w-3 h-3" />
+              </button>
+            </div>
+            <div
+              v-else
+              class="rounded-lg px-3 py-2 text-sm whitespace-pre-wrap bg-primary text-primary-foreground"
+            >
+              <template v-for="(seg, si) in parseContent(msg.content)" :key="si">
+                <span
+                  v-if="seg.type === 'mention'"
+                  class="inline-block rounded px-1 font-semibold text-xs leading-5 bg-white/30 text-primary-foreground"
+                >{{ seg.value }}</span>
+                <span v-else>{{ seg.value }}</span>
+              </template>
+            </div>
+            <span v-if="msg.streaming" class="inline-block w-1.5 h-4 bg-current animate-pulse ml-0.5 align-text-bottom" />
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- Input -->
-    <div class="border-t border-border px-4 py-2 shrink-0">
-      <div class="flex items-center gap-2">
-        <textarea
-          v-model="input"
-          rows="1"
-          class="flex-1 resize-none bg-muted rounded-lg px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-primary/50"
-          placeholder="输入消息..."
-          @keydown="handleKeydown"
-        />
-        <button
-          class="p-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
-          :disabled="!input.trim() || sending"
-          @click="sendMessage"
+    <!-- Typing indicator -->
+    <div v-if="typingNames" class="px-4 py-1 text-xs text-muted-foreground shrink-0">
+      {{ typingNames }}
+    </div>
+
+    <!-- Input area -->
+    <div class="border-t border-border px-4 py-2 shrink-0 relative">
+      <!-- @ Agent suggestion dropdown -->
+      <Transition name="dropdown">
+        <div
+          v-if="mentionState && mentionState.items.length > 0"
+          class="absolute bottom-full left-4 right-4 mb-1 rounded-lg border border-border bg-card shadow-lg overflow-hidden z-10"
         >
-          <Loader2 v-if="sending" class="w-4 h-4 animate-spin" />
-          <Send v-else class="w-4 h-4" />
-        </button>
+          <div class="px-3 py-1.5 text-[10px] text-muted-foreground font-medium uppercase tracking-wide border-b border-border">
+            Agent
+          </div>
+          <div class="max-h-40 overflow-y-auto">
+            <button
+              v-for="(item, idx) in mentionState.items"
+              :key="item.id"
+              class="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent transition-colors text-left"
+              :class="idx === mentionState.selectedIndex ? 'bg-accent' : ''"
+              @mousedown.prevent="selectSuggestionItem(mentionState!, item)"
+              @mouseenter="updateSuggestionIndex(mentionState!, idx)"
+            >
+              <Bot class="w-4 h-4 shrink-0" :style="{ color: getAgentColor(item.id) }" />
+              <span class="font-medium truncate">{{ item.label }}</span>
+              <span class="text-xs text-muted-foreground ml-auto shrink-0">{{ item.status }}</span>
+            </button>
+          </div>
+        </div>
+      </Transition>
+
+      <!-- / Command suggestion dropdown -->
+      <Transition name="dropdown">
+        <div
+          v-if="commandState && commandState.items.length > 0"
+          class="absolute bottom-full left-4 right-4 mb-1 rounded-lg border border-border bg-card shadow-lg overflow-hidden z-10"
+        >
+          <div class="px-3 py-1.5 text-[10px] text-muted-foreground font-medium uppercase tracking-wide border-b border-border">
+            Commands
+          </div>
+          <div class="max-h-40 overflow-y-auto">
+            <button
+              v-for="(item, idx) in commandState.items"
+              :key="item.id"
+              class="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent transition-colors text-left"
+              :class="idx === commandState.selectedIndex ? 'bg-accent' : ''"
+              @mousedown.prevent="selectSuggestionItem(commandState!, item)"
+              @mouseenter="updateSuggestionIndex(commandState!, idx)"
+            >
+              <component :is="item.icon" class="w-4 h-4 shrink-0 text-muted-foreground" />
+              <span class="font-mono text-primary">/{{ item.id }}</span>
+              <span class="text-xs text-muted-foreground ml-1">{{ item.displayLabel }}</span>
+              <span
+                class="ml-auto text-[10px] px-1.5 py-0.5 rounded-full shrink-0"
+                :class="item.immediate
+                  ? 'bg-green-500/15 text-green-600 dark:text-green-400'
+                  : 'bg-primary/10 text-primary'"
+              >{{ item.immediate ? '立即执行' : 'Tag' }}</span>
+            </button>
+          </div>
+        </div>
+      </Transition>
+
+      <!-- Tiptap editor container -->
+      <div class="rounded-lg border border-border bg-muted overflow-hidden focus-within:ring-1 focus-within:ring-primary/50 focus-within:border-primary/50 transition-colors">
+        <EditorContent :editor="editor" class="tiptap-editor" />
+        <div class="flex items-center justify-between px-2 pb-1.5">
+          <div class="flex items-center gap-0.5">
+            <button
+              class="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+              title="@ 提及 Agent"
+              @click="triggerMention"
+            >
+              <AtSign class="w-3.5 h-3.5" />
+            </button>
+            <button
+              class="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+              title="/ 命令"
+              @click="triggerSlash"
+            >
+              <Slash class="w-3.5 h-3.5" />
+            </button>
+          </div>
+          <button
+            class="p-1.5 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-40"
+            :disabled="editorEmpty || sending"
+            @click="sendMessage"
+          >
+            <Loader2 v-if="sending" class="w-3.5 h-3.5 animate-spin" />
+            <Send v-else class="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.dropdown-enter-active,
+.dropdown-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.dropdown-enter-from,
+.dropdown-leave-to {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+.tiptap-editor :deep(.ProseMirror) {
+  min-height: 2.25rem;
+  max-height: 10rem;
+  overflow-y: scroll;
+  padding: 0.5rem 0.75rem 0.25rem;
+  outline: none;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.tiptap-editor :deep(.ProseMirror p) {
+  margin: 0;
+}
+
+.tiptap-editor :deep(.ProseMirror p.is-editor-empty:first-child::before) {
+  content: attr(data-placeholder);
+  color: hsl(var(--muted-foreground));
+  opacity: 0.5;
+  font-size: 0.8rem;
+  letter-spacing: 0.01em;
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+
+.slug-tag {
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+  max-width: 140px;
+  cursor: pointer;
+  gap: 2px;
+}
+.slug-tag:hover .slug-copy-icon {
+  opacity: 0.6;
+}
+.slug-copy-icon {
+  width: 10px;
+  height: 10px;
+  opacity: 0;
+  flex-shrink: 0;
+  transition: opacity 0.15s;
+  color: var(--muted-foreground);
+}
+.slug-text {
+  display: block;
+  font-size: 10px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  background: var(--muted);
+  color: var(--muted-foreground);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  line-height: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.slug-tooltip {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.15);
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: nowrap;
+  z-index: 50;
+  pointer-events: none;
+}
+.slug-tooltip::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-bottom-color: var(--border);
+}
+.slug-tooltip::after {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 4px solid transparent;
+  border-bottom-color: var(--popover);
+}
+
+.messages-scroll {
+  overflow-y: scroll;
+}
+
+.chat-markdown :deep(p) { margin: 0.25em 0; }
+.chat-markdown :deep(p:first-child) { margin-top: 0; }
+.chat-markdown :deep(p:last-child) { margin-bottom: 0; }
+.chat-markdown :deep(ul),
+.chat-markdown :deep(ol) { padding-left: 1.25em; margin: 0.25em 0; }
+.chat-markdown :deep(li) { margin: 0.1em 0; }
+.chat-markdown :deep(strong) { font-weight: 600; }
+.chat-markdown :deep(code) {
+  background: hsl(var(--primary) / 0.08);
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+  font-size: 0.85em;
+}
+.chat-markdown :deep(pre) {
+  background: hsl(var(--primary) / 0.06);
+  padding: 0.5em 0.75em;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 0.5em 0;
+}
+.chat-markdown :deep(pre code) { background: none; padding: 0; }
+.chat-markdown :deep(h1),
+.chat-markdown :deep(h2),
+.chat-markdown :deep(h3) {
+  font-weight: 600;
+  margin: 0.5em 0 0.25em;
+}
+.chat-markdown :deep(blockquote) {
+  border-left: 3px solid hsl(var(--border));
+  padding-left: 0.75em;
+  color: hsl(var(--muted-foreground));
+  margin: 0.25em 0;
+}
+.chat-markdown :deep(a) {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+}
+.chat-markdown :deep(a.gene-slug-link) {
+  display: inline-block;
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  color: var(--primary);
+  padding: 0.05em 0.4em;
+  border-radius: 4px;
+  text-decoration: none;
+  font-family: monospace;
+  font-size: 0.85em;
+  cursor: pointer;
+}
+.chat-markdown :deep(a.gene-slug-link:hover) {
+  background: color-mix(in srgb, var(--primary) 20%, transparent);
+  text-decoration: underline;
+}
+</style>
