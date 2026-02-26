@@ -192,6 +192,144 @@ async def update_blackboard(
     return _ok(bb.model_dump(mode="json"))
 
 
+@router.put("/{workspace_id}/blackboard/objectives")
+async def update_objectives(
+    workspace_id: str,
+    data: dict,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(_get_current_user_dep()),
+):
+    from app.schemas.workspace import BlackboardUpdate
+    bb = await workspace_service.update_blackboard(
+        db, workspace_id, BlackboardUpdate(objectives=data.get("objectives", []))
+    )
+    if bb is None:
+        raise _error(404, 40433, "errors.workspace.blackboard_not_found", "黑板不存在")
+    return _ok({"objectives": bb.objectives})
+
+
+class TaskCreate(BaseModel):
+    title: str
+    description: str = ""
+    assignee_type: str | None = None
+    assignee_id: str | None = None
+    priority: str = "medium"
+    deadline: str | None = None
+
+
+@router.post("/{workspace_id}/blackboard/tasks")
+async def create_task(
+    workspace_id: str,
+    data: TaskCreate,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(_get_current_user_dep()),
+):
+    import uuid
+    from datetime import datetime
+    from app.models.blackboard import Blackboard
+    result = await db.execute(
+        sa_select(Blackboard).where(Blackboard.workspace_id == workspace_id)
+    )
+    bb = result.scalar_one_or_none()
+    if bb is None:
+        raise _error(404, 40433, "errors.workspace.blackboard_not_found", "黑板不存在")
+    tasks = list(bb.tasks or [])
+    new_task = {
+        "id": str(uuid.uuid4()),
+        "title": data.title,
+        "description": data.description,
+        "status": "todo",
+        "assignee_type": data.assignee_type,
+        "assignee_id": data.assignee_id,
+        "priority": data.priority,
+        "blockers": [],
+        "deadline": data.deadline,
+        "created_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+    tasks.append(new_task)
+    bb.tasks = tasks
+    await db.commit()
+    return _ok(new_task)
+
+
+class TaskUpdate(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    status: str | None = None
+    assignee_type: str | None = None
+    assignee_id: str | None = None
+    priority: str | None = None
+    blockers: list | None = None
+    deadline: str | None = None
+
+
+@router.put("/{workspace_id}/blackboard/tasks/{task_id}")
+async def update_task(
+    workspace_id: str,
+    task_id: str,
+    data: TaskUpdate,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(_get_current_user_dep()),
+):
+    from datetime import datetime
+    from app.models.blackboard import Blackboard
+    result = await db.execute(
+        sa_select(Blackboard).where(Blackboard.workspace_id == workspace_id)
+    )
+    bb = result.scalar_one_or_none()
+    if bb is None:
+        raise _error(404, 40433, "errors.workspace.blackboard_not_found", "黑板不存在")
+    tasks = list(bb.tasks or [])
+    for task in tasks:
+        if task.get("id") == task_id:
+            for field in ("title", "description", "status", "assignee_type", "assignee_id", "priority", "blockers", "deadline"):
+                val = getattr(data, field, None)
+                if val is not None:
+                    task[field] = val
+            task["updated_at"] = datetime.utcnow().isoformat()
+            bb.tasks = tasks
+            await db.commit()
+            return _ok(task)
+    raise _error(404, 40434, "errors.workspace.task_not_found", "任务不存在")
+
+
+@router.delete("/{workspace_id}/blackboard/tasks/{task_id}")
+async def delete_task(
+    workspace_id: str,
+    task_id: str,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(_get_current_user_dep()),
+):
+    from app.models.blackboard import Blackboard
+    result = await db.execute(
+        sa_select(Blackboard).where(Blackboard.workspace_id == workspace_id)
+    )
+    bb = result.scalar_one_or_none()
+    if bb is None:
+        raise _error(404, 40433, "errors.workspace.blackboard_not_found", "黑板不存在")
+    tasks = [t for t in (bb.tasks or []) if t.get("id") != task_id]
+    bb.tasks = tasks
+    await db.commit()
+    return _ok(message="task deleted")
+
+
+@router.put("/{workspace_id}/blackboard/performance")
+async def update_performance(
+    workspace_id: str,
+    data: dict,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(_get_current_user_dep()),
+):
+    from app.schemas.workspace import BlackboardUpdate
+    bb = await workspace_service.update_blackboard(
+        db, workspace_id, BlackboardUpdate(performance=data.get("performance", []))
+    )
+    if bb is None:
+        raise _error(404, 40433, "errors.workspace.blackboard_not_found", "黑板不存在")
+    return _ok({"performance": bb.performance})
+
+
 # ── Workspace Members ────────────────────────────────
 
 @router.get("/{workspace_id}/members")
@@ -270,27 +408,29 @@ async def workspace_chat(
         content=data.message,
     )
 
-    from app.services import corridor_router as cr
-    use_topology = await cr.has_any_connections(db, workspace_id)
-
-    if use_topology:
-        endpoints = await cr.get_blackboard_audience(db, workspace_id)
-        agent_endpoints = [ep for ep in endpoints if ep.endpoint_type == "agent"]
-        agent_ids = {ep.entity_id for ep in agent_endpoints}
-        running_agents = [
-            a for a in await _get_running_agents(db, workspace_id) if a.id in agent_ids
-        ]
-    else:
-        running_agents = await _get_running_agents(db, workspace_id)
-
+    running_agents = await _get_running_agents(db, workspace_id)
     if not running_agents:
         broadcast_event(workspace_id, "system:info", {"message": "工作区内没有运行中的 Agent"})
         return _ok({"status": "no_agents"})
 
+    from app.services import corridor_router
+    has_topo = await corridor_router.has_any_connections(workspace_id, db)
+
+    if has_topo:
+        audience = await corridor_router.get_blackboard_audience(workspace_id, db)
+        reachable_ids = {ep.entity_id for ep in audience if ep.endpoint_type == "agent"}
+        target_agents = [a for a in running_agents if a.id in reachable_ids]
+    else:
+        target_agents = running_agents
+
+    if not target_agents:
+        broadcast_event(workspace_id, "system:info", {"message": "没有可达的运行中 Agent"})
+        return _ok({"status": "no_reachable_agents"})
+
     members = _build_members_list(ws_info, user)
     recent_messages = await msg_service.get_recent_messages(db, workspace_id)
 
-    for inst in running_agents:
+    for inst in target_agents:
         asyncio.create_task(
             _stream_agent_response(
                 workspace_id=workspace_id,
@@ -304,7 +444,7 @@ async def workspace_chat(
             )
         )
 
-    return _ok({"status": "broadcasting", "agent_count": len(running_agents)})
+    return _ok({"status": "broadcasting", "agent_count": len(target_agents)})
 
 
 class SystemMessageRequest(BaseModel):
