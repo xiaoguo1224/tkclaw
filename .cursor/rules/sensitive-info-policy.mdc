@@ -33,6 +33,30 @@ alwaysApply: true
 集群 API 地址为 https://10.x.x.x:6443，context 名称为 xxx。
 ```
 
+## 代码中禁止出现真人个人信息
+
+**代码（含注释、placeholder、demo 数据、测试 fixture）中严禁出现真实的个人信息：**
+
+- 真人邮箱地址
+- 真人姓名、手机号
+- 真实用户名、员工工号
+
+**必须使用 `example.com` 等占位域名或虚构数据：**
+
+```python
+# 正确
+placeholder = "user@example.com"
+test_email = "alice@example.com"
+
+# 错误 — 使用了真人邮箱
+placeholder = "zhangsan@company.com"
+test_email = "realuser@gmail.com"
+```
+
+- 邮箱 placeholder / 测试数据统一用 `@example.com`（RFC 2606 保留域名）
+- 姓名用 `Alice`、`Bob` 等虚构名或 `user1`、`admin` 等通用标识
+- 发现代码中存在真人信息时，**立即替换并提交**，不需要等用户确认
+
 ## CLAUDE.md / AGENTS.md 同样适用
 
 根目录的 `CLAUDE.md` 和 `AGENTS.md` 属于 CE 公开仓库，同样禁止包含敏感信息。只保留通用的开发规范和项目结构说明。
