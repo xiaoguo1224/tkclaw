@@ -153,6 +153,7 @@ build_and_push() {
   local image="${REGISTRY}/${image_name}:${TAG}"
   local context; context="$(get_build_context "$component")"
   local dockerfile; dockerfile="$(get_dockerfile "$component")"
+  local extra_args=""
 
   if [[ -d "$PROJECT_ROOT/ee" ]]; then
     local ee_df
@@ -164,44 +165,42 @@ build_and_push() {
         dockerfile="$ee_df"
         ;;
       admin)
-        local subdir="nodeskclaw-frontend"
         cat > "$ee_df" <<EODF
 FROM node:22-alpine AS builder
 WORKDIR /app
-COPY ${subdir}/package.json ${subdir}/package-lock.json ./
+COPY package.json package-lock.json ./
 RUN npm ci
-COPY ${subdir}/ .
-COPY ee/frontend/admin/ /ee/frontend/admin/
+COPY . .
+COPY --from=ee frontend/admin/ /ee/frontend/admin/
 RUN npm run build
 
 FROM nginx:1.27-alpine
-COPY ${subdir}/nginx.conf /etc/nginx/conf.d/default.conf
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /app/dist /usr/share/nginx/html
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
 EODF
         dockerfile="$ee_df"
-        context="$PROJECT_ROOT"
+        extra_args="--build-context ee=$PROJECT_ROOT/ee"
         ;;
       portal)
-        local subdir="nodeskclaw-portal"
         cat > "$ee_df" <<EODF
 FROM node:22-alpine AS builder
 WORKDIR /app
-COPY ${subdir}/package.json ${subdir}/package-lock.json ./
+COPY package.json package-lock.json ./
 RUN npm ci
-COPY ${subdir}/ .
-COPY ee/frontend/portal/ /ee/frontend/portal/
+COPY . .
+COPY --from=ee frontend/portal/ /ee/frontend/portal/
 RUN npm run build
 
 FROM nginx:1.27-alpine
-COPY ${subdir}/nginx.conf /etc/nginx/conf.d/default.conf
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=builder /app/dist /usr/share/nginx/html
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]
 EODF
         dockerfile="$ee_df"
-        context="$PROJECT_ROOT"
+        extra_args="--build-context ee=$PROJECT_ROOT/ee"
         ;;
     esac
     log "[$component] 检测到 ee/ 目录，构建 EE 版镜像"
@@ -210,6 +209,7 @@ EODF
   log "[$component] 构建镜像: $image"
   if ! docker build --platform linux/amd64 \
     $NO_CACHE \
+    $extra_args \
     -f "$dockerfile" \
     --build-arg http_proxy= \
     --build-arg https_proxy= \

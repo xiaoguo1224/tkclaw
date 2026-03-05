@@ -904,6 +904,18 @@ async def lifespan(app: FastAPI):
             except Exception as e:
                 logger.warning("预热集群 %s 失败: %s", cluster.name, e)
 
+    # ── 迁移 30: workspaces 表新增 decoration_config 列（2D 办公室装修） ──
+    async with engine.begin() as conn:
+        col = await conn.execute(text(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_name = 'workspaces' AND column_name = 'decoration_config'"
+        ))
+        if col.first() is None:
+            await conn.execute(text(
+                "ALTER TABLE workspaces ADD COLUMN decoration_config JSONB"
+            ))
+            logger.info("自动迁移 30：已为 workspaces 表添加 decoration_config 列")
+
     # ── 迁移 9: 为每个组织创建默认工作区并迁移现有实例 ──
     async with async_session_factory() as db:
         from app.models.blackboard import Blackboard
@@ -1171,18 +1183,6 @@ async def lifespan(app: FastAPI):
                 "ALTER TABLE user_llm_keys ADD COLUMN api_type VARCHAR(32)"
             ))
             logger.info("自动迁移 29：已为 user_llm_keys 表添加 api_type 列")
-
-    # ── 迁移 30: workspaces 表新增 decoration_config 列（2D 办公室装修） ──
-    async with engine.begin() as conn:
-        col = await conn.execute(text(
-            "SELECT 1 FROM information_schema.columns "
-            "WHERE table_name = 'workspaces' AND column_name = 'decoration_config'"
-        ))
-        if col.first() is None:
-            await conn.execute(text(
-                "ALTER TABLE workspaces ADD COLUMN decoration_config JSONB"
-            ))
-            logger.info("自动迁移 30：已为 workspaces 表添加 decoration_config 列")
 
     # ── 恢复卡在 deploying 状态的实例 ─────────────────
     # 后端重启（如 --reload）会杀死 asyncio.create_task 部署管道，
