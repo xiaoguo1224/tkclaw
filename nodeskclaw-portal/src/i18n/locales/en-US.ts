@@ -1,10 +1,10 @@
 const enUS = {
   common: {
-    workspace: "Office",
-    instance: "AI Staff",
+    workspace: "Cyber Office",
+    instance: "AI Employees",
     members: "Members",
     usage: "Usage",
-    geneMarket: "Genes",
+    geneMarket: "Gene Market",
     overview: "Overview",
     genes: "Genes",
     evolutionLog: "Evolution Log",
@@ -637,7 +637,7 @@ const enUS = {
     privateChatHint: "If the user has signed in via Feishu, private chat notifications are enabled automatically. Group chat mode is an optional advanced configuration.",
   },
   orgSettings: {
-    navTitle: "Settings",
+    navTitle: "Org Settings",
     title: "Organization Settings",
     humanMembers: "Human Members",
     requiredGenesTab: "Default Working Genes",
@@ -897,6 +897,11 @@ const enUS = {
     manualInputModel: "Enter model ID manually",
     manualInputPlaceholder: "Enter model ID, e.g. deepseek-chat",
     modelIdEmpty: "Model ID cannot be empty",
+  },
+  nav: {
+    workspace: "Office",
+    geneMarket: "Genes",
+    orgSettings: "Settings",
   },
 } as const
 

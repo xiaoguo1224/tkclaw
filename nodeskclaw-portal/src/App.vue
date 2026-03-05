@@ -4,18 +4,14 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { getCurrentLocale, setCurrentLocale } from '@/i18n'
-import { PawPrint, Settings, LogOut, BarChart3, Boxes, Server, FlaskConical, User } from 'lucide-vue-next'
+import { PawPrint, Settings, LogOut, Boxes, Server, FlaskConical, User } from 'lucide-vue-next'
 import LocaleSelect from '@/components/shared/LocaleSelect.vue'
 import ToastContainer from '@/components/shared/ToastContainer.vue'
 import ConfirmDialog from '@/components/shared/ConfirmDialog.vue'
-import { useFeature } from '@/composables/useFeature'
-
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const { t } = useI18n()
-
-const { isEnabled: hasBilling } = useFeature('billing')
 
 const isLoginPage = computed(() => route.path === '/login')
 const hideNav = computed(() => route.meta.hideNav === true)
@@ -87,7 +83,8 @@ function onLocaleChange(value: string) {
               @click="router.push('/')"
             >
               <Boxes class="w-4 h-4 inline mr-1.5" />
-              {{ t('common.workspace') }}
+              <span class="hidden lg:inline">{{ t('common.workspace') }}</span>
+              <span class="lg:hidden">{{ t('nav.workspace') }}</span>
             </button>
             <button
               :class="[
@@ -100,17 +97,6 @@ function onLocaleChange(value: string) {
               {{ t('common.instance') }}
             </button>
             <button
-              v-if="hasBilling"
-              :class="[
-                'shrink-0 whitespace-nowrap px-3 py-1.5 rounded-md text-sm transition-colors',
-                route.path === '/usage' ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:text-foreground',
-              ]"
-              @click="router.push('/usage')"
-            >
-              <BarChart3 class="w-4 h-4 inline mr-1.5" />
-              {{ t('common.usage') }}
-            </button>
-            <button
               :class="[
                 'shrink-0 whitespace-nowrap px-3 py-1.5 rounded-md text-sm transition-colors',
                 route.path.startsWith('/gene-market') ? 'bg-primary/10 text-primary font-medium' : 'text-muted-foreground hover:text-foreground',
@@ -118,7 +104,8 @@ function onLocaleChange(value: string) {
               @click="router.push('/gene-market')"
             >
               <FlaskConical class="w-4 h-4 inline mr-1.5" />
-              {{ t('common.geneMarket') }}
+              <span class="hidden lg:inline">{{ t('common.geneMarket') }}</span>
+              <span class="lg:hidden">{{ t('nav.geneMarket') }}</span>
             </button>
             <button
               v-if="authStore.user?.portal_org_role === 'admin'"
@@ -129,7 +116,8 @@ function onLocaleChange(value: string) {
               @click="router.push('/org-settings')"
             >
               <Settings class="w-4 h-4 inline mr-1.5" />
-              {{ t('orgSettings.navTitle') }}
+              <span class="hidden lg:inline">{{ t('orgSettings.navTitle') }}</span>
+              <span class="lg:hidden">{{ t('nav.orgSettings') }}</span>
             </button>
           </nav>
         </div>

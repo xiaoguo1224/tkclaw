@@ -1,10 +1,10 @@
 const zhCN = {
   common: {
-    workspace: "办公室",
+    workspace: "赛博办公室",
     instance: "AI 员工",
     members: "成员",
     usage: "用量",
-    geneMarket: "基因",
+    geneMarket: "基因市场",
     overview: "概览",
     genes: "基因",
     evolutionLog: "进化日志",
@@ -637,7 +637,7 @@ const zhCN = {
     privateChatHint: "如果用户已通过飞书登录，私聊通知将自动生效，无需额外配置。群聊模式为可选的高级配置。",
   },
   orgSettings: {
-    navTitle: "设置",
+    navTitle: "组织设置",
     title: "组织设置",
     humanMembers: "人类成员",
     requiredGenesTab: "默认工作基因",
@@ -897,6 +897,11 @@ const zhCN = {
     manualInputModel: "手动输入模型 ID",
     manualInputPlaceholder: "输入模型 ID，如 deepseek-chat",
     modelIdEmpty: "模型 ID 不能为空",
+  },
+  nav: {
+    workspace: "办公室",
+    geneMarket: "基因",
+    orgSettings: "设置",
   },
 } as const
 
