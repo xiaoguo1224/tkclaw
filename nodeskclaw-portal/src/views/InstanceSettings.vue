@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, inject, type ComputedRef, type Ref } from 'vue'
-import { Loader2, Brain, Key, Trash2, Plus, RefreshCw, HardDrive, Save, ChevronDown, Check, Link, Star } from 'lucide-vue-next'
+import { Loader2, Brain, Key, Trash2, Plus, RefreshCw, HardDrive, Save, ChevronDown, Check, Link, Star, X } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
@@ -70,7 +70,7 @@ interface ProviderConfig {
 
 const BUILTIN_PROVIDERS = new Set(['openai', 'anthropic', 'gemini', 'openrouter'])
 const WORKING_PLAN_PROVIDERS = new Set(['minimax-openai', 'minimax-anthropic'])
-const ALL_KNOWN_PROVIDERS = new Set([...PROVIDERS])
+const ALL_KNOWN_PROVIDERS: Set<string> = new Set([...PROVIDERS])
 
 // ── State ──
 
@@ -522,9 +522,17 @@ watch(() => instanceId.value, (val) => {
                       v-model="cfg.baseUrl"
                       type="text"
                       :placeholder="cfg.isCustom ? t('llm.baseUrlPlaceholder') : t('llm.defaultBaseUrl', { url: PROVIDER_DEFAULT_URLS[cfg.provider] || '' })"
-                      class="w-full pl-9 pr-3 py-1.5 rounded-md bg-background border border-border text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
+                      :class="cfg.isCustom ? 'pr-3' : 'pr-8'"
+                      class="w-full pl-9 py-1.5 rounded-md bg-background border border-border text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
                       @input="markDirty"
                     />
+                    <button
+                      v-if="!cfg.isCustom"
+                      class="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                      @click="cfg.baseUrl = ''; cfg.showBaseUrl = false; markDirty()"
+                    >
+                      <X class="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 </div>
                 <button

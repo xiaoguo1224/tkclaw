@@ -290,6 +290,65 @@ async def patch_blackboard_section(
     return _ok(bb.model_dump(mode="json"))
 
 
+# ── Decoration ───────────────────────────────────────
+
+@router.get("/{workspace_id}/decoration")
+async def get_decoration(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(_get_current_user_dep()),
+):
+    await wm_service.check_workspace_member(workspace_id, user, db)
+    from app.models.workspace import Workspace
+    ws = (await db.execute(
+        sa_select(Workspace).where(Workspace.id == workspace_id, Workspace.deleted_at.is_(None))
+    )).scalar_one_or_none()
+    if ws is None:
+        raise _error(404, 40401, "errors.workspace.not_found", "办公室不存在")
+    config = ws.decoration_config or {}
+    return _ok({
+        "y_scale": config.get("y_scale", 1.0),
+        "floor_asset_id": config.get("floor_asset_id"),
+        "furniture": config.get("furniture", []),
+    })
+
+
+@router.put("/{workspace_id}/decoration")
+async def update_decoration(
+    workspace_id: str,
+    data: dict,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(_get_current_user_dep()),
+):
+    await wm_service.check_workspace_access(workspace_id, user, "manage_settings", db)
+    from app.models.workspace import Workspace
+    ws = (await db.execute(
+        sa_select(Workspace).where(Workspace.id == workspace_id, Workspace.deleted_at.is_(None))
+    )).scalar_one_or_none()
+    if ws is None:
+        raise _error(404, 40401, "errors.workspace.not_found", "办公室不存在")
+
+    current = ws.decoration_config or {}
+    if "y_scale" in data:
+        val = float(data["y_scale"])
+        current["y_scale"] = max(0.3, min(1.0, val))
+    if "floor_asset_id" in data:
+        current["floor_asset_id"] = data["floor_asset_id"]
+    if "furniture" in data:
+        current["furniture"] = data["furniture"]
+
+    ws.decoration_config = current
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(ws, "decoration_config")
+    await db.commit()
+    await db.refresh(ws)
+    return _ok({
+        "y_scale": current.get("y_scale", 1.0),
+        "floor_asset_id": current.get("floor_asset_id"),
+        "furniture": current.get("furniture", []),
+    })
+
+
 # ── Workspace Schedules ──────────────────────────────
 
 @router.get("/{workspace_id}/schedules")

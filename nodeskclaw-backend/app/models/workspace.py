@@ -1,6 +1,7 @@
 """Workspace model — a collaborative space containing multiple Agents."""
 
 from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import BaseModel
@@ -15,6 +16,7 @@ class Workspace(BaseModel):
     color: Mapped[str] = mapped_column(String(16), default="#a78bfa", nullable=False)
     icon: Mapped[str] = mapped_column(String(32), default="bot", nullable=False)
     created_by: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
+    decoration_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # relationships
     organization = relationship("Organization", foreign_keys=[org_id])

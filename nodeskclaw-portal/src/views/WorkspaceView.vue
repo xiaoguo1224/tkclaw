@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ArrowLeft, Settings, Maximize2, Minimize2, ZoomIn, ZoomOut, RotateCcw, MessageSquare, Plus, Keyboard, ChevronDown, X, Bot, ListChecks, AlertTriangle, Wifi, User, Users, MapPin, Focus, Minimize } from 'lucide-vue-next'
+import { ArrowLeft, Settings, Maximize2, Minimize2, ZoomIn, ZoomOut, RotateCcw, MessageSquare, Plus, Keyboard, ChevronDown, X, Bot, ListChecks, AlertTriangle, Wifi, User, Users, MapPin, Focus, Minimize, Paintbrush } from 'lucide-vue-next'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useViewTransition } from '@/composables/useViewTransition'
 import Workspace3D from '@/components/hex3d/Workspace3D.vue'
@@ -15,6 +15,9 @@ import HexActionDrawer from '@/components/workspace/HexActionDrawer.vue'
 import AgentCollaborationPanel from '@/components/workspace/AgentCollaborationPanel.vue'
 import AgentDetailDialog from '@/components/workspace/AgentDetailDialog.vue'
 import CollaborationTimeline from '@/components/workspace/CollaborationTimeline.vue'
+import DecorationPanel from '@/components/workspace/DecorationPanel.vue'
+import { findFloorAssetById, findAssetById } from '@/config/decorationAssets'
+import type { DecorationConfig, FurniturePlacement } from '@/stores/workspace'
 import { useToast } from '@/composables/useToast'
 import { axialToWorld } from '@/composables/useHexLayout'
 import { getCurrentLocale, setCurrentLocale } from '@/i18n'
@@ -33,8 +36,95 @@ const workspaceId = computed(() => route.params.id as string)
 const ws = computed(() => store.currentWorkspace)
 const agents = computed(() => ws.value?.agents || [])
 
-const floorTextureUrl = ref<string | undefined>(undefined)
-const furnitureItems = ref<{ id: string; hex_q: number; hex_r: number; asset_key: string; asset_url: string }[]>([])
+const decorationOpen = ref(false)
+const decorationSaving = ref(false)
+const decorationMode = ref(false)
+const activeFurnitureTool = ref<string | null>(null)
+const localDecorationOverride = ref<Partial<DecorationConfig> | null>(null)
+
+const effectiveDecoration = computed(() => {
+  const base = store.decoration
+  const override = localDecorationOverride.value
+  if (!base && !override) return null
+  return {
+    y_scale: override?.y_scale ?? base?.y_scale ?? 1.0,
+    floor_asset_id: override?.floor_asset_id !== undefined ? override.floor_asset_id : (base?.floor_asset_id ?? null),
+    furniture: override?.furniture ?? base?.furniture ?? [],
+  } as DecorationConfig
+})
+
+const computedFloorUrl = computed(() => {
+  const assetId = effectiveDecoration.value?.floor_asset_id
+  if (!assetId) return undefined
+  const asset = findFloorAssetById(assetId)
+  return asset?.url
+})
+
+const computedFurniture = computed(() => {
+  const items = effectiveDecoration.value?.furniture ?? []
+  return items.map((f: FurniturePlacement, idx: number) => {
+    const asset = findAssetById(f.asset_id)
+    return {
+      id: `f-${idx}`,
+      hex_q: f.hex_q,
+      hex_r: f.hex_r,
+      asset_key: f.asset_id,
+      asset_url: asset?.url || `/assets/hex2d/furniture/${f.asset_id}.svg`,
+    }
+  })
+})
+
+const computedYScale = computed(() => effectiveDecoration.value?.y_scale ?? 1.0)
+
+function onDecorationConfigUpdate(partial: Partial<DecorationConfig>) {
+  localDecorationOverride.value = { ...localDecorationOverride.value, ...partial }
+}
+
+async function saveDecoration() {
+  if (!localDecorationOverride.value) return
+  decorationSaving.value = true
+  try {
+    await store.saveDecoration(workspaceId.value, localDecorationOverride.value)
+    localDecorationOverride.value = null
+  } catch {
+    console.error('saveDecoration failed')
+  } finally {
+    decorationSaving.value = false
+  }
+}
+
+function onDecorationHexClick(payload: { q: number; r: number }) {
+  if (!activeFurnitureTool.value) return
+  const current = effectiveDecoration.value?.furniture ?? []
+  const existIdx = current.findIndex(
+    (f: FurniturePlacement) => f.hex_q === payload.q && f.hex_r === payload.r,
+  )
+  let updated: FurniturePlacement[]
+  if (existIdx >= 0) {
+    updated = current.filter((_: FurniturePlacement, i: number) => i !== existIdx)
+  } else {
+    updated = [...current, { asset_id: activeFurnitureTool.value, hex_q: payload.q, hex_r: payload.r }]
+  }
+  onDecorationConfigUpdate({ furniture: updated })
+}
+
+function toggleDecorationPanel() {
+  decorationOpen.value = !decorationOpen.value
+  if (!decorationOpen.value) {
+    decorationMode.value = false
+    activeFurnitureTool.value = null
+    localDecorationOverride.value = null
+  } else {
+    decorationMode.value = true
+  }
+}
+
+function closeDecorationPanel() {
+  decorationOpen.value = false
+  decorationMode.value = false
+  activeFurnitureTool.value = null
+  localDecorationOverride.value = null
+}
 
 const bbTaskCount = computed(() => 0)
 const bbBlockedCount = computed(() => 0)
@@ -192,6 +282,7 @@ onMounted(async () => {
   await store.fetchBlackboard(workspaceId.value)
   await store.fetchTopology(workspaceId.value)
   await store.fetchMembers(workspaceId.value)
+  await store.fetchDecoration(workspaceId.value)
 
   store.connectSSE(workspaceId.value, onSSEEvent)
   window.addEventListener('keydown', handleKeydown)
@@ -222,6 +313,7 @@ watch(workspaceId, async (newId, oldId) => {
     await store.fetchMyPermissions(newId)
     await store.fetchBlackboard(newId)
     await store.fetchTopology(newId)
+    await store.fetchDecoration(newId)
     store.connectSSE(newId, onSSEEvent)
   }
 })
@@ -796,6 +888,16 @@ function handleKeydown(e: KeyboardEvent) {
 
         <div class="w-px h-5 bg-border" />
 
+        <button
+          v-if="activeMode === '2d'"
+          class="p-1.5 rounded-lg hover:bg-muted transition-colors"
+          :class="{ 'bg-purple-500/20 text-purple-400': decorationOpen }"
+          :title="t('decoration.panel_title')"
+          @click="toggleDecorationPanel"
+        >
+          <Paintbrush class="w-4 h-4" />
+        </button>
+
         <ModeToggle :mode="activeMode" @toggle="toggleMode" />
         <LocaleSelect :model-value="locale" @update:model-value="onLocaleChange" />
         <button class="p-1.5 rounded-lg hover:bg-muted transition-colors" @click="toggleFullscreen">
@@ -907,10 +1009,13 @@ function handleKeydown(e: KeyboardEvent) {
             :message-flow-stats="store.messageFlowStats"
             :is-moving-hex="highlightEmptyHexes"
             :moving-hex-source="movingHexSource"
-            :floor-texture-url="floorTextureUrl"
-            :furniture="furnitureItems"
+            :floor-texture-url="computedFloorUrl"
+            :furniture="computedFurniture"
+            :y-scale="computedYScale"
+            :is-decoration-mode="decorationMode"
             @hex-click="onHexClick"
             @agent-dblclick="onAgentDblClick"
+            @decoration-hex-click="onDecorationHexClick"
           />
         </div>
 
@@ -971,6 +1076,19 @@ function handleKeydown(e: KeyboardEvent) {
           </div>
         </div>
       </div>
+
+      <!-- Decoration Panel -->
+      <Transition name="chat-slide">
+        <DecorationPanel
+          v-if="decorationOpen && activeMode === '2d'"
+          :config="effectiveDecoration"
+          :saving="decorationSaving"
+          @update:config="onDecorationConfigUpdate"
+          @save="saveDecoration"
+          @close="closeDecorationPanel"
+          @select-furniture="(id: string | null) => activeFurnitureTool = id"
+        />
+      </Transition>
 
       <!-- Chat Sidebar -->
       <Transition name="chat-slide">

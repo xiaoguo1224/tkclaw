@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed, onUnmounted, watch, toRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSvgZoom } from '@/composables/useSvgZoom'
 import { axialToWorld, hexVertices, HEX_SIZE } from '@/composables/useHexLayout'
@@ -27,7 +27,7 @@ export interface FurnitureItem {
   asset_url: string
 }
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   agents: AgentBrief[]
   blackboardContent: string
   selectedAgentId: string | null
@@ -39,12 +39,18 @@ const props = defineProps<{
   movingHexSource?: { q: number, r: number } | null
   floorTextureUrl?: string
   furniture?: FurnitureItem[]
-}>()
+  yScale?: number
+  isDecorationMode?: boolean
+}>(), {
+  yScale: 1,
+  isDecorationMode: false,
+})
 
 const emit = defineEmits<{
   (e: 'hex-click', payload: { q: number, r: number, type: 'empty' | 'agent' | 'blackboard' | 'corridor' | 'human', agentId?: string, entityId?: string }): void
   (e: 'agent-dblclick', id: string): void
   (e: 'agent-hover', id: string | null): void
+  (e: 'decoration-hex-click', payload: { q: number, r: number }): void
 }>()
 
 const svgRef = ref<SVGSVGElement | null>(null)
@@ -56,23 +62,32 @@ function focusOnHex(q: number, r: number) {
 }
 
 const SCALE = 60
-const Y_SCALE = 1
+
+const yScaleRef = computed(() => props.yScale)
 
 function worldPos(q: number, r: number): { px: number; py: number } {
   const { x, y } = axialToWorld(q, r)
-  return { px: x * SCALE, py: y * SCALE * Y_SCALE }
+  return { px: x * SCALE, py: y * SCALE * yScaleRef.value }
 }
 
 function scaledHexPoints(cx: number, cy: number, size: number): string {
   return hexVertices(cx, cy, size)
-    .map(([vx, vy]) => `${vx},${vy * Y_SCALE}`)
+    .map(([vx, vy]) => `${vx},${vy * yScaleRef.value}`)
     .join(' ')
 }
 
 const storeNodes = computed(() => (props.topologyNodes || []) as StoreTopologyNode[])
 const storeEdges = computed(() => props.topologyEdges || [] as TopologyEdge[])
 const { findPath, findReachableEndpoints } = useTopologyBFS(storeNodes, storeEdges)
-const { particles, pulses, triggerFlow, getParticlePosition, dispose: disposeAnim } = useFlowAnimation2D(SCALE, Y_SCALE)
+
+let animState = useFlowAnimation2D(SCALE, props.yScale)
+const particles = computed(() => animState.particles.value)
+const pulses = computed(() => animState.pulses.value)
+
+watch(yScaleRef, (newScale) => {
+  animState.dispose()
+  animState = useFlowAnimation2D(SCALE, newScale)
+})
 
 function triggerMessageFlow(sourceInstanceId: string, target: string) {
   const nodes = props.topologyNodes || []
@@ -84,25 +99,25 @@ function triggerMessageFlow(sourceInstanceId: string, target: string) {
     const targetNode = nodes.find(n => n.node_type === 'agent' && n.display_name?.toLowerCase() === targetName.toLowerCase())
     if (targetNode) {
       const path = findPath(sourceNode.hex_q, sourceNode.hex_r, targetNode.hex_q, targetNode.hex_r)
-      if (path) triggerFlow(path)
+      if (path) animState.triggerFlow(path)
     }
   } else if (target.startsWith('human:')) {
     const targetId = target.slice(6)
     const targetNode = nodes.find(n => n.node_type === 'human' && n.entity_id === targetId)
     if (targetNode) {
       const path = findPath(sourceNode.hex_q, sourceNode.hex_r, targetNode.hex_q, targetNode.hex_r)
-      if (path) triggerFlow(path)
+      if (path) animState.triggerFlow(path)
     }
   } else if (target === 'broadcast') {
     const endpoints = findReachableEndpoints(sourceNode.hex_q, sourceNode.hex_r)
     for (const ep of endpoints) {
       const path = findPath(sourceNode.hex_q, sourceNode.hex_r, ep.q, ep.r)
-      if (path) triggerFlow(path)
+      if (path) animState.triggerFlow(path)
     }
   }
 }
 
-onUnmounted(() => disposeAnim())
+onUnmounted(() => animState.dispose())
 
 defineExpose({ zoomIn, zoomOut, resetView, panBy, focusOnHex, triggerMessageFlow })
 
@@ -113,7 +128,7 @@ const BB_RADIUS = HEX_RADIUS * 1.15
 const GRID_RANGE = 8
 
 const HEX_CELL_W = Math.sqrt(3) * HEX_RADIUS
-const HEX_CELL_H = 2 * HEX_RADIUS * Y_SCALE
+const HEX_CELL_H = computed(() => 2 * HEX_RADIUS * yScaleRef.value)
 
 const allHexCells = computed(() => {
   const cells: { q: number; r: number; px: number; py: number }[] = []
@@ -135,11 +150,11 @@ const furniturePositions = computed(() =>
 )
 
 const EDGE_X1 = -0.866 * HEX_RADIUS
-const EDGE_Y1 = -0.5 * HEX_RADIUS * Y_SCALE
+const EDGE_Y1 = computed(() => -0.5 * HEX_RADIUS * yScaleRef.value)
 const EDGE_X2 = 0
-const EDGE_Y2 = -HEX_RADIUS * Y_SCALE
+const EDGE_Y2 = computed(() => -HEX_RADIUS * yScaleRef.value)
 const EDGE_MX = (EDGE_X1 + EDGE_X2) / 2
-const EDGE_MY = (EDGE_Y1 + EDGE_Y2) / 2
+const EDGE_MY = computed(() => (EDGE_Y1.value + EDGE_Y2.value) / 2)
 
 const agentPositions = computed(() =>
   props.agents.map((a) => {
@@ -173,7 +188,7 @@ const honeycombGrid = computed(() => {
       for (let i = 0; i < 6; i++) {
         const a1 = (Math.PI / 3) * i - Math.PI / 6
         const a2 = (Math.PI / 3) * ((i + 1) % 6) - Math.PI / 6
-        lines.push(`M${pos.px + r * Math.cos(a1)},${pos.py + r * Math.sin(a1) * Y_SCALE}L${pos.px + r * Math.cos(a2)},${pos.py + r * Math.sin(a2) * Y_SCALE}`)
+        lines.push(`M${pos.px + r * Math.cos(a1)},${pos.py + r * Math.sin(a1) * yScaleRef.value}L${pos.px + r * Math.cos(a2)},${pos.py + r * Math.sin(a2) * yScaleRef.value}`)
       }
     }
   }
@@ -215,12 +230,12 @@ const RAIL_GAP_2D = 7
 const RAIL_WIDTH_2D = 2.5
 const JUNCTION_R_2D = 4
 
-const DIR_UNITS_2D: [number, number][] = AXIAL_DIRS.map(([dq, dr]) => {
+const DIR_UNITS_2D = computed<[number, number][]>(() => AXIAL_DIRS.map(([dq, dr]) => {
   const { x, y } = axialToWorld(dq, dr)
-  const sy = y * Y_SCALE
+  const sy = y * yScaleRef.value
   const len = Math.sqrt(x * x + sy * sy)
   return [x / len, sy / len] as [number, number]
-})
+}))
 
 const HALF_GAP_2D = (RAIL_GAP_2D + RAIL_WIDTH_2D) / 2
 const START_OFFSET_2D = JUNCTION_R_2D + 2
@@ -242,7 +257,7 @@ const corridorPaths = computed(() => {
     for (let i = 0; i < 6; i++) {
       const [dq, dr] = AXIAL_DIRS[i]
       if (!occupied.has(`${ch.hex_q + dq}:${ch.hex_r + dr}`)) continue
-      const [dx, dy] = DIR_UNITS_2D[i]
+      const [dx, dy] = DIR_UNITS_2D.value[i]
       const endX = dx * ARM_LEN_2D
       const endY = dy * ARM_LEN_2D
       const perpX = -dy
@@ -390,15 +405,15 @@ const emptyHexes = computed(() => {
         :key="`empty-${hex.q}-${hex.r}`"
         class="cursor-pointer"
         :transform="`translate(${hex.px}, ${hex.py})`"
-        @click.stop="emit('hex-click', { q: hex.q, r: hex.r, type: 'empty' })"
+        @click.stop="isDecorationMode ? emit('decoration-hex-click', { q: hex.q, r: hex.r }) : emit('hex-click', { q: hex.q, r: hex.r, type: 'empty' })"
       >
         <polygon
           :points="hexPoints(0, 0)"
-          :fill="isMovingHex ? '#4ade8018' : selectedHex?.q === hex.q && selectedHex?.r === hex.r ? '#60a5fa11' : 'transparent'"
-          :stroke="isMovingHex ? '#4ade80' : selectedHex?.q === hex.q && selectedHex?.r === hex.r ? '#60a5fa' : 'transparent'"
-          :stroke-width="isMovingHex ? 1.5 : selectedHex?.q === hex.q && selectedHex?.r === hex.r ? 2 : 0"
+          :fill="isDecorationMode ? '#a78bfa08' : isMovingHex ? '#4ade8018' : selectedHex?.q === hex.q && selectedHex?.r === hex.r ? '#60a5fa11' : 'transparent'"
+          :stroke="isDecorationMode ? '#a78bfa40' : isMovingHex ? '#4ade80' : selectedHex?.q === hex.q && selectedHex?.r === hex.r ? '#60a5fa' : 'transparent'"
+          :stroke-width="isDecorationMode ? 0.5 : isMovingHex ? 1.5 : selectedHex?.q === hex.q && selectedHex?.r === hex.r ? 2 : 0"
           :stroke-dasharray="isMovingHex ? '4,3' : 'none'"
-          :class="isMovingHex ? 'move-target-hex' : 'hover-empty-hex'"
+          :class="isDecorationMode ? 'decoration-target-hex' : isMovingHex ? 'move-target-hex' : 'hover-empty-hex'"
         />
       </g>
 
@@ -576,8 +591,8 @@ const emptyHexes = computed(() => {
         <circle
           v-for="p in particles"
           :key="p.id"
-          :cx="getParticlePosition(p).x"
-          :cy="getParticlePosition(p).y"
+          :cx="animState.getParticlePosition(p).x"
+          :cy="animState.getParticlePosition(p).y"
           r="4"
           :fill="p.color"
           :opacity="1 - p.progress * 0.5"
@@ -599,12 +614,14 @@ const emptyHexes = computed(() => {
         </template>
       </g>
 
-      <!-- Furniture sprites (decorative, non-interactive) -->
-      <g v-if="furniturePositions.length" class="furniture-layer" pointer-events="none">
+      <!-- Furniture sprites -->
+      <g v-if="furniturePositions.length" class="furniture-layer" :pointer-events="isDecorationMode ? 'auto' : 'none'">
         <g
           v-for="f in furniturePositions"
           :key="`furniture-${f.id}`"
+          :class="isDecorationMode ? 'cursor-pointer' : ''"
           :transform="`translate(${f.px}, ${f.py})`"
+          @click.stop="isDecorationMode && emit('decoration-hex-click', { q: f.hex_q, r: f.hex_r })"
         >
           <image
             :href="f.asset_url"

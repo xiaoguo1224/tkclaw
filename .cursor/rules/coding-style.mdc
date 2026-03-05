@@ -163,7 +163,7 @@ import { Search, Bell, Settings } from 'lucide-vue-next'
 
 ### 源码获取方式
 
-**本项目在 `openclaw/` 有 OpenClaw 的完整 TypeScript 源码副本。** 优先使用本地源码，可读性远优于 Pod 上的 minified dist 文件。
+**本项目在 `/Users/xy718/workspace/NoDeskClaw/openclaw/` 有 OpenClaw 的完整 TypeScript 源码副本。** 优先使用本地源码，可读性远优于 Pod 上的 minified dist 文件。
 
 按优先级：
 
@@ -281,7 +281,7 @@ import { Search, Bell, Settings } from 'lucide-vue-next'
 
 ## Docker 镜像架构规则
 
-**所有 Docker 镜像操作必须显式指定 `linux/amd64` 平台，因为开发机是 Apple Silicon（arm64），而目标 K8s 集群（K8s 集群）运行 `amd64` 节点。**
+**所有 Docker 镜像操作必须显式指定 `linux/amd64` 平台，因为开发机是 Apple Silicon（arm64），而目标 K8s 集群（火山云 VKE）运行 `amd64` 节点。**
 
 这个问题已经反复出现过多次，必须严格遵守。
 
@@ -336,8 +336,8 @@ docker build -t my-image:latest .
 
 ## 基础设施约束
 
-- **数据库**：PostgreSQL，不用本地 SQLite，不自建 Docker PostgreSQL 容器
-- **K8s**：K8s 集群，节点架构 `linux/amd64`
+- **数据库**：火山云 RDS PostgreSQL，不用本地 SQLite，不自建 Docker PostgreSQL 容器
+- **K8s**：火山云 VKE，M1 单集群，节点架构 `linux/amd64`
 - **不准擅自引入新的基础设施依赖**（如本地数据库容器、消息队列、Redis 等），必须先跟用户确认
 
 ## 软删除规则
@@ -483,6 +483,34 @@ UniqueConstraint("col_a", "col_b", name="uq_xxx")
 - 在组件 `<style>` 中写 `::-webkit-scrollbar` 相关样式
 - 在组件中写 `scrollbar-width` / `scrollbar-color`
 - 使用 Tailwind 的 `scrollbar-thin` 等第三方插件类
+
+## 下拉框规则
+
+**禁止使用原生 `<select>` / `<option>` 元素。** 所有下拉选择必须使用自定义 button-based dropdown。
+
+### 实现模式
+
+```vue
+<!-- 触发按钮 -->
+<button @click="dropdownOpen = !dropdownOpen">
+  选择内容 <ChevronDown />
+</button>
+<!-- 下拉面板 -->
+<div v-if="dropdownOpen" class="absolute z-10 ...">
+  <button v-for="item in options" @click="select(item)">
+    {{ item.label }}
+  </button>
+</div>
+```
+
+### 原因
+
+- 原生 `<select>` 样式无法自定义，与项目设计风格不一致
+- 原生 `<option>` 不支持图标、徽标等富文本内容
+
+### 已知存量
+
+`nodeskclaw-frontend`（管理后台）中有 2 处原生 `<select>`（`Cluster/Detail.vue`、`AdvancedConfigPanel.vue`），后续迭代清理。
 
 ## i18n 文案与错误码规则
 

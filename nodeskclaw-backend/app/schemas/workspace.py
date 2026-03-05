@@ -59,6 +59,26 @@ class WorkspaceListItem(BaseModel):
     created_at: datetime
 
 
+# ── Decoration ───────────────────────────────────────
+
+class FurniturePlacement(BaseModel):
+    asset_id: str
+    hex_q: int
+    hex_r: int
+
+
+class DecorationConfig(BaseModel):
+    y_scale: float = Field(default=1.0, ge=0.3, le=1.0)
+    floor_asset_id: str | None = None
+    furniture: list[FurniturePlacement] = []
+
+
+class DecorationUpdate(BaseModel):
+    y_scale: float | None = Field(default=None, ge=0.3, le=1.0)
+    floor_asset_id: str | None = None
+    furniture: list[FurniturePlacement] | None = None
+
+
 # ── Blackboard ───────────────────────────────────────
 
 class BlackboardInfo(BaseModel):
