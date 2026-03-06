@@ -853,12 +853,12 @@ function updateSuggestionIndex(state: SuggestionState, idx: number) {
       <!-- Tiptap editor container -->
       <div
         v-if="canSend"
-        class="rounded-lg border border-border bg-muted overflow-hidden focus-within:ring-1 focus-within:ring-primary/50 focus-within:border-primary/50 transition-colors"
+        class="rounded-lg border border-border bg-muted focus-within:ring-1 focus-within:ring-primary/50 focus-within:border-primary/50 transition-colors"
         @dragover="handleDragOver"
         @drop="handleDrop"
       >
         <!-- Pending files preview -->
-        <div v-if="pendingFiles.length > 0" class="flex flex-wrap gap-2 px-3 pt-2">
+        <div v-if="pendingFiles.length > 0" class="flex flex-wrap gap-2 px-3 pt-2 max-h-[76px] overflow-y-auto">
           <div
             v-for="(file, idx) in pendingFiles"
             :key="idx"
