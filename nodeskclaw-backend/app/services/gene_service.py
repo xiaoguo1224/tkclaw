@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from typing import Coroutine
 
 import httpx
-from sqlalchemy import Integer, Select, case, cast, func, select, text
+from sqlalchemy import Integer, Select, and_, case, cast, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AppException, BadRequestError, ConflictError, NotFoundError
@@ -264,6 +264,7 @@ def _gene_to_dict(gene: Gene) -> dict:
         "is_published": gene.is_published,
         "created_by": gene.created_by,
         "org_id": gene.org_id,
+        "visibility": getattr(gene, "visibility", "public"),
         "created_at": gene.created_at,
         "updated_at": gene.updated_at,
     }
@@ -336,11 +337,22 @@ async def _list_genes_local(
     tag: str | None = None,
     category: str | None = None,
     source: str | None = None,
+    visibility: str | None = None,
+    org_id: str | None = None,
     sort: str = "popularity",
     page: int = 1,
     page_size: int = 20,
 ) -> tuple[list[dict], int]:
     base = select(Gene).where(not_deleted(Gene), Gene.is_published.is_(True))
+
+    if visibility == "org_private":
+        base = base.where(Gene.visibility == "org_private", Gene.org_id == org_id)
+    elif visibility == "public":
+        base = base.where(Gene.visibility == "public")
+    elif org_id:
+        base = base.where(
+            or_(Gene.visibility == "public", and_(Gene.visibility == "org_private", Gene.org_id == org_id))
+        )
 
     if keyword:
         base = base.where(Gene.name.ilike(f"%{keyword}%") | Gene.slug.ilike(f"%{keyword}%"))
@@ -375,10 +387,19 @@ async def list_genes(
     tag: str | None = None,
     category: str | None = None,
     source: str | None = None,
+    visibility: str | None = None,
+    org_id: str | None = None,
     sort: str = "popularity",
     page: int = 1,
     page_size: int = 20,
 ) -> tuple[list[dict], int]:
+    if visibility == "org_private":
+        return await _list_genes_local(
+            db, keyword=keyword, tag=tag, category=category, source=source,
+            visibility=visibility, org_id=org_id,
+            sort=sort, page=page, page_size=page_size,
+        )
+
     body = await genehub_client.list_genes(
         keyword=keyword, tag=tag, category=category, sort=sort, page=page, page_size=page_size,
     )
@@ -387,10 +408,24 @@ async def list_genes(
         slug_map = await _build_slug_cache_map(db, [g.get("slug", "") for g in items])
         converted = [genehub_gene_to_local(g, slug_map.get(g.get("slug", ""))) for g in items]
         _fire_task(_batch_upsert_gene_cache(items))
+
+        if org_id and visibility != "public":
+            org_genes, org_total = await _list_genes_local(
+                db, keyword=keyword, tag=tag, category=category, source=source,
+                visibility="org_private", org_id=org_id,
+                sort=sort, page=1, page_size=page_size,
+            )
+            existing_slugs = {g.get("slug") for g in converted}
+            for g in org_genes:
+                if g.get("slug") not in existing_slugs:
+                    converted.append(g)
+                    total += 1
+
         return converted, total
 
     return await _list_genes_local(
         db, keyword=keyword, tag=tag, category=category, source=source,
+        visibility=visibility, org_id=org_id,
         sort=sort, page=page, page_size=page_size,
     )
 

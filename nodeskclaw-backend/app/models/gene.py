@@ -18,6 +18,11 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import BaseModel
 
 
+class ContentVisibility(str, Enum):
+    public = "public"
+    org_private = "org_private"
+
+
 class GeneSource(str, Enum):
     official = "official"
     clawhub = "clawhub"
@@ -65,8 +70,9 @@ class Gene(BaseModel):
     __tablename__ = "genes"
     __table_args__ = (
         Index(
-            "uq_genes_slug_active",
+            "uq_genes_slug_org_active",
             "slug",
+            "org_id",
             unique=True,
             postgresql_where="deleted_at IS NULL",
         ),
@@ -114,14 +120,19 @@ class Gene(BaseModel):
     org_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("organizations.id"), nullable=True
     )
+    visibility: Mapped[str] = mapped_column(
+        String(16), default=ContentVisibility.public, nullable=False,
+        server_default="public",
+    )
 
 
 class Genome(BaseModel):
     __tablename__ = "genomes"
     __table_args__ = (
         Index(
-            "uq_genomes_slug_active",
+            "uq_genomes_slug_org_active",
             "slug",
+            "org_id",
             unique=True,
             postgresql_where="deleted_at IS NULL",
         ),
@@ -144,6 +155,10 @@ class Genome(BaseModel):
     )
     org_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("organizations.id"), nullable=True
+    )
+    visibility: Mapped[str] = mapped_column(
+        String(16), default=ContentVisibility.public, nullable=False,
+        server_default="public",
     )
 
 

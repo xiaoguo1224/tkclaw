@@ -38,14 +38,16 @@ async def list_genes(
     tag: str | None = None,
     category: str | None = None,
     source: str | None = None,
+    visibility: str | None = None,
     sort: str = "popularity",
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
 ):
     genes, total = await gene_service.list_genes(
         db, keyword=keyword, tag=tag, category=category, source=source,
+        visibility=visibility, org_id=current_user.current_org_id,
         sort=sort, page=page, page_size=page_size,
     )
     return PaginatedResponse(

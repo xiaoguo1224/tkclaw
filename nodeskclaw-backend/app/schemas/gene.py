@@ -33,6 +33,7 @@ class GeneInfo(BaseModel):
     is_published: bool = True
     created_by: str | None = None
     org_id: str | None = None
+    visibility: str = "public"
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -55,6 +56,7 @@ class GeneListItem(BaseModel):
     is_featured: bool = False
     parent_gene_id: str | None = None
     created_by_instance_id: str | None = None
+    visibility: str = "public"
 
     model_config = {"from_attributes": True}
 

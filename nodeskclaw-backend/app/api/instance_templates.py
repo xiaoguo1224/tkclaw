@@ -22,6 +22,7 @@ router = APIRouter()
 async def list_templates(
     keyword: str | None = Query(None),
     featured: bool = Query(False),
+    visibility: str | None = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
@@ -29,7 +30,7 @@ async def list_templates(
 ):
     user, org = org_info
     items, total = await svc.list_templates(
-        db, org_id=org.id, keyword=keyword, featured_only=featured, page=page, page_size=page_size,
+        db, org_id=org.id, visibility=visibility, keyword=keyword, featured_only=featured, page=page, page_size=page_size,
     )
     return PaginatedResponse(
         data=[item.model_dump(mode="json") for item in items],

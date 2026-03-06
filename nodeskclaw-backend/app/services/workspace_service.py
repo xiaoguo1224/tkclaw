@@ -75,11 +75,80 @@ async def create_workspace(db: AsyncSession, org_id: str, user_id: str, data: Wo
 
     await db.commit()
     await db.refresh(ws)
+
+    if data.template_id:
+        await _apply_template_to_workspace(db, ws.id, data.template_id, user_id)
+
     return WorkspaceInfo(
         id=ws.id, org_id=ws.org_id, name=ws.name, description=ws.description,
         color=ws.color, icon=ws.icon, created_by=ws.created_by,
         agent_count=0, agents=[], created_at=ws.created_at, updated_at=ws.updated_at,
     )
+
+
+async def _apply_template_to_workspace(
+    db: AsyncSession, workspace_id: str, template_id: str, user_id: str,
+) -> None:
+    """Apply workspace template layout (corridors, connections, blackboard) to a new workspace."""
+    import uuid
+
+    from app.models.base import not_deleted
+    from app.models.corridor import CorridorHex, HexConnection, ordered_pair
+    from app.models.workspace_template import WorkspaceTemplate
+
+    result = await db.execute(
+        select(WorkspaceTemplate).where(
+            WorkspaceTemplate.id == template_id,
+            not_deleted(WorkspaceTemplate),
+        )
+    )
+    tpl = result.scalar_one_or_none()
+    if tpl is None:
+        logger.warning("Workspace template %s not found, skipping", template_id)
+        return
+
+    topo = tpl.topology_snapshot or {}
+    bb_snap = tpl.blackboard_snapshot or {}
+
+    for node in topo.get("nodes", []):
+        if node.get("node_type") == "corridor":
+            ch = CorridorHex(
+                id=str(uuid.uuid4()),
+                workspace_id=workspace_id,
+                hex_q=node.get("hex_q", 0),
+                hex_r=node.get("hex_r", 0),
+                display_name=node.get("display_name", ""),
+                created_by=user_id,
+            )
+            db.add(ch)
+
+    await db.flush()
+
+    for edge in topo.get("edges", []):
+        aq, ar, bq, br = ordered_pair(
+            edge.get("a_q", 0), edge.get("a_r", 0),
+            edge.get("b_q", 0), edge.get("b_r", 0),
+        )
+        conn = HexConnection(
+            id=str(uuid.uuid4()),
+            workspace_id=workspace_id,
+            hex_a_q=aq, hex_a_r=ar,
+            hex_b_q=bq, hex_b_r=br,
+            direction=edge.get("direction", "both"),
+            auto_created=edge.get("auto_created", False),
+            created_by=user_id,
+        )
+        db.add(conn)
+
+    if "content" in bb_snap:
+        bb_result = await db.execute(
+            select(Blackboard).where(Blackboard.workspace_id == workspace_id)
+        )
+        bb_row = bb_result.scalar_one_or_none()
+        if bb_row:
+            bb_row.content = bb_snap["content"]
+
+    await db.commit()
 
 
 async def list_workspaces(

@@ -3,7 +3,7 @@
 import json
 import logging
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ConflictError, NotFoundError
@@ -74,14 +74,21 @@ async def list_templates(
     db: AsyncSession,
     *,
     org_id: str | None = None,
+    visibility: str | None = None,
     keyword: str | None = None,
     featured_only: bool = False,
     page: int = 1,
     page_size: int = 20,
 ) -> tuple[list[InstanceTemplateInfo], int]:
     q = select(InstanceTemplate).where(not_deleted(InstanceTemplate), InstanceTemplate.is_published.is_(True))
-    if org_id:
-        q = q.where(InstanceTemplate.org_id == org_id)
+    if visibility == "org_private":
+        q = q.where(InstanceTemplate.visibility == "org_private", InstanceTemplate.org_id == org_id)
+    elif visibility == "public":
+        q = q.where(InstanceTemplate.visibility == "public")
+    elif org_id:
+        q = q.where(
+            or_(InstanceTemplate.visibility == "public", and_(InstanceTemplate.visibility == "org_private", InstanceTemplate.org_id == org_id))
+        )
     if keyword:
         like = f"%{keyword}%"
         q = q.where(InstanceTemplate.name.ilike(like) | InstanceTemplate.description.ilike(like))

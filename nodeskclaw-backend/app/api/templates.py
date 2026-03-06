@@ -3,9 +3,9 @@
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.corridors import _check_workspace
@@ -45,6 +45,7 @@ class TemplateCreateRequest(BaseModel):
     topology_snapshot: dict | None = None
     blackboard_snapshot: dict | None = None
     gene_assignments: list | None = None
+    visibility: str = "org_private"
 
 
 class TemplateApplyRequest(BaseModel):
@@ -53,15 +54,27 @@ class TemplateApplyRequest(BaseModel):
 
 @router.get("")
 async def list_templates(
+    visibility: str | None = Query(None),
     org_ctx=Depends(get_current_org),
     db: AsyncSession = Depends(get_db),
 ):
     user, org = org_ctx
-    result = await db.execute(
-        select(WorkspaceTemplate)
-        .where(not_deleted(WorkspaceTemplate))
-        .order_by(WorkspaceTemplate.created_at.desc())
-    )
+    org_id = _org_id(org)
+    q = select(WorkspaceTemplate).where(not_deleted(WorkspaceTemplate))
+
+    if visibility == "org_private":
+        q = q.where(WorkspaceTemplate.visibility == "org_private", WorkspaceTemplate.org_id == org_id)
+    elif visibility == "public":
+        q = q.where(WorkspaceTemplate.visibility == "public")
+    else:
+        q = q.where(
+            or_(
+                WorkspaceTemplate.visibility == "public",
+                and_(WorkspaceTemplate.visibility == "org_private", WorkspaceTemplate.org_id == org_id),
+            )
+        )
+
+    result = await db.execute(q.order_by(WorkspaceTemplate.created_at.desc()))
     items = result.scalars().all()
     rows = [
         {
@@ -69,6 +82,8 @@ async def list_templates(
             "name": t.name,
             "description": t.description,
             "is_preset": t.is_preset,
+            "org_id": t.org_id,
+            "visibility": t.visibility,
             "created_by": t.created_by,
             "created_at": t.created_at.isoformat() if t.created_at else None,
         }
@@ -135,6 +150,8 @@ async def create_template(
         topology_snapshot=topology_snapshot,
         blackboard_snapshot=blackboard_snapshot,
         gene_assignments=gene_assignments,
+        org_id=_org_id(org),
+        visibility=body.visibility,
         created_by=user.id if user else None,
     )
     db.add(t)
@@ -149,6 +166,8 @@ async def create_template(
             "topology_snapshot": t.topology_snapshot,
             "blackboard_snapshot": t.blackboard_snapshot,
             "gene_assignments": t.gene_assignments,
+            "org_id": t.org_id,
+            "visibility": t.visibility,
             "created_by": t.created_by,
             "created_at": t.created_at.isoformat() if t.created_at else None,
         }
@@ -206,6 +225,8 @@ async def get_template(
             "topology_snapshot": t.topology_snapshot,
             "blackboard_snapshot": t.blackboard_snapshot,
             "gene_assignments": t.gene_assignments,
+            "org_id": t.org_id,
+            "visibility": t.visibility,
             "created_by": t.created_by,
             "created_at": t.created_at.isoformat() if t.created_at else None,
         }

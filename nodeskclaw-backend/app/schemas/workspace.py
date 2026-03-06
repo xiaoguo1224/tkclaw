@@ -12,6 +12,7 @@ class WorkspaceCreate(BaseModel):
     description: str = ""
     color: str = "#a78bfa"
     icon: str = "bot"
+    template_id: str | None = None
 
 
 class WorkspaceUpdate(BaseModel):
