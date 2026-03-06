@@ -33,6 +33,7 @@ export interface GeneItem {
   synergies?: string[]
   review_status?: string
   is_published: boolean
+  visibility?: string
   created_at?: string
 }
 
@@ -152,6 +153,7 @@ export const useGeneStore = defineStore('gene', () => {
     tag?: string
     category?: string
     source?: string
+    visibility?: string
     sort?: string
     page?: number
     page_size?: number
@@ -345,7 +347,7 @@ export const useGeneStore = defineStore('gene', () => {
 
   // ── Instance Templates ──────────────────────────
 
-  async function fetchTemplates(params: { keyword?: string; page?: number; page_size?: number } = {}) {
+  async function fetchTemplates(params: { keyword?: string; visibility?: string; page?: number; page_size?: number } = {}) {
     loading.value = true
     try {
       const res = await api.get('/instance-templates', { params })

@@ -41,6 +41,7 @@ const viewMode = ref<'genes' | 'genomes' | 'templates' | 'evolution'>('genes')
 const keyword = ref('')
 const selectedTag = ref<string | null>(null)
 const selectedCategory = ref<string | null>(null)
+const selectedVisibility = ref<string | null>(null)
 const sortBy = ref('popularity')
 const page = ref(1)
 const pageSize = ref(12)
@@ -202,6 +203,7 @@ async function loadData() {
       keyword: keyword.value || undefined,
       tag: selectedTag.value || undefined,
       category: selectedCategory.value || undefined,
+      visibility: selectedVisibility.value || undefined,
       sort: sortBy.value,
       page: page.value,
       page_size: pageSize.value,
@@ -215,6 +217,7 @@ async function loadData() {
   } else if (viewMode.value === 'templates') {
     await store.fetchTemplates({
       keyword: keyword.value || undefined,
+      visibility: selectedVisibility.value || undefined,
       page: page.value,
       page_size: pageSize.value,
     })
@@ -251,7 +254,7 @@ watch(keyword, () => {
   }, 300)
 })
 
-watch([viewMode, selectedTag, selectedCategory, sortBy], () => {
+watch([viewMode, selectedTag, selectedCategory, selectedVisibility, sortBy], () => {
   page.value = 1
   if (viewMode.value === 'evolution') {
     loadEvolution()
@@ -500,6 +503,28 @@ function hasNativeTools(gene: GeneItem): boolean {
 
       <!-- 基因/基因组 Tab -->
       <template v-else>
+
+      <!-- Visibility filter -->
+      <div v-if="viewMode === 'genes' || viewMode === 'templates'" class="flex gap-2 mb-4">
+        <button
+          v-for="vis in [
+            { value: null, key: 'geneMarket.visAll' },
+            { value: 'public', key: 'geneMarket.visPublic' },
+            { value: 'org_private', key: 'geneMarket.visOrg' },
+          ]"
+          :key="String(vis.value)"
+          :class="[
+            'px-3 py-1.5 rounded-lg text-xs font-medium transition-colors',
+            selectedVisibility === vis.value
+              ? 'bg-primary/10 text-primary'
+              : 'bg-muted/50 text-muted-foreground hover:text-foreground hover:bg-muted',
+          ]"
+          @click="selectedVisibility = vis.value"
+        >
+          {{ t(vis.key) }}
+        </button>
+      </div>
+
       <div class="flex flex-wrap gap-3 mb-6">
         <div class="relative flex-1 min-w-[200px]">
           <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
