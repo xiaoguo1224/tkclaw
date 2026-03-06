@@ -133,6 +133,29 @@ export const nodeskclawPlugin: ChannelPlugin<ResolvedNoDeskClawAccount> = {
       const messageId = `cb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       return { channel: CHANNEL_KEY, messageId };
     },
+    sendMedia: async ({ cfg, to, text, mediaUrl, accountId }) => {
+      const account = resolveAccount(cfg, accountId);
+      const body = mediaUrl ? `${text || ""}\n[${mediaUrl}]`.trim() : (text || "");
+
+      const payload: CollaborationPayload = {
+        workspace_id: account.workspaceId,
+        source_instance_id: account.instanceId,
+        target: to,
+        text: body,
+        depth: 0,
+      };
+
+      broadcast(payload);
+
+      getNoDeskClawRuntime().channel.activity.record({
+        channel: CHANNEL_KEY,
+        accountId: account.accountId,
+        direction: "outbound",
+      });
+
+      const messageId = `cb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      return { channel: CHANNEL_KEY, messageId };
+    },
   },
   directory: {
     listPeers: (params) => listNoDeskClawPeers(params),
