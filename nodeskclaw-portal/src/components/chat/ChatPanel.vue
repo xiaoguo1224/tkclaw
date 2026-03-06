@@ -62,6 +62,10 @@ function agentLabel(a: AgentBrief): string {
   return a.display_name || a.name
 }
 
+function hexDistToBlackboard(q: number, r: number): number {
+  return Math.max(Math.abs(q), Math.abs(r), Math.abs(q + r))
+}
+
 function agentSublabel(senderId: string): string | null {
   const a = agents.value.find(x => x.instance_id === senderId)
   return a?.label ?? null
@@ -324,6 +328,7 @@ const editor = useEditor({
           const q = query.toLowerCase()
           return agents.value
             .filter(a => agentLabel(a).toLowerCase().includes(q))
+            .sort((a, b) => hexDistToBlackboard(a.hex_q, a.hex_r) - hexDistToBlackboard(b.hex_q, b.hex_r))
             .slice(0, 10)
             .map(a => ({
               id: a.instance_id,
