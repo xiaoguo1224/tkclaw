@@ -891,7 +891,11 @@ async def get_file_presigned_url(
     if wf is None:
         raise _error(404, 40431, "errors.file.not_found", "文件不存在")
 
-    url = await storage_service.get_presigned_url(wf.tos_key, expires=900)
+    try:
+        url = await storage_service.get_presigned_url(wf.tos_key, expires=900)
+    except Exception:
+        logger.warning("生成文件 %s presigned URL 失败", wf.original_name, exc_info=True)
+        raise _error(502, 50201, "errors.storage.presign_failed", "生成文件下载链接失败，请稍后重试")
     return _ok({"url": url, "expires_in": 900})
 
 

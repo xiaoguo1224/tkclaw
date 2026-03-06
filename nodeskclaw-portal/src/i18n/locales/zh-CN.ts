@@ -905,6 +905,10 @@ const zhCN = {
       cannot_reset_admin_password: "不能重置其他管理员的密码",
       member_not_found: "该用户不是当前组织的成员",
     },
+    storage: {
+      not_configured: "文件存储服务未配置",
+      presign_failed: "生成文件下载链接失败，请稍后重试",
+    },
     workspace: {
       not_found: "办公室不存在",
       add_agent_invalid: "添加 AI 员工参数不合法",

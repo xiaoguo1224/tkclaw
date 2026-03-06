@@ -905,6 +905,10 @@ const enUS = {
       cannot_reset_admin_password: "Cannot reset another admin's password",
       member_not_found: "This user is not a member of the current organization",
     },
+    storage: {
+      not_configured: "File storage service is not configured",
+      presign_failed: "Failed to generate file download link, please try again later",
+    },
     workspace: {
       not_found: "Cyber office does not exist",
       add_agent_invalid: "Invalid parameters for adding AI Employee",
