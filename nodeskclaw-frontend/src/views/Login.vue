@@ -3,7 +3,6 @@ import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { PawPrint } from 'lucide-vue-next'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -24,7 +23,7 @@ function handleOAuthLogin(provider: string) {
     <Card class="w-[400px]">
       <CardHeader class="text-center">
         <div class="flex items-center justify-center gap-2 mb-4">
-          <PawPrint class="w-8 h-8 text-primary" />
+          <img src="/logo.png" alt="DeskClaw" class="w-8 h-8" />
           <span class="text-2xl font-bold">DeskClaw</span>
           <span class="px-1.5 py-0.5 text-[10px] font-semibold leading-none rounded bg-primary/15 text-primary">Beta</span>
         </div>

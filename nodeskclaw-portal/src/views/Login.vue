@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'
 import { getCurrentLocale, setCurrentLocale } from '@/i18n'
 import { resolveApiErrorMessage } from '@/i18n/error'
-import { PawPrint, Loader2, Zap, Shield, Globe, Sparkles, KeyRound, MessageSquareCode, Eye, EyeOff } from 'lucide-vue-next'
+import { Loader2, Zap, Shield, Globe, Sparkles, KeyRound, MessageSquareCode, Eye, EyeOff } from 'lucide-vue-next'
 import LocaleSelect from '@/components/shared/LocaleSelect.vue'
 
 const router = useRouter()
@@ -120,7 +120,7 @@ watch(activeTab, () => { error.value = '' })
       <div class="relative z-10 flex flex-col justify-center px-16 xl:px-24">
         <div class="flex items-center gap-3 mb-6">
           <div class="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center">
-            <PawPrint class="w-6 h-6 text-primary" />
+            <img src="/logo.png" alt="DeskClaw" class="w-6 h-6" />
           </div>
           <span class="text-xl font-bold tracking-tight">DeskClaw</span>
           <span class="px-1.5 py-0.5 text-[10px] font-semibold leading-none rounded bg-primary/15 text-primary">Beta</span>
@@ -161,7 +161,7 @@ watch(activeTab, () => { error.value = '' })
         <!-- 移动端 Logo -->
         <div class="flex flex-col items-center gap-3 lg:hidden">
           <div class="w-12 h-12 rounded-xl bg-primary/15 flex items-center justify-center">
-            <PawPrint class="w-7 h-7 text-primary" />
+            <img src="/logo.png" alt="DeskClaw" class="w-7 h-7" />
           </div>
           <div class="flex items-center gap-2">
             <span class="text-xl font-bold">DeskClaw</span>
