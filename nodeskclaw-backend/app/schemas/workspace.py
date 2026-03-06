@@ -80,12 +80,73 @@ class DecorationUpdate(BaseModel):
     furniture: list[FurniturePlacement] | None = None
 
 
+# ── Tasks & Objectives ───────────────────────────────
+
+class TaskCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=256)
+    description: str | None = None
+    priority: str = "medium"
+    assignee_id: str | None = None
+    estimated_value: float | None = None
+
+class TaskUpdate(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    status: str | None = None
+    priority: str | None = None
+    assignee_id: str | None = None
+    estimated_value: float | None = None
+    actual_value: float | None = None
+    token_cost: int | None = None
+    blocker_reason: str | None = None
+
+class TaskInfo(BaseModel):
+    id: str
+    workspace_id: str
+    title: str
+    description: str | None = None
+    status: str
+    priority: str
+    assignee_instance_id: str | None = None
+    assignee_name: str | None = None
+    created_by_instance_id: str | None = None
+    estimated_value: float | None = None
+    actual_value: float | None = None
+    token_cost: int | None = None
+    blocker_reason: str | None = None
+    completed_at: datetime | None = None
+    archived_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+class ObjectiveInfo(BaseModel):
+    id: str
+    workspace_id: str
+    title: str
+    description: str | None = None
+    progress: float = 0.0
+    created_by: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+class ObjectiveCreate(BaseModel):
+    title: str = Field(min_length=1, max_length=256)
+    description: str | None = None
+
+class ObjectiveUpdate(BaseModel):
+    title: str | None = None
+    description: str | None = None
+    progress: float | None = None
+
+
 # ── Blackboard ───────────────────────────────────────
 
 class BlackboardInfo(BaseModel):
     id: str
     workspace_id: str
     content: str
+    tasks: list[TaskInfo] = []
+    objectives: list[ObjectiveInfo] = []
     updated_at: datetime
 
 

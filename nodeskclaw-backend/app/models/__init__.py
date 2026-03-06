@@ -35,5 +35,7 @@ from app.models.user_llm_key import UserLlmKey  # noqa: F401
 from app.models.workspace import Workspace  # noqa: F401
 from app.models.workspace_member import WorkspaceMember  # noqa: F401
 from app.models.workspace_message import WorkspaceMessage  # noqa: F401
+from app.models.workspace_objective import WorkspaceObjective  # noqa: F401
 from app.models.workspace_schedule import WorkspaceSchedule  # noqa: F401
+from app.models.workspace_task import WorkspaceTask  # noqa: F401
 from app.models.workspace_template import WorkspaceTemplate  # noqa: F401

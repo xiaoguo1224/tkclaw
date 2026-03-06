@@ -1256,6 +1256,74 @@ async def lifespan(app: FastAPI):
             ))
             logger.info("自动迁移 29：已为 user_llm_keys 表添加 api_type 列")
 
+    # ── 迁移 30: 创建 workspace_tasks 表 ──
+    async with engine.begin() as conn:
+        tbl = await conn.execute(text(
+            "SELECT 1 FROM information_schema.tables WHERE table_name = 'workspace_tasks'"
+        ))
+        if not tbl.scalar():
+            await conn.execute(text("""
+                CREATE TABLE workspace_tasks (
+                    id VARCHAR(36) PRIMARY KEY,
+                    workspace_id VARCHAR(36) NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+                    title VARCHAR(256) NOT NULL,
+                    description TEXT,
+                    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                    priority VARCHAR(16) NOT NULL DEFAULT 'medium',
+                    assignee_instance_id VARCHAR(36) REFERENCES instances(id) ON DELETE SET NULL,
+                    created_by_instance_id VARCHAR(36) REFERENCES instances(id) ON DELETE SET NULL,
+                    estimated_value DOUBLE PRECISION,
+                    actual_value DOUBLE PRECISION,
+                    token_cost INTEGER,
+                    blocker_reason TEXT,
+                    completed_at TIMESTAMPTZ,
+                    archived_at TIMESTAMPTZ,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    deleted_at TIMESTAMPTZ
+                )
+            """))
+            await conn.execute(text(
+                "CREATE INDEX ix_workspace_tasks_workspace_id ON workspace_tasks (workspace_id)"
+            ))
+            await conn.execute(text(
+                "CREATE INDEX ix_workspace_tasks_status ON workspace_tasks (status)"
+            ))
+            await conn.execute(text(
+                "CREATE INDEX ix_workspace_tasks_assignee ON workspace_tasks (assignee_instance_id)"
+            ))
+            await conn.execute(text(
+                "CREATE INDEX ix_workspace_tasks_deleted_at ON workspace_tasks (deleted_at)"
+            ))
+            logger.info("自动迁移 30：已创建 workspace_tasks 表")
+
+    # ── 迁移 31: 创建 workspace_objectives 表 ──
+    async with engine.begin() as conn:
+        tbl = await conn.execute(text(
+            "SELECT 1 FROM information_schema.tables WHERE table_name = 'workspace_objectives'"
+        ))
+        if not tbl.scalar():
+            await conn.execute(text("""
+                CREATE TABLE workspace_objectives (
+                    id VARCHAR(36) PRIMARY KEY,
+                    workspace_id VARCHAR(36) NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+                    title VARCHAR(256) NOT NULL,
+                    description TEXT,
+                    progress DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+                    created_by VARCHAR(36) REFERENCES users(id) ON DELETE SET NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    deleted_at TIMESTAMPTZ
+                )
+            """))
+            await conn.execute(text(
+                "CREATE INDEX ix_workspace_objectives_workspace_id ON workspace_objectives (workspace_id)"
+            ))
+            await conn.execute(text(
+                "CREATE INDEX ix_workspace_objectives_deleted_at ON workspace_objectives (deleted_at)"
+            ))
+            logger.info("自动迁移 31：已创建 workspace_objectives 表")
+
     # ── 恢复卡在 deploying 状态的实例 ─────────────────
     # 后端重启（如 --reload）会杀死 asyncio.create_task 部署管道，
     # 实例可能永远卡在 deploying。启动时从 K8s 同步真实状态。

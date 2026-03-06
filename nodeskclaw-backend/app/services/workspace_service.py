@@ -11,12 +11,20 @@ from app.models.blackboard import Blackboard
 from app.models.instance import Instance
 from app.models.workspace import Workspace
 from app.models.workspace_member import WorkspaceMember, WorkspaceRole
+from app.models.workspace_objective import WorkspaceObjective
+from app.models.workspace_task import WorkspaceTask
 from app.schemas.workspace import (
     AddAgentRequest,
     AgentBrief,
     BlackboardInfo,
     BlackboardSectionPatch,
     BlackboardUpdate,
+    ObjectiveCreate,
+    ObjectiveInfo,
+    ObjectiveUpdate,
+    TaskCreate,
+    TaskInfo,
+    TaskUpdate,
     UpdateAgentRequest,
     WorkspaceCreate,
     WorkspaceInfo,
@@ -614,10 +622,24 @@ async def _send_welcome_message(workspace_id: str, inst: Instance) -> None:
 
 # ── Blackboard ───────────────────────────────────────
 
-def _bb_to_info(bb: Blackboard) -> BlackboardInfo:
-    return BlackboardInfo(
-        id=bb.id, workspace_id=bb.workspace_id,
-        content=bb.content, updated_at=bb.updated_at,
+def _task_to_info(t: WorkspaceTask, assignee_name: str | None = None) -> TaskInfo:
+    return TaskInfo(
+        id=t.id, workspace_id=t.workspace_id, title=t.title,
+        description=t.description, status=t.status, priority=t.priority,
+        assignee_instance_id=t.assignee_instance_id, assignee_name=assignee_name,
+        created_by_instance_id=t.created_by_instance_id,
+        estimated_value=t.estimated_value, actual_value=t.actual_value,
+        token_cost=t.token_cost, blocker_reason=t.blocker_reason,
+        completed_at=t.completed_at, archived_at=t.archived_at,
+        created_at=t.created_at, updated_at=t.updated_at,
+    )
+
+def _obj_to_info(o: WorkspaceObjective) -> ObjectiveInfo:
+    return ObjectiveInfo(
+        id=o.id, workspace_id=o.workspace_id, title=o.title,
+        description=o.description, progress=o.progress,
+        created_by=o.created_by,
+        created_at=o.created_at, updated_at=o.updated_at,
     )
 
 
@@ -628,7 +650,38 @@ async def get_blackboard(db: AsyncSession, workspace_id: str) -> BlackboardInfo 
     bb = result.scalar_one_or_none()
     if bb is None:
         return None
-    return _bb_to_info(bb)
+
+    task_rows = (await db.execute(
+        select(WorkspaceTask).where(
+            WorkspaceTask.workspace_id == workspace_id,
+            WorkspaceTask.deleted_at.is_(None),
+            WorkspaceTask.archived_at.is_(None),
+        ).order_by(WorkspaceTask.created_at.desc())
+    )).scalars().all()
+
+    instance_ids = {t.assignee_instance_id for t in task_rows if t.assignee_instance_id}
+    assignee_map: dict[str, str] = {}
+    if instance_ids:
+        insts = (await db.execute(
+            select(Instance.id, Instance.name).where(Instance.id.in_(instance_ids))
+        )).all()
+        assignee_map = {r.id: r.name for r in insts}
+
+    tasks = [_task_to_info(t, assignee_map.get(t.assignee_instance_id)) for t in task_rows]
+
+    obj_rows = (await db.execute(
+        select(WorkspaceObjective).where(
+            WorkspaceObjective.workspace_id == workspace_id,
+            WorkspaceObjective.deleted_at.is_(None),
+        ).order_by(WorkspaceObjective.created_at.desc())
+    )).scalars().all()
+    objectives = [_obj_to_info(o) for o in obj_rows]
+
+    return BlackboardInfo(
+        id=bb.id, workspace_id=bb.workspace_id,
+        content=bb.content, tasks=tasks, objectives=objectives,
+        updated_at=bb.updated_at,
+    )
 
 
 async def update_blackboard(db: AsyncSession, workspace_id: str, data: BlackboardUpdate) -> BlackboardInfo | None:
@@ -641,7 +694,11 @@ async def update_blackboard(db: AsyncSession, workspace_id: str, data: Blackboar
     bb.content = data.content
     await db.commit()
     await db.refresh(bb)
-    return _bb_to_info(bb)
+    return BlackboardInfo(
+        id=bb.id, workspace_id=bb.workspace_id,
+        content=bb.content, tasks=[], objectives=[],
+        updated_at=bb.updated_at,
+    )
 
 
 def _patch_section(markdown: str, section: str, new_content: str) -> str:
@@ -676,7 +733,198 @@ async def patch_blackboard_section(
     bb.content = _patch_section(bb.content, data.section, data.content)
     await db.commit()
     await db.refresh(bb)
-    return _bb_to_info(bb)
+    return BlackboardInfo(
+        id=bb.id, workspace_id=bb.workspace_id,
+        content=bb.content, tasks=[], objectives=[],
+        updated_at=bb.updated_at,
+    )
+
+
+# ── Tasks ────────────────────────────────────────────
+
+VALID_TASK_STATUSES = {"pending", "in_progress", "done", "blocked", "archived"}
+VALID_TASK_PRIORITIES = {"low", "medium", "high", "urgent"}
+
+
+async def list_tasks(
+    db: AsyncSession, workspace_id: str,
+    status: str | None = None, exclude_archived: bool = True,
+) -> list[TaskInfo]:
+    q = select(WorkspaceTask).where(
+        WorkspaceTask.workspace_id == workspace_id,
+        WorkspaceTask.deleted_at.is_(None),
+    )
+    if exclude_archived:
+        q = q.where(WorkspaceTask.archived_at.is_(None))
+    if status:
+        q = q.where(WorkspaceTask.status == status)
+    q = q.order_by(WorkspaceTask.created_at.desc())
+    rows = (await db.execute(q)).scalars().all()
+
+    instance_ids = {t.assignee_instance_id for t in rows if t.assignee_instance_id}
+    assignee_map: dict[str, str] = {}
+    if instance_ids:
+        insts = (await db.execute(
+            select(Instance.id, Instance.name).where(Instance.id.in_(instance_ids))
+        )).all()
+        assignee_map = {r.id: r.name for r in insts}
+
+    return [_task_to_info(t, assignee_map.get(t.assignee_instance_id)) for t in rows]
+
+
+async def create_task(
+    db: AsyncSession, workspace_id: str, data: TaskCreate,
+    created_by_instance_id: str | None = None,
+) -> TaskInfo:
+    task = WorkspaceTask(
+        workspace_id=workspace_id,
+        title=data.title,
+        description=data.description,
+        priority=data.priority if data.priority in VALID_TASK_PRIORITIES else "medium",
+        assignee_instance_id=data.assignee_id,
+        created_by_instance_id=created_by_instance_id,
+        estimated_value=data.estimated_value,
+    )
+    db.add(task)
+    await db.commit()
+    await db.refresh(task)
+
+    assignee_name = None
+    if task.assignee_instance_id:
+        inst = (await db.execute(
+            select(Instance.name).where(Instance.id == task.assignee_instance_id)
+        )).scalar_one_or_none()
+        assignee_name = inst
+    return _task_to_info(task, assignee_name)
+
+
+async def update_task(
+    db: AsyncSession, workspace_id: str, task_id: str, data: TaskUpdate,
+) -> TaskInfo | None:
+    from datetime import datetime, timezone as tz
+
+    result = await db.execute(
+        select(WorkspaceTask).where(
+            WorkspaceTask.id == task_id,
+            WorkspaceTask.workspace_id == workspace_id,
+            WorkspaceTask.deleted_at.is_(None),
+        )
+    )
+    task = result.scalar_one_or_none()
+    if task is None:
+        return None
+
+    old_status = task.status
+
+    if data.title is not None:
+        task.title = data.title
+    if data.description is not None:
+        task.description = data.description
+    if data.status is not None and data.status in VALID_TASK_STATUSES:
+        task.status = data.status
+        if data.status == "done" and task.completed_at is None:
+            task.completed_at = datetime.now(tz.utc)
+        if data.status == "archived" and task.archived_at is None:
+            task.archived_at = datetime.now(tz.utc)
+    if data.priority is not None and data.priority in VALID_TASK_PRIORITIES:
+        task.priority = data.priority
+    if data.assignee_id is not None:
+        task.assignee_instance_id = data.assignee_id
+    if data.estimated_value is not None:
+        task.estimated_value = data.estimated_value
+    if data.actual_value is not None:
+        task.actual_value = data.actual_value
+    if data.token_cost is not None:
+        task.token_cost = data.token_cost
+    if data.blocker_reason is not None:
+        task.blocker_reason = data.blocker_reason
+
+    await db.commit()
+    await db.refresh(task)
+
+    assignee_name = None
+    if task.assignee_instance_id:
+        inst = (await db.execute(
+            select(Instance.name).where(Instance.id == task.assignee_instance_id)
+        )).scalar_one_or_none()
+        assignee_name = inst
+
+    new_status = task.status
+    status_changed = old_status != new_status
+
+    info = _task_to_info(task, assignee_name)
+    return info, status_changed, old_status, new_status
+
+
+async def archive_task(db: AsyncSession, workspace_id: str, task_id: str) -> TaskInfo | None:
+    from datetime import datetime, timezone as tz
+
+    result = await db.execute(
+        select(WorkspaceTask).where(
+            WorkspaceTask.id == task_id,
+            WorkspaceTask.workspace_id == workspace_id,
+            WorkspaceTask.deleted_at.is_(None),
+        )
+    )
+    task = result.scalar_one_or_none()
+    if task is None:
+        return None
+    task.status = "archived"
+    task.archived_at = datetime.now(tz.utc)
+    await db.commit()
+    await db.refresh(task)
+    return _task_to_info(task)
+
+
+# ── Objectives ───────────────────────────────────────
+
+async def list_objectives(db: AsyncSession, workspace_id: str) -> list[ObjectiveInfo]:
+    rows = (await db.execute(
+        select(WorkspaceObjective).where(
+            WorkspaceObjective.workspace_id == workspace_id,
+            WorkspaceObjective.deleted_at.is_(None),
+        ).order_by(WorkspaceObjective.created_at.desc())
+    )).scalars().all()
+    return [_obj_to_info(o) for o in rows]
+
+
+async def create_objective(
+    db: AsyncSession, workspace_id: str, data: ObjectiveCreate, user_id: str | None = None,
+) -> ObjectiveInfo:
+    obj = WorkspaceObjective(
+        workspace_id=workspace_id,
+        title=data.title,
+        description=data.description,
+        created_by=user_id,
+    )
+    db.add(obj)
+    await db.commit()
+    await db.refresh(obj)
+    return _obj_to_info(obj)
+
+
+async def update_objective(
+    db: AsyncSession, workspace_id: str, objective_id: str, data: ObjectiveUpdate,
+) -> ObjectiveInfo | None:
+    result = await db.execute(
+        select(WorkspaceObjective).where(
+            WorkspaceObjective.id == objective_id,
+            WorkspaceObjective.workspace_id == workspace_id,
+            WorkspaceObjective.deleted_at.is_(None),
+        )
+    )
+    obj = result.scalar_one_or_none()
+    if obj is None:
+        return None
+    if data.title is not None:
+        obj.title = data.title
+    if data.description is not None:
+        obj.description = data.description
+    if data.progress is not None:
+        obj.progress = max(0.0, min(1.0, data.progress))
+    await db.commit()
+    await db.refresh(obj)
+    return _obj_to_info(obj)
 
 
 # ── Workspace Members ────────────────────────────────
