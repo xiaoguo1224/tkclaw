@@ -577,11 +577,11 @@ async def get_reachable_from_instance(
     user, org = org_ctx
     await _check_workspace(workspace_id, org, db)
     await wm_service.check_workspace_member(workspace_id, user, db)
-    instance = await db.get(Instance, instance_id)
-    if not instance or instance.hex_position_q is None:
+    hex_pos = await corridor_router.get_agent_hex_in_workspace(instance_id, workspace_id, db)
+    if hex_pos is None:
         return _ok({"reachable": []})
     endpoints = await corridor_router.get_reachable_endpoints(
-        workspace_id, instance.hex_position_q, instance.hex_position_r, db,
+        workspace_id, hex_pos[0], hex_pos[1], db,
     )
     return _ok({"reachable": [
         {

@@ -91,11 +91,15 @@ async def handle_collaboration_message(
             if target_inst:
                 from app.services import corridor_router
                 has_topo = await corridor_router.has_any_connections(workspace_id, db)
-                if has_topo and source_inst.hex_position_q is not None:
+                src_hex = await corridor_router.get_agent_hex_in_workspace(source_instance_id, workspace_id, db) if has_topo else None
+                if has_topo and src_hex is not None:
+                    tgt_hex = await corridor_router.get_agent_hex_in_workspace(target_inst.id, workspace_id, db)
+                    if tgt_hex is None:
+                        tgt_hex = (0, 0)
                     can = await corridor_router.can_reach(
                         workspace_id,
-                        source_inst.hex_position_q, source_inst.hex_position_r,
-                        target_inst.hex_position_q or 0, target_inst.hex_position_r or 0,
+                        src_hex[0], src_hex[1],
+                        tgt_hex[0], tgt_hex[1],
                         db,
                     )
                     if not can:
@@ -115,12 +119,13 @@ async def handle_collaboration_message(
             human_hex_id = target[6:]
             from app.services import corridor_router
             has_topo = await corridor_router.has_any_connections(workspace_id, db)
-            if has_topo and source_inst.hex_position_q is not None:
+            src_hex = await corridor_router.get_agent_hex_in_workspace(source_instance_id, workspace_id, db) if has_topo else None
+            if has_topo and src_hex is not None:
                 hh = await _get_human_hex(db, human_hex_id)
                 if hh:
                     can = await corridor_router.can_reach(
                         workspace_id,
-                        source_inst.hex_position_q, source_inst.hex_position_r,
+                        src_hex[0], src_hex[1],
                         hh.hex_q, hh.hex_r,
                         db,
                     )
@@ -136,10 +141,11 @@ async def handle_collaboration_message(
         elif target == "broadcast":
             from app.services import corridor_router
             has_topo = await corridor_router.has_any_connections(workspace_id, db)
-            if has_topo and source_inst.hex_position_q is not None:
+            src_hex = await corridor_router.get_agent_hex_in_workspace(source_instance_id, workspace_id, db) if has_topo else None
+            if has_topo and src_hex is not None:
                 endpoints = await corridor_router.get_reachable_endpoints(
                     workspace_id,
-                    source_inst.hex_position_q, source_inst.hex_position_r,
+                    src_hex[0], src_hex[1],
                     db,
                 )
                 reachable_ids = {ep.entity_id for ep in endpoints if ep.endpoint_type == "agent"}

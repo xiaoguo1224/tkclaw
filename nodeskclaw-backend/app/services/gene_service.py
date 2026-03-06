@@ -203,13 +203,14 @@ async def _notify_skill_learned_in_workspace(
             deliver_to_human,
             send_system_message_to_agents,
         )
-        from app.services.corridor_router import get_reachable_endpoints
+        from app.services.corridor_router import get_agent_hex_in_workspace, get_reachable_endpoints
+
+        hex_pos = await get_agent_hex_in_workspace(instance.id, workspace_id, db)
+        if hex_pos is None:
+            return
 
         reachable = await get_reachable_endpoints(
-            workspace_id,
-            instance.hex_position_q,
-            instance.hex_position_r,
-            db,
+            workspace_id, hex_pos[0], hex_pos[1], db,
         )
         if not reachable:
             return

@@ -119,16 +119,14 @@ async def submit_approval_request(
     if not has_topo:
         return _ok({"status": "no_topology", "message": "No corridor topology configured"})
 
-    from app.models.instance import Instance
-    inst_q = await db.execute(
-        select(Instance).where(Instance.id == body.agent_instance_id, not_deleted(Instance))
+    hex_pos = await corridor_router.get_agent_hex_in_workspace(
+        body.agent_instance_id, body.workspace_id, db,
     )
-    inst = inst_q.scalar_one_or_none()
-    if not inst or inst.hex_position_q is None:
+    if hex_pos is None:
         return _ok({"status": "agent_not_placed"})
 
     endpoints = await corridor_router.get_reachable_endpoints(
-        body.workspace_id, inst.hex_position_q, inst.hex_position_r, db,
+        body.workspace_id, hex_pos[0], hex_pos[1], db,
     )
     human_endpoints = [ep for ep in endpoints if ep.endpoint_type == "human"]
     if not human_endpoints:

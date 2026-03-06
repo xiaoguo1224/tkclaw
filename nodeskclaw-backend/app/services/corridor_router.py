@@ -170,6 +170,23 @@ async def get_reachable_endpoints(
     return endpoints
 
 
+async def get_agent_hex_in_workspace(
+    instance_id: str, workspace_id: str, db: AsyncSession,
+) -> tuple[int, int] | None:
+    """Get the workspace-specific hex position for an instance from workspace_agents."""
+    wa = await db.execute(
+        select(WorkspaceAgent.hex_q, WorkspaceAgent.hex_r)
+        .where(
+            WorkspaceAgent.instance_id == instance_id,
+            WorkspaceAgent.workspace_id == workspace_id,
+            not_deleted(WorkspaceAgent),
+        )
+        .limit(1)
+    )
+    row = wa.first()
+    return (row.hex_q, row.hex_r) if row else None
+
+
 async def get_blackboard_audience(
     workspace_id: str, db: AsyncSession
 ) -> list[ReachableEndpoint]:
@@ -197,7 +214,7 @@ async def can_reach(
                 continue
             visited.add(neighbor)
             node = hex_map.get(neighbor)
-            if node and node.node_type == "corridor":
+            if node and node.node_type in ("corridor", "blackboard"):
                 queue.append(neighbor)
 
     return False
