@@ -43,7 +43,7 @@ def _upload_file_sync(file_content: bytes, filename: str, content_type: str, wor
 def _get_presigned_url_sync(tos_key: str, expires: int = 3600) -> str:
     client = _get_client()
     out = client.pre_signed_url(
-        http_method="GET",
+        http_method=tos.HttpMethodType.Http_Method_Get,
         bucket=settings.TOS_BUCKET,
         key=tos_key,
         expires=expires,
