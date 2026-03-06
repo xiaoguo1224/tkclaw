@@ -617,7 +617,10 @@ def _inject_channel_config(
     plugins = config.setdefault("plugins", {})
     load = plugins.setdefault("load", {})
     paths = load.setdefault("paths", [])
-    plugin_path = f".openclaw/extensions/{CHANNEL_PLUGIN_DIR}"
+    old_relative = f".openclaw/extensions/{CHANNEL_PLUGIN_DIR}"
+    if old_relative in paths:
+        paths.remove(old_relative)
+    plugin_path = f"/root/.openclaw/extensions/{CHANNEL_PLUGIN_DIR}"
     if plugin_path not in paths:
         paths.append(plugin_path)
 
@@ -749,9 +752,10 @@ async def remove_workspace_channel_account(
             if not ws_accounts:
                 channels.pop("nodeskclaw", None)
                 paths = existing.get("plugins", {}).get("load", {}).get("paths", [])
-                plugin_path = f".openclaw/extensions/{CHANNEL_PLUGIN_DIR}"
-                if plugin_path in paths:
-                    paths.remove(plugin_path)
+                for p in (f"/root/.openclaw/extensions/{CHANNEL_PLUGIN_DIR}",
+                          f".openclaw/extensions/{CHANNEL_PLUGIN_DIR}"):
+                    if p in paths:
+                        paths.remove(p)
                 existing.get("plugins", {}).get("entries", {}).pop("nodeskclaw", None)
 
             await _write_config_file(fs, existing)
@@ -780,9 +784,10 @@ async def remove_nodeskclaw_channel_plugin(
             channels.pop("nodeskclaw", None)
 
             paths = existing.get("plugins", {}).get("load", {}).get("paths", [])
-            plugin_path = f".openclaw/extensions/{CHANNEL_PLUGIN_DIR}"
-            if plugin_path in paths:
-                paths.remove(plugin_path)
+            for p in (f"/root/.openclaw/extensions/{CHANNEL_PLUGIN_DIR}",
+                      f".openclaw/extensions/{CHANNEL_PLUGIN_DIR}"):
+                if p in paths:
+                    paths.remove(p)
 
             existing.get("plugins", {}).get("entries", {}).pop("nodeskclaw", None)
 
@@ -853,7 +858,10 @@ def _inject_learning_channel_config(
     plugins = config.setdefault("plugins", {})
     load = plugins.setdefault("load", {})
     paths = load.setdefault("paths", [])
-    plugin_path = f".openclaw/extensions/{LEARNING_PLUGIN_DIR}"
+    old_relative = f".openclaw/extensions/{LEARNING_PLUGIN_DIR}"
+    if old_relative in paths:
+        paths.remove(old_relative)
+    plugin_path = f"/root/.openclaw/extensions/{LEARNING_PLUGIN_DIR}"
     if plugin_path not in paths:
         paths.append(plugin_path)
 

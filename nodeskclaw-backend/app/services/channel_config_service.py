@@ -479,7 +479,10 @@ async def deploy_repo_channel(
         plugins = config.setdefault("plugins", {})
         load = plugins.setdefault("load", {})
         paths: list = load.setdefault("paths", [])
-        plugin_path = f".openclaw/extensions/{dir_name}"
+        old_relative = f".openclaw/extensions/{dir_name}"
+        if old_relative in paths:
+            paths.remove(old_relative)
+        plugin_path = f"/root/.openclaw/extensions/{dir_name}"
         if plugin_path not in paths:
             paths.append(plugin_path)
 
@@ -550,7 +553,10 @@ async def upload_channel_plugin(
         plugins = config.setdefault("plugins", {})
         load = plugins.setdefault("load", {})
         paths: list = load.setdefault("paths", [])
-        plugin_path = f".openclaw/extensions/{plugin_id}"
+        old_relative = f".openclaw/extensions/{plugin_id}"
+        if old_relative in paths:
+            paths.remove(old_relative)
+        plugin_path = f"/root/.openclaw/extensions/{plugin_id}"
         if plugin_path not in paths:
             paths.append(plugin_path)
 
