@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from app.services.runtime.messaging.envelope import MessageEnvelope
 from app.services.runtime.messaging.middlewares.audit import AuditMiddleware
 from app.services.runtime.messaging.middlewares.circuit_breaker import CircuitBreakerMiddleware
+from app.services.runtime.messaging.middlewares.content_filter import ContentFilterMiddleware
 from app.services.runtime.messaging.middlewares.metrics import MetricsMiddleware
 from app.services.runtime.messaging.middlewares.rate_limit import RateLimitMiddleware
 from app.services.runtime.messaging.middlewares.routing import RoutingMiddleware
@@ -27,6 +28,7 @@ class MessageBus:
         self._pipeline = MessagePipeline()
         self._pipeline.use(MetricsMiddleware())
         self._pipeline.use(ValidationMiddleware())
+        self._pipeline.use(ContentFilterMiddleware())
         self._pipeline.use(RateLimitMiddleware())
         self._pipeline.use(SemanticMiddleware())
         self._pipeline.use(RoutingMiddleware())

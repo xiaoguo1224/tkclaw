@@ -103,7 +103,16 @@ async def ack(db: AsyncSession, item_id: str) -> None:
     )
 
 
+NO_RETRY_ERRORS = frozenset({
+    "node_card_not_found",
+    "instance_not_found",
+    "workspace_isolation_violation",
+})
+
+
 async def nack(db: AsyncSession, item_id: str, error: str = "") -> None:
+    import random
+
     result = await db.execute(
         select(MessageQueueItem).where(MessageQueueItem.id == item_id)
     )
@@ -111,7 +120,9 @@ async def nack(db: AsyncSession, item_id: str, error: str = "") -> None:
     if item is None:
         return
 
-    if item.attempt_count >= item.max_attempts:
+    skip_retry = error in NO_RETRY_ERRORS
+
+    if skip_retry or item.attempt_count >= item.max_attempts:
         item.status = "dead_letter"
         item.error_message = error
 
@@ -123,11 +134,16 @@ async def nack(db: AsyncSession, item_id: str, error: str = "") -> None:
             attempt_count=item.attempt_count,
             last_error=error,
             envelope=item.envelope,
+            recoverable=error not in NO_RETRY_ERRORS,
         )
         db.add(dl)
-        logger.warning("Message %s moved to dead letter after %d attempts", item.id, item.attempt_count)
+        logger.warning(
+            "Message %s moved to dead letter after %d attempts (error=%s, recoverable=%s)",
+            item.id, item.attempt_count, error, dl.recoverable,
+        )
     else:
-        delay = INITIAL_RETRY_DELAY_S * (BACKOFF_FACTOR ** (item.attempt_count - 1))
+        jitter_factor = 1 + random.uniform(-JITTER, JITTER)
+        delay = INITIAL_RETRY_DELAY_S * (BACKOFF_FACTOR ** (item.attempt_count - 1)) * jitter_factor
         item.status = "retrying"
         item.next_retry_at = datetime.now(timezone.utc) + timedelta(seconds=delay)
         item.error_message = error
