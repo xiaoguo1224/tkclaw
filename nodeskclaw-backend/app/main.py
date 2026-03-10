@@ -1139,6 +1139,20 @@ async def lifespan(app: FastAPI):
             ))
             logger.info("自动迁移：已为 instances 表添加 agent_label 列")
 
+        # ── 迁移: instances 表新增 compute_provider / runtime 列（Runtime v2）──
+        col = (await conn.execute(text(
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_name = 'instances' AND column_name = 'compute_provider'"
+        ))).first()
+        if col is None:
+            await conn.execute(text(
+                "ALTER TABLE instances ADD COLUMN compute_provider VARCHAR(32) NOT NULL DEFAULT 'k8s'"
+            ))
+            await conn.execute(text(
+                "ALTER TABLE instances ADD COLUMN runtime VARCHAR(32) NOT NULL DEFAULT 'openclaw'"
+            ))
+            logger.info("自动迁移：已为 instances 表添加 compute_provider / runtime 列")
+
     # ── 迁移 24: 为已有实例补建 InstanceMember 记录 ──
     async with engine.begin() as conn:
         await conn.execute(text("""
@@ -1555,11 +1569,13 @@ async def lifespan(app: FastAPI):
 
     # ── Runtime Platform v2 Startup ──────────────────
     _pg_notify_service = None
+    import asyncio
+
     _heartbeat_task = None
     try:
         if os.environ.get("OTEL_ENABLED", "").lower() in ("1", "true"):
             from app.services.runtime.telemetry import init_telemetry
-            init_telemetry(service_name=settings.APP_NAME)
+            init_telemetry()
             logger.info("Runtime v2: OpenTelemetry 已初始化")
 
         async with async_session_factory() as _v2_db:
@@ -1630,7 +1646,7 @@ async def lifespan(app: FastAPI):
             _raw_conn = None
 
         from app.services.runtime.failure_recovery import run_heartbeat_scanner
-        _heartbeat_task = asyncio.create_task(run_heartbeat_scanner(engine))
+        _heartbeat_task = asyncio.create_task(run_heartbeat_scanner(async_session_factory))
         logger.info("Runtime v2: SSE 心跳扫描已启动")
 
         from app.services.runtime.messaging.queue_consumer import start_consumer
@@ -1640,9 +1656,9 @@ async def lifespan(app: FastAPI):
         async with async_session_factory() as _mig_db:
             from app.services.runtime.migration import run_full_migration
             migrated = await run_full_migration(_mig_db)
-            if migrated > 0:
-                await _mig_db.commit()
-                logger.info("Runtime v2: 数据迁移完成，迁移了 %d 条记录", migrated)
+            total = sum(migrated.values()) if migrated else 0
+            if total > 0:
+                logger.info("Runtime v2: 数据迁移完成 %s", migrated)
     except Exception as e:
         logger.warning("Runtime v2 启动部分失败（非致命）: %s", e)
 
@@ -1668,7 +1684,7 @@ async def lifespan(app: FastAPI):
         except Exception:
             pass
         from app.services.runtime.failure_recovery import shutdown_cleanup
-        await shutdown_cleanup(engine)
+        await shutdown_cleanup(async_session_factory)
         logger.info("Runtime v2: 已清理")
     except Exception as e:
         logger.warning("Runtime v2 关闭部分失败: %s", e)
