@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 async def migrate_workspace_agents(db: AsyncSession) -> int:
     """Migrate WorkspaceAgent records to NodeCard(node_type='agent')."""
-    from app.models.workspace import WorkspaceAgent
+    from app.models.workspace_agent import WorkspaceAgent
 
     result = await db.execute(
         select(WorkspaceAgent).where(not_deleted(WorkspaceAgent))
