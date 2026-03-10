@@ -3,17 +3,91 @@
 import json
 import logging
 import os
+import secrets
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 
 async def run_seed(session_factory: async_sessionmaker[AsyncSession], *, is_ee: bool = False) -> None:
+    await _seed_initial_admin(session_factory)
     await _seed_default_org_and_templates(session_factory, is_ee=is_ee)
     await _ensure_admin_memberships(session_factory)
     await _ensure_workspace_schedules(session_factory)
+
+
+async def _seed_initial_admin(session_factory: async_sessionmaker[AsyncSession]) -> None:
+    account = settings.INIT_ADMIN_ACCOUNT.strip()
+    if not account:
+        return
+
+    from app.models.org_membership import OrgMembership, OrgRole
+    from app.models.organization import Organization
+    from app.models.user import User, UserRole
+    from app.services.auth_service import _hash_password
+
+    async with session_factory() as db:
+        result = await db.execute(
+            select(User).where(User.username == account, User.deleted_at.is_(None))
+        )
+        admin = result.scalar_one_or_none()
+
+        plain_password: str | None = None
+
+        if admin is None:
+            plain_password = secrets.token_urlsafe(9)
+            admin = User(
+                name="Admin",
+                username=account,
+                role=UserRole.admin,
+                is_super_admin=True,
+                is_active=True,
+                must_change_password=True,
+                password_hash=_hash_password(plain_password),
+            )
+            db.add(admin)
+            await db.flush()
+
+            org_result = await db.execute(
+                select(Organization).where(Organization.deleted_at.is_(None)).limit(1)
+            )
+            default_org = org_result.scalar_one_or_none()
+            if default_org is not None:
+                admin.current_org_id = default_org.id
+                db.add(OrgMembership(
+                    user_id=admin.id, org_id=default_org.id, role=OrgRole.admin,
+                ))
+
+            await db.commit()
+            logger.info("种子数据：已创建 CE 超管用户 [%s]", account)
+
+        elif settings.RESET_ADMIN_PASSWORD:
+            plain_password = secrets.token_urlsafe(9)
+            admin.password_hash = _hash_password(plain_password)
+            admin.must_change_password = True
+            await db.commit()
+            logger.info("种子数据：已重置超管 [%s] 密码（RESET_ADMIN_PASSWORD=True）", account)
+
+        elif admin.must_change_password:
+            plain_password = secrets.token_urlsafe(9)
+            admin.password_hash = _hash_password(plain_password)
+            await db.commit()
+            logger.info("种子数据：超管 [%s] 尚未改密，已重新生成随机密码", account)
+
+        if plain_password:
+            print(
+                "\n"
+                "========================================\n"
+                "  CE 超级管理员初始密码\n"
+                f"  账号: {account}\n"
+                f"  密码: {plain_password}\n"
+                "  请登录后立即修改密码\n"
+                "========================================\n"
+            )
 
 
 async def _seed_default_org_and_templates(
