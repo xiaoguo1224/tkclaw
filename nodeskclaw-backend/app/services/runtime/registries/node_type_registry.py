@@ -128,6 +128,7 @@ NODE_TYPE_REGISTRY.register(NodeTypeDefinitionSpec(
     consumes=True,
     is_addressable=True,
     can_originate=True,
+    hooks=["on_message_received"],
     description="AI agent node backed by a runtime (OpenClaw, ClaudeCode, etc.)",
 ))
 
@@ -139,6 +140,7 @@ NODE_TYPE_REGISTRY.register(NodeTypeDefinitionSpec(
     consumes=True,
     is_addressable=True,
     can_originate=True,
+    hooks=["on_message_received"],
     description="Human operator node connected via a channel (SSE, Feishu, etc.)",
 ))
 
@@ -156,8 +158,9 @@ NODE_TYPE_REGISTRY.register(NodeTypeDefinitionSpec(
     type_id="blackboard",
     routing_role=RoutingRole.SENSOR,
     propagates=True,
-    consumes=True,
+    consumes=False,
     is_addressable=True,
     can_originate=True,
+    hooks=["on_message_passing"],
     description="Shared blackboard node providing workspace-wide context.",
 ))

@@ -1581,18 +1581,26 @@ async def lifespan(app: FastAPI):
             try:
                 import json as _json
                 data = _json.loads(payload) if payload else {}
-                ws_id = data.get("workspace_id", "")
+                ws_id = data.get("workspace_id", "") if isinstance(data, dict) else str(data)
                 if ws_id:
                     route_table.invalidate(ws_id)
-                    broadcast_event(ws_id, "topology:changed", data)
+                    broadcast_event(ws_id, "topology:changed", {"workspace_id": ws_id})
                 else:
                     route_table.invalidate_all()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("_on_topology_changed handler failed: %s (payload=%s)", e, payload[:100] if payload else "")
+                route_table.invalidate_all()
 
         _pg_notify_service.subscribe("topology_changed", _on_topology_changed)
-        await _pg_notify_service.start_listening(engine)
-        logger.info("Runtime v2: PG LISTEN/NOTIFY 已启动")
+        _pg_notify_channels = ["topology_changed"]
+        try:
+            _raw_conn = await engine.raw_connection()
+            _asyncpg_conn = _raw_conn.connection._connection
+            await _pg_notify_service.start_listening(_asyncpg_conn, _pg_notify_channels)
+            logger.info("Runtime v2: PG LISTEN/NOTIFY 已启动 (channels=%s)", _pg_notify_channels)
+        except Exception as e:
+            logger.warning("Runtime v2: PG LISTEN/NOTIFY 启动失败（非致命）: %s", e)
+            _raw_conn = None
 
         from app.services.runtime.failure_recovery import run_heartbeat_scanner
         _heartbeat_task = asyncio.create_task(run_heartbeat_scanner(engine))

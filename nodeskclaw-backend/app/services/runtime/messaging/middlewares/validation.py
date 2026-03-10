@@ -36,10 +36,10 @@ class ValidationMiddleware(MessageMiddleware):
                 return
 
             from app.services.runtime.security import check_workspace_isolation
-            isolation_ok = await check_workspace_isolation(
-                envelope.workspaceid,
-                envelope.data.sender.id if envelope.data.sender else "",
+            isolation_ok, _reason = await check_workspace_isolation(
                 db,
+                envelope.workspaceid,
+                [envelope.data.sender.id] if envelope.data.sender else [],
             )
             if not isolation_ok:
                 logger.warning(

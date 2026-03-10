@@ -50,7 +50,7 @@ class PGNotifyService:
 
     @staticmethod
     async def notify_topology_changed(db: AsyncSession, workspace_id: str) -> None:
-        await PGNotifyService.notify(db, "topology_changed", workspace_id)
+        await PGNotifyService.notify(db, "topology_changed", json.dumps({"workspace_id": workspace_id}))
 
     @staticmethod
     async def notify_sse_push(

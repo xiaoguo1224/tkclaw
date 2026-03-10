@@ -68,6 +68,21 @@ class TransportMiddleware(MessageMiddleware):
                 elif isinstance(r, DeliveryResult):
                     ctx.delivery_results.append(r)
 
+        if ctx.db:
+            from app.services.runtime.messaging.middlewares.circuit_breaker import (
+                record_failure,
+                record_success,
+            )
+            for r in ctx.delivery_results:
+                try:
+                    if r.success:
+                        await record_success(ctx.db, r.target_node_id, ctx.workspace_id)
+                    else:
+                        await record_failure(ctx.db, r.target_node_id, ctx.workspace_id)
+                except Exception as e:
+                    logger.warning("Failed to update circuit state for %s: %s", r.target_node_id, e)
+            await ctx.db.flush()
+
         failed = [r for r in ctx.delivery_results if not r.success]
         if failed:
             await self._handle_failures(ctx, failed)
