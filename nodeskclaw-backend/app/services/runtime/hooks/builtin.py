@@ -21,6 +21,36 @@ async def _on_node_join(**kwargs) -> None:
         node_type, node_id, workspace_id,
     )
 
+    if node_id and workspace_id:
+        try:
+            from app.core.deps import async_session_factory
+            from app.services.runtime.messaging.queue import dequeue
+
+            async with async_session_factory() as db:
+                pending = await dequeue(db, target_node_id=node_id, batch_size=50)
+                if pending:
+                    logger.info(
+                        "Replaying %d offline messages for node %s",
+                        len(pending), node_id,
+                    )
+                    from app.services.runtime.messaging.bus import message_bus
+                    from app.services.runtime.messaging.envelope import MessageEnvelope
+
+                    for item in pending:
+                        try:
+                            envelope = MessageEnvelope.from_dict(item.envelope)
+                            envelope.data.extensions["offline_replay"] = True
+                            await message_bus.publish(envelope, db=db)
+                            from app.services.runtime.messaging.queue import ack
+                            await ack(db, item.id)
+                        except Exception as e:
+                            logger.warning("Failed to replay message %s: %s", item.id, e)
+                            from app.services.runtime.messaging.queue import nack
+                            await nack(db, item.id, str(e))
+                    await db.commit()
+        except Exception as e:
+            logger.warning("Offline message replay failed for %s: %s", node_id, e)
+
 
 async def _on_node_leave(**kwargs) -> None:
     node_id = kwargs.get("node_id", "")

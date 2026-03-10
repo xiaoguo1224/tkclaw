@@ -1577,12 +1577,16 @@ async def lifespan(app: FastAPI):
 
         async def _on_topology_changed(channel: str, payload: str):
             from app.api.workspaces import broadcast_event
+            from app.services.runtime.route_cache import route_table
             try:
                 import json as _json
                 data = _json.loads(payload) if payload else {}
                 ws_id = data.get("workspace_id", "")
                 if ws_id:
+                    route_table.invalidate(ws_id)
                     broadcast_event(ws_id, "topology:changed", data)
+                else:
+                    route_table.invalidate_all()
             except Exception:
                 pass
 
