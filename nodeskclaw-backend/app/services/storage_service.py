@@ -30,7 +30,9 @@ def _get_client() -> tos.TosClientV2:
 
 def _upload_file_sync(file_content: bytes, filename: str, content_type: str, workspace_id: str) -> str:
     client = _get_client()
-    key = f"workspace-files/{workspace_id}/{uuid.uuid4().hex}/{filename}"
+    prefix = settings.TOS_KEY_PREFIX.strip("/")
+    base = f"workspace-files/{workspace_id}/{uuid.uuid4().hex}/{filename}"
+    key = f"{prefix}/{base}" if prefix else base
     client.put_object(
         bucket=settings.TOS_BUCKET,
         key=key,

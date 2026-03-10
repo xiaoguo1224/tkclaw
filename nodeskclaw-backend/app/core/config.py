@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     TOS_BUCKET: str = ""
     TOS_ACCESS_KEY_ID: str = ""
     TOS_SECRET_ACCESS_KEY: str = ""
+    TOS_KEY_PREFIX: str = ""
 
     # ── CORS ─────────────────────────────────────────────
     CORS_ORIGINS: list[str] = ["http://localhost:5173"]
