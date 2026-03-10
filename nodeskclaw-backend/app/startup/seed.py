@@ -44,11 +44,16 @@ async def _seed_initial_admin(
 
         plain_password: str | None = None
 
+        if admin is not None and not admin.email:
+            admin.email = "admin@deskclaw.com"
+            await db.commit()
+
         if admin is None:
             plain_password = secrets.token_urlsafe(9)
             admin = User(
                 name="Admin",
                 username=account,
+                email="admin@deskclaw.com",
                 role=UserRole.admin,
                 is_super_admin=True,
                 is_active=True,
