@@ -52,6 +52,27 @@ Runtime auto-detection via `FeatureGate` -- if `ee/` exists it runs as EE, other
 
 ## Architecture
 
+```mermaid
+graph TD
+    Human["Human Operators"] --> Portal["Portal (CE + EE)"]
+    Human --> AdminUI["Admin Console (EE)"]
+    Portal --> API["Backend API Hub<br>Python 3.12 + FastAPI"]
+    AdminUI --> API
+
+    API --> DB[(PostgreSQL)]
+    API --> CW["Cyber Workspace<br>Blackboard / Topology / Delegation"]
+    API --> Gene["Gene System<br>Public + Enterprise Marketplace"]
+    API --> Compute["K8s / Docker"]
+
+    Compute --> Runtime["AI Runtime<br>OpenClaw / ZeroClaw / Nanobot"]
+    Runtime <-->|"Channel Plugin (SSE)"| API
+    Runtime --> LLM["LLM Proxy"] --> Providers["OpenAI / Anthropic / Gemini / ..."]
+
+    AIPartners["AI Operating Partners"] -.->|"co-operate"| CW
+```
+
+### Project Layout
+
 ```
 DeskClaw/
 ├── nodeskclaw-portal/             # User Portal -- Vue 3 + Tailwind CSS (CE + EE)

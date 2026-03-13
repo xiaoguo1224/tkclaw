@@ -50,7 +50,28 @@ DeskClaw 是人与 AI 共同经营组织的平台。通过赛博办公室（Cybe
 
 **技术实现**：后端 Factory 抽象层 + Hook 事件总线；前端 Stub + Vite Alias Override。
 
-## 项目结构
+## 技术架构
+
+```mermaid
+graph TD
+    Human["人类经营者"] --> Portal["用户门户 (CE + EE)"]
+    Human --> AdminUI["管理后台 (EE)"]
+    Portal --> API["后端 API 中枢<br>Python 3.12 + FastAPI"]
+    AdminUI --> API
+
+    API --> DB[(PostgreSQL)]
+    API --> CW["赛博办公室<br>黑板 / 拓扑 / 任务委派"]
+    API --> Gene["基因系统<br>公共市场 + 企业私有库"]
+    API --> Compute["K8s / Docker"]
+
+    Compute --> Runtime["AI 运行时<br>OpenClaw / ZeroClaw / Nanobot"]
+    Runtime <-->|"经营通道 (SSE)"| API
+    Runtime --> LLM["LLM 代理"] --> Providers["OpenAI / Anthropic / Gemini / ..."]
+
+    AIPartners["AI 经营伙伴"] -.->|"共同经营"| CW
+```
+
+### 项目结构
 
 ```
 DeskClaw/
