@@ -312,6 +312,7 @@ watch(slug, () => {
 
 watch(selectedRuntime, () => {
   selectedImage.value = ''
+  imageDropdownOpen.value = false
   fetchImageTags()
 })
 
@@ -552,12 +553,12 @@ async function handleDeploy() {
             <label class="text-sm font-medium">{{ t('engine.title') }}</label>
           </div>
           <p class="text-xs text-muted-foreground">{{ t('engine.subtitle') }}</p>
-          <div class="grid gap-3" :class="engines.length >= 3 ? 'grid-cols-3' : `grid-cols-${engines.length}`">
-            <button
+          <div class="grid gap-3 items-start" :class="engines.length >= 3 ? 'grid-cols-3' : `grid-cols-${engines.length}`">
+            <div
               v-for="eng in engines"
               :key="eng.runtime_id"
               :class="[
-                'relative p-4 rounded-xl border text-left transition-all',
+                'relative p-4 rounded-xl border text-left transition-all cursor-pointer',
                 selectedRuntime === eng.runtime_id
                   ? 'border-primary bg-primary/5 ring-1 ring-primary/30'
                   : 'border-border bg-card hover:border-primary/20',
@@ -578,55 +579,54 @@ async function handleDeploy() {
               </div>
               <div class="text-xs text-muted-foreground mt-1.5 leading-relaxed">{{ eng.display_description }}</div>
               <div class="text-[10px] text-muted-foreground/60 mt-2">{{ t('engine.poweredBy') }} {{ eng.display_powered_by }}</div>
-            </button>
-          </div>
-        </div>
 
-        <!-- 镜像版本 -->
-        <div class="space-y-2">
-          <div class="flex items-center justify-between">
-            <label class="text-sm font-medium">镜像版本</label>
-            <button
-              class="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              :disabled="loadingTags"
-              @click="fetchImageTags"
-            >
-              <RefreshCw class="w-3 h-3" :class="loadingTags ? 'animate-spin' : ''" />
-              刷新
-            </button>
-          </div>
-          <div v-if="imageTags.length > 0" class="relative">
-            <button
-              class="w-full flex items-center justify-between px-4 py-2.5 rounded-lg bg-card border border-border text-sm hover:border-primary/50 transition-colors text-left"
-              @click="imageDropdownOpen = !imageDropdownOpen"
-            >
-              <span class="font-mono">{{ selectedImage || '选择版本' }}</span>
-              <ChevronDown class="w-4 h-4 text-muted-foreground transition-transform" :class="imageDropdownOpen ? 'rotate-180' : ''" />
-            </button>
-            <div
-              v-if="imageDropdownOpen"
-              class="absolute z-10 mt-1 w-full max-h-48 overflow-y-auto rounded-lg border border-border bg-card shadow-lg"
-            >
-              <button
-                v-for="tag in imageTags"
-                :key="tag"
-                class="w-full px-4 py-2 text-left text-sm font-mono hover:bg-accent transition-colors"
-                :class="tag === selectedImage ? 'text-primary bg-primary/5' : 'text-foreground'"
-                @click="selectImage(tag)"
-              >
-                {{ tag }}
-                <span v-if="tag === imageTags[0]" class="ml-2 text-[10px] font-sans text-muted-foreground">(最新)</span>
-              </button>
+              <div v-if="selectedRuntime === eng.runtime_id" class="border-t border-border mt-3 pt-3" @click.stop>
+                <div class="flex items-center justify-between mb-1.5">
+                  <span class="text-xs font-medium text-muted-foreground">镜像版本</span>
+                  <button
+                    class="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    :disabled="loadingTags"
+                    @click="fetchImageTags"
+                  >
+                    <RefreshCw class="w-3 h-3" :class="loadingTags ? 'animate-spin' : ''" />
+                    刷新
+                  </button>
+                </div>
+                <div v-if="imageTags.length > 0" class="relative">
+                  <button
+                    class="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-card border border-border text-sm hover:border-primary/50 transition-colors text-left"
+                    @click="imageDropdownOpen = !imageDropdownOpen"
+                  >
+                    <span class="font-mono text-xs">{{ selectedImage || '选择版本' }}</span>
+                    <ChevronDown class="w-3.5 h-3.5 text-muted-foreground transition-transform" :class="imageDropdownOpen ? 'rotate-180' : ''" />
+                  </button>
+                  <div
+                    v-if="imageDropdownOpen"
+                    class="absolute z-10 mt-1 w-full max-h-48 overflow-y-auto rounded-lg border border-border bg-card shadow-lg"
+                  >
+                    <button
+                      v-for="tag in imageTags"
+                      :key="tag"
+                      class="w-full px-3 py-1.5 text-left text-xs font-mono hover:bg-accent transition-colors"
+                      :class="tag === selectedImage ? 'text-primary bg-primary/5' : 'text-foreground'"
+                      @click="selectImage(tag)"
+                    >
+                      {{ tag }}
+                      <span v-if="tag === imageTags[0]" class="ml-2 text-[10px] font-sans text-muted-foreground">(最新)</span>
+                    </button>
+                  </div>
+                </div>
+                <div v-else>
+                  <input
+                    v-model="selectedImage"
+                    type="text"
+                    :placeholder="loadingTags ? '加载中...' : '手动输入版本号'"
+                    class="w-full px-3 py-2 rounded-lg bg-card border border-border text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors"
+                  />
+                  <p class="text-[10px] text-muted-foreground mt-1">未获取到镜像仓库 Tag，请手动输入</p>
+                </div>
+              </div>
             </div>
-          </div>
-          <div v-else>
-            <input
-              v-model="selectedImage"
-              type="text"
-              :placeholder="loadingTags ? '加载中...' : '手动输入版本号'"
-              class="w-full px-4 py-2.5 rounded-lg bg-card border border-border text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors"
-            />
-            <p class="text-xs text-muted-foreground mt-1">未获取到镜像仓库 Tag，请手动输入</p>
           </div>
         </div>
 
