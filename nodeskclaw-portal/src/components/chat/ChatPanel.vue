@@ -336,7 +336,7 @@ async function sendMessage() {
     return
   }
 
-  const slashMatch = text.match(/^\/([a-zA-Z]+)(?:\s|$)/)
+  const slashMatch = text.match(/^\/([a-zA-Z]\w*)(?![/])/)
   if (slashMatch) {
     const cmd = slashMatch[1].toLowerCase()
     const arg = text.slice(slashMatch[0].length).trim().replace(/^@/, '')
