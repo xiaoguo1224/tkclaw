@@ -253,6 +253,34 @@ export class TunnelClient {
       ? `workspace:${msg.payload.workspace_id}`
       : undefined;
 
+    if (msg.payload.no_reply === true) {
+      fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${this.token}`,
+          ...(sessionKey ? { "X-OpenClaw-Session-Key": sessionKey } : {}),
+        },
+        body: JSON.stringify({
+          model: "gpt-4",
+          messages,
+          stream: false,
+          max_tokens: 1,
+        }),
+      }).catch((e) => {
+        console.debug("[tunnel] no_reply context injection failed:", e);
+      });
+      this.send({
+        id: crypto.randomUUID(),
+        type: "chat.response.done",
+        replyTo: msg.id,
+        traceId: msg.traceId,
+        payload: {},
+        ts: Date.now(),
+      });
+      return;
+    }
+
     try {
       const resp = await fetch(url, {
         method: "POST",
