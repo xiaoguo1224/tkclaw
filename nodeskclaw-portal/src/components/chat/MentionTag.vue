@@ -48,7 +48,7 @@ onUnmounted(() => {
       @click.stop.prevent="deleteNode"
     >
       <X class="tag-icon-x" :class="{ visible: hovered }" />
-      <Users v-if="node.attrs.id === 'all'" class="tag-icon-bot" :class="{ visible: !hovered }" />
+      <Users v-if="node.attrs.id === '__all__'" class="tag-icon-bot" :class="{ visible: !hovered }" />
       <Bot v-else class="tag-icon-bot" :class="{ visible: !hovered }" />
     </button>
     <span class="tag-label">{{ node.attrs.label }}</span>

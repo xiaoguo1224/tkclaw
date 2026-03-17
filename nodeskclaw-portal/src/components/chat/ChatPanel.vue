@@ -417,9 +417,9 @@ const editor = useEditor({
         items: ({ query }: { query: string }) => {
           const q = query.toLowerCase()
           const allItem = {
-            id: 'all',
+            id: '__all__',
             label: t('chat.mentionAll'),
-            sublabel: '',
+            sublabel: t('chat.mentionAllHint'),
             status: '',
             slug: '',
           }
@@ -786,13 +786,13 @@ function updateSuggestionIndex(state: SuggestionState, idx: number) {
               @mousedown.prevent="selectSuggestionItem(mentionState!, item)"
               @mouseenter="updateSuggestionIndex(mentionState!, idx)"
             >
-              <Users v-if="item.id === 'all'" class="w-4 h-4 shrink-0 text-primary" />
+              <Users v-if="item.id === '__all__'" class="w-4 h-4 shrink-0 text-primary" />
               <Bot v-else class="w-4 h-4 shrink-0" :style="{ color: getAgentColor(item.id) }" />
               <div class="flex flex-col min-w-0 flex-1">
                 <span class="font-medium truncate">{{ item.label }}</span>
                 <span v-if="item.sublabel" class="text-[10px] text-muted-foreground truncate">{{ item.sublabel }}</span>
               </div>
-              <span class="text-xs text-muted-foreground ml-auto shrink-0">{{ item.status }}</span>
+              <span class="text-xs text-muted-foreground ml-auto shrink-0">{{ item.slug || item.status }}</span>
             </button>
           </div>
         </div>

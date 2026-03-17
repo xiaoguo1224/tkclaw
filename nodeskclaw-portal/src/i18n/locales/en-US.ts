@@ -468,6 +468,7 @@ const enUS = {
     emptyHint: "{'@'} mention an AI Employee to chat, {'@'}Everyone to broadcast",
     inputPlaceholder: "Type a message, {'@'} to mention, / for commands",
     mentionAll: "Everyone",
+    mentionAllHint: "Broadcast to all AI Employees",
     mentionTitle: "Mention",
     slugCopied: "AI Employee slug copied",
     cmdStatusLabel: "Show all AI Employee statuses",

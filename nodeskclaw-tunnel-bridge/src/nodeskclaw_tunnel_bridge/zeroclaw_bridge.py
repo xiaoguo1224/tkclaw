@@ -84,14 +84,7 @@ class ZeroClawBridge:
 
 
 def _messages_to_prompt(messages: list[dict[str, Any]]) -> str:
-    """Extract the last user message content, or concatenate all messages."""
-    for msg in reversed(messages):
-        if msg.get("role") == "user":
-            return msg.get("content", "")
-    parts = []
-    for msg in messages:
-        role = msg.get("role", "unknown")
-        content = msg.get("content", "")
-        if content:
-            parts.append(f"[{role}]: {content}")
-    return "\n".join(parts)
+    """Concatenate all message contents so system prompt reaches ZeroClaw."""
+    return "\n\n".join(
+        msg.get("content", "") for msg in messages if msg.get("content")
+    )

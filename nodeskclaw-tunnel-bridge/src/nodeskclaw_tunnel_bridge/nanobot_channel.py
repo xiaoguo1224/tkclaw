@@ -72,7 +72,7 @@ class NoDeskClawChannel(BaseChannel):  # type: ignore[misc]
         workspace_id: str,
         no_reply: bool,
     ) -> None:
-        user_content = _extract_user_content(messages)
+        user_content = _extract_full_content(messages)
         session_key = f"nodeskclaw:{workspace_id}" if workspace_id else None
 
         self._pending_requests[request_id] = (request_id, trace_id)
@@ -91,8 +91,8 @@ class NoDeskClawChannel(BaseChannel):  # type: ignore[misc]
             await self._client.send_response_done(request_id, trace_id)
 
 
-def _extract_user_content(messages: list[dict[str, Any]]) -> str:
-    for msg in reversed(messages):
-        if msg.get("role") == "user":
-            return msg.get("content", "")
-    return messages[-1].get("content", "") if messages else ""
+def _extract_full_content(messages: list[dict[str, Any]]) -> str:
+    """Concatenate all message contents so system prompt reaches NanoBot."""
+    return "\n\n".join(
+        msg.get("content", "") for msg in messages if msg.get("content")
+    )

@@ -27,6 +27,7 @@ NO_REPLY_BUFFER_SIZE = 30
 AUTH_TIMEOUT_S = 10
 PING_INTERVAL_S = 30
 PING_TIMEOUT_S = 45
+MENTION_ALL_SENTINEL = "__all__"
 
 
 def _parse_delegation(response: str) -> tuple[str, str] | None:
@@ -371,7 +372,7 @@ class TunnelAdapter:
         )
 
         mention_targets: list[str] = data.extensions.get("mention_targets", [])
-        is_mention_all = "all" in mention_targets
+        is_mention_all = MENTION_ALL_SENTINEL in mention_targets
         is_mentioned = (
             is_mention_all
             or agent_name in mention_targets
@@ -383,10 +384,48 @@ class TunnelAdapter:
         if not has_any_mention:
             no_reply = True
         elif has_any_mention and not is_mentioned:
-            context_prompt += "\n[系统指令] 用户没有@提及你。你必须且只能回复 NO_REPLY。"
             no_reply = True
         elif has_any_mention and is_mentioned:
             context_prompt += "\n[重要] 用户在消息中 @提及了你，请务必回复。"
+
+        from app.api.workspaces import broadcast_event
+
+        if no_reply:
+            logger.info(
+                "Mention skip for %s: targets=%s, mentioned=%s",
+                agent_name, mention_targets, is_mentioned,
+            )
+            user_content = f"[{data.sender.name}]: {data.content}"
+            messages = [
+                {"role": "system", "content": context_prompt},
+                {"role": "user", "content": user_content},
+            ]
+            try:
+                chat_stream = await self.send_chat_request(
+                    target_node_id, messages,
+                    workspace_id=workspace_id,
+                    trace_id=envelope.traceid,
+                    stream=True,
+                    no_reply=True,
+                )
+                async for _ in chat_stream:
+                    break
+            except Exception as e:
+                logger.debug("Context injection for %s failed: %s", agent_name, e)
+            broadcast_event(workspace_id, "agent:done", {
+                "instance_id": target_node_id, "agent_name": agent_name,
+            })
+            return DeliveryResult(
+                success=True, target_node_id=target_node_id,
+                transport=self.transport_id,
+                latency_ms=int((time.monotonic() - start) * 1000),
+                extra={"no_reply": True},
+            )
+
+        broadcast_event(workspace_id, "agent:typing", {
+            "instance_id": target_node_id,
+            "agent_name": agent_name,
+        })
 
         user_content = f"[{data.sender.name}]: {data.content}"
         messages = [
@@ -394,21 +433,12 @@ class TunnelAdapter:
             {"role": "user", "content": user_content},
         ]
 
-        from app.api.workspaces import broadcast_event
-
-        if not no_reply:
-            broadcast_event(workspace_id, "agent:typing", {
-                "instance_id": target_node_id,
-                "agent_name": agent_name,
-            })
-
         try:
             chat_stream = await self.send_chat_request(
                 target_node_id, messages,
                 workspace_id=workspace_id,
                 trace_id=envelope.traceid,
                 stream=True,
-                no_reply=no_reply,
             )
         except ConnectionError as e:
             return DeliveryResult(

@@ -468,6 +468,7 @@ const zhCN = {
     emptyHint: "{'@'} 提及 AI 员工开始对话，{'@'}所有人 群发消息",
     inputPlaceholder: "输入消息，{'@'} 提及 AI 员工，/ 执行命令",
     mentionAll: "所有人",
+    mentionAllHint: "广播给所有 AI 员工",
     mentionTitle: "提及",
     slugCopied: "AI 员工标识已复制",
     cmdStatusLabel: "显示所有 AI 员工状态",
