@@ -15,8 +15,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config libssl-dev git ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
-ARG ZEROCLAW_REPO=https://github.com/nicholasgasior/zeroclaw.git
-ARG ZEROCLAW_REF=main
+ARG ZEROCLAW_REPO=https://github.com/zeroclaw-labs/zeroclaw.git
+ARG ZEROCLAW_REF=master
 
 RUN git clone --depth 1 --branch ${ZEROCLAW_REF} ${ZEROCLAW_REPO} /opt/zeroclaw-src
 

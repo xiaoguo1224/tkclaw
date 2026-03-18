@@ -47,8 +47,8 @@ if [ "${WITH_SECURITY}" = true ]; then
     zeroclaw)
       docker_build "${CONTEXT_DIR}" "${REGISTRY}:${IMAGE_TAG}" \
         -f "${ENGINE_DIR}/Dockerfile.security" \
-        --build-arg ZEROCLAW_REPO="${ZEROCLAW_REPO:-https://github.com/nicholasgasior/zeroclaw.git}" \
-        --build-arg ZEROCLAW_REF="${ZEROCLAW_REF:-main}" \
+        --build-arg ZEROCLAW_REPO="${ZEROCLAW_REPO:-https://github.com/zeroclaw-labs/zeroclaw.git}" \
+        --build-arg ZEROCLAW_REF="${ZEROCLAW_REF:-master}" \
         --build-arg IMAGE_VERSION="${IMAGE_TAG}"
       ;;
     *)

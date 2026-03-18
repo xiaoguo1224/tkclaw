@@ -21,9 +21,9 @@ zeroclaw-image/
 
 ```bash
 cd nodeskclaw-artifacts
-./build.sh zeroclaw --version v0.1.0
-./build.sh zeroclaw --version v0.1.0 --build-only
-./build.sh zeroclaw --version v0.1.0 --skip-verify
+./build.sh zeroclaw --version v0.5.0
+./build.sh zeroclaw --version v0.5.0 --build-only
+./build.sh zeroclaw --version v0.5.0 --skip-verify
 ```
 
 ### 安全层镜像（Rust 源码构建）
@@ -32,11 +32,11 @@ cd nodeskclaw-artifacts
 cd nodeskclaw-artifacts
 
 # 使用默认 git 仓库和分支
-./build.sh zeroclaw --with-security --base-tag v0.1.0 --build-only
+./build.sh zeroclaw --with-security --base-tag v0.5.0 --build-only
 
 # 指定 git 仓库和 ref
-ZEROCLAW_REPO=https://github.com/nicholasgasior/zeroclaw.git ZEROCLAW_REF=v0.2.0 \
-  ./build.sh zeroclaw --with-security --base-tag v0.1.0 --build-only
+ZEROCLAW_REPO=https://github.com/zeroclaw-labs/zeroclaw.git ZEROCLAW_REF=v0.5.0 \
+  ./build.sh zeroclaw --with-security --base-tag v0.5.0 --build-only
 ```
 
 安全层模式不继承 base 镜像，而是完整的多阶段 Rust 源码构建：

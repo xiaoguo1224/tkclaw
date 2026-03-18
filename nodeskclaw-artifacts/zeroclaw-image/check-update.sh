@@ -13,7 +13,7 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DOCKERFILE="${SCRIPT_DIR}/Dockerfile"
-GITHUB_REPO="nicholasgasior/zeroclaw"
+GITHUB_REPO="zeroclaw-labs/zeroclaw"
 UPDATE=false
 
 while [[ $# -gt 0 ]]; do

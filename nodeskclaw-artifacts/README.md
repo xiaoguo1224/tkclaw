@@ -66,7 +66,7 @@ cd nodeskclaw-artifacts
 ./build.sh openclaw --version 2026.3.13
 
 # ZeroClaw
-./build.sh zeroclaw --version v0.1.0
+./build.sh zeroclaw --version v0.5.0
 
 # Nanobot
 ./build.sh nanobot --version 0.1.4
@@ -93,9 +93,9 @@ cd nodeskclaw-artifacts
 ./build.sh nanobot --with-security --base-tag v0.1.4 --build-only
 
 # ZeroClaw（安全层模式为 Rust 源码构建，耗时较长）
-./build.sh zeroclaw --version v0.1.0 --build-only
-ZEROCLAW_REPO=https://github.com/nicholasgasior/zeroclaw.git ZEROCLAW_REF=main \
-  ./build.sh zeroclaw --with-security --base-tag v0.1.0 --build-only
+./build.sh zeroclaw --version v0.5.0 --build-only
+ZEROCLAW_REPO=https://github.com/zeroclaw-labs/zeroclaw.git ZEROCLAW_REF=master \
+  ./build.sh zeroclaw --with-security --base-tag v0.5.0 --build-only
 ```
 
 安全层镜像 Tag 格式: `v{VERSION}-sec`（如 `v2026.2.26-sec`）。
@@ -121,7 +121,7 @@ ZEROCLAW_REPO=https://github.com/nicholasgasior/zeroclaw.git ZEROCLAW_REF=main \
 |---------|--------|-------------|
 | OpenClaw | npm `openclaw` | `npm view` 过滤 `YYYY.M.DD` 格式稳定版 |
 | Nanobot | PyPI `nanobot-ai` | PyPI JSON API 过滤 `X.Y.Z` 格式稳定版 |
-| ZeroClaw | GitHub `nicholasgasior/zeroclaw` | GitHub Releases API 获取最新 release tag |
+| ZeroClaw | GitHub `zeroclaw-labs/zeroclaw` | GitHub Releases API 获取最新 release tag |
 
 发现新版本时自动创建对应 PR，人工审核后合并。三个 runtime 的检测作为独立 Job 并行运行，互不影响。
 

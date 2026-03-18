@@ -191,7 +191,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          LATEST=$(gh api repos/nicholasgasior/zeroclaw/releases/latest --jq '.tag_name' 2>/dev/null || echo "")
+          LATEST=$(gh api repos/zeroclaw-labs/zeroclaw/releases/latest --jq '.tag_name' 2>/dev/null || echo "")
           if [ -z "${LATEST}" ]; then
             echo "无法获取最新 release（仓库可能不存在或无 release），跳过"
           fi
@@ -238,7 +238,7 @@ jobs:
             |------|-----|
             | 当前版本 | `${{ steps.current.outputs.version }}` |
             | 最新版本 | `${{ steps.latest.outputs.version }}` |
-            | Release | https://github.com/nicholasgasior/zeroclaw/releases/tag/${{ steps.latest.outputs.version }} |
+            | Release | https://github.com/zeroclaw-labs/zeroclaw/releases/tag/${{ steps.latest.outputs.version }} |
 
             ---
 
