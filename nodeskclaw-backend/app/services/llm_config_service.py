@@ -114,6 +114,19 @@ def _build_providers_config(
     return providers
 
 
+def _docker_rewrite_urls(providers: dict) -> dict:
+    """Docker 容器内 localhost/127.0.0.1 不可达宿主机，替换为 host.docker.internal。"""
+    for _provider_id, entry in providers.items():
+        base_url = entry.get("baseUrl", "")
+        if base_url:
+            entry["baseUrl"] = re.sub(
+                r"(https?://)(localhost|127\.0\.0\.1)(:\d+)?",
+                r"\1host.docker.internal\3",
+                base_url,
+            )
+    return providers
+
+
 def _to_openclaw_models(selected: list[dict]) -> list[dict]:
     """Convert stored model metadata to OpenClaw models array format."""
     result = []
@@ -414,6 +427,8 @@ async def write_instance_llm_configs(
     providers = _build_providers_config(
         configs, wp_api_key, user_keys, use_external_proxy=use_external,
     )
+    if instance.compute_provider == "docker":
+        _docker_rewrite_urls(providers)
 
     async with remote_fs(instance, db) as fs:
         try:
@@ -493,6 +508,8 @@ async def sync_openclaw_llm_config(instance: Instance, db: AsyncSession) -> None
     providers = _build_providers_config(
         configs, wp_api_key, user_keys, use_external_proxy=use_external,
     )
+    if instance.compute_provider == "docker":
+        _docker_rewrite_urls(providers)
 
     async with remote_fs(instance, db) as fs:
         try:
