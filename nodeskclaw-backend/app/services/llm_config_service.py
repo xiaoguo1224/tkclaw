@@ -930,6 +930,89 @@ async def deploy_learning_channel_plugin(
     logger.info("已部署 learning channel plugin: instance=%s", instance.name)
 
 
+# ── DingTalk Channel Plugin ──────────────────────
+
+DINGTALK_PLUGIN_DIR = "openclaw-channel-dingtalk"
+DINGTALK_PLUGIN_FILES = [
+    "index.ts",
+    "package.json",
+    "openclaw.plugin.json",
+    "src/channel.ts",
+    "src/runtime.ts",
+    "src/types.ts",
+    "src/stream.ts",
+    "src/send.ts",
+]
+
+
+def _get_dingtalk_plugin_source_dir() -> Path:
+    candidates = [
+        Path(__file__).resolve().parents[3] / DINGTALK_PLUGIN_DIR,
+        Path("/app") / DINGTALK_PLUGIN_DIR,
+    ]
+    for p in candidates:
+        if p.exists() and (p / "index.ts").exists():
+            return p
+    raise FileNotFoundError(
+        f"DingTalk plugin source not found. Checked: {[str(c) for c in candidates]}"
+    )
+
+
+async def _deploy_dingtalk_plugin_files(fs: RemoteFS, plugin_source: Path) -> None:
+    target_base = f".openclaw/extensions/{DINGTALK_PLUGIN_DIR}"
+    await fs.mkdir(f"{target_base}/src")
+
+    for rel_path in DINGTALK_PLUGIN_FILES:
+        src = plugin_source / rel_path
+        if src.exists():
+            await fs.write_text(
+                f"{target_base}/{rel_path}",
+                src.read_text(encoding="utf-8"),
+            )
+
+
+def _inject_dingtalk_plugin_path(config: dict) -> None:
+    plugins = config.setdefault("plugins", {})
+    load = plugins.setdefault("load", {})
+    paths = load.setdefault("paths", [])
+    old_relative = f".openclaw/extensions/{DINGTALK_PLUGIN_DIR}"
+    if old_relative in paths:
+        paths.remove(old_relative)
+    plugin_path = f"/root/.openclaw/extensions/{DINGTALK_PLUGIN_DIR}"
+    if plugin_path not in paths:
+        paths.append(plugin_path)
+
+    entries = plugins.setdefault("entries", {})
+    entries["dingtalk"] = {"enabled": True}
+
+
+async def deploy_dingtalk_channel_plugin(
+    instance: Instance, db: AsyncSession,
+) -> None:
+    try:
+        plugin_source = _get_dingtalk_plugin_source_dir()
+    except FileNotFoundError:
+        logger.warning("DingTalk plugin source not found, skipping deployment")
+        return
+
+    async with remote_fs(instance, db) as fs:
+        await _deploy_dingtalk_plugin_files(fs, plugin_source)
+
+        try:
+            existing = await _read_config_file(fs)
+        except ValueError as e:
+            logger.error("deploy_dingtalk_plugin: openclaw.json parse error: %s", e)
+            raise
+
+        if existing is None:
+            existing = {}
+
+        _inject_dingtalk_plugin_path(existing)
+        await _write_config_file(fs, existing)
+
+    logger.info("已部署 dingtalk channel plugin: instance=%s", instance.name)
+
+
 async def restart_runtime(instance: Instance, db: AsyncSession) -> dict:
     """Restart runtime process (config is assumed to be already written by the caller).
 
