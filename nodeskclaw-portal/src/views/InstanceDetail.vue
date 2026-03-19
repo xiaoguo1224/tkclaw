@@ -352,7 +352,7 @@ async function handleDelete() {
             <span class="ml-2">{{ new Date(instance.created_at).toLocaleString('zh-CN') }}</span>
           </div>
           <div v-if="instance.endpoint_url" class="col-span-2">
-            <span class="text-muted-foreground">访问地址</span>
+            <span class="text-muted-foreground">{{ t('instanceDetail.endpointUrl') }}</span>
             <a
               :href="instance.endpoint_url"
               target="_blank"

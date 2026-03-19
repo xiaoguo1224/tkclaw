@@ -115,6 +115,10 @@ async def _in_deploy_grace(instance_id: str, db: AsyncSession, grace_seconds: in
 
 
 def _compute_endpoint_url(instance: Instance) -> str | None:
+    from app.services.runtime.registries.runtime_registry import RUNTIME_REGISTRY
+    spec = RUNTIME_REGISTRY.get(instance.runtime)
+    if spec and not spec.has_web_ui:
+        return None
     if instance.compute_provider == "docker" and instance.ingress_domain:
         return f"http://{instance.ingress_domain}"
     elif instance.ingress_domain:

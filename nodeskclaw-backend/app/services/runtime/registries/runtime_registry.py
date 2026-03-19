@@ -31,6 +31,7 @@ class RuntimeSpec:
     field_naming: str = "camelCase"
     supports_channel_plugins: bool = True
     data_dir_container_path: str = "/root/.openclaw"
+    has_web_ui: bool = True
 
 
 class RuntimeRegistry:
@@ -90,6 +91,7 @@ def _register_builtins() -> None:
         field_naming="snake_case",
         supports_channel_plugins=False,
         data_dir_container_path="/root/.zeroclaw",
+        has_web_ui=False,
     ))
     RUNTIME_REGISTRY.register(RuntimeSpec(
         runtime_id="nanobot",
@@ -111,6 +113,7 @@ def _register_builtins() -> None:
         field_naming="camelCase",
         supports_channel_plugins=False,
         data_dir_container_path="/root/.nanobot",
+        has_web_ui=False,
     ))
 
 
