@@ -84,12 +84,14 @@ nodeskclaw-backend/
 │   │   ├── collaboration_service.py      # 协作消息处理（由 Tunnel 调用）
 │   │   ├── tunnel/                       # Agent Tunnel（WebSocket 隧道，替代 SSE + HTTP 直连，支持 @mention no_reply）
 │   │   ├── llm_config_service.py # DeskClaw LLM 配置 + 系统 Channel plugin 分发
-│   │   ├── channel_config_service.py # Channel 发现、配置读写、Schema 注册、自定义部署
+│   │   ├── channel_config_service.py # Channel 发现、配置读写（runtime-aware）、自定义部署
+│   │   ├── unified_channel_schema.py # 统一 Channel Schema 注册表（三引擎 field mapping）
 │   │   ├── enterprise_file_service.py # 企业空间文件浏览（PodFS 只读）
 │   │   ├── summary_job.py        # 自动摘要生成
 │   │   ├── runtime/              # 运行时平台 v2（五层架构）
 │   │   │   ├── registries/       # 六大注册表（NodeType/Transport/Runtime/Compute/ContextBridge/Channel）
 │   │   │   ├── adapters/         # Agent 运行时适配器（OpenClaw/ZeroClaw/Nanobot）
+│   │   │   ├── config_adapter.py            # Channel 配置适配器（三引擎 read/write/translate/restart）
 │   │   │   ├── gene_install_adapter.py      # GeneInstallAdapter 抽象接口
 │   │   │   ├── openclaw_gene_install_adapter.py # OpenClaw 基因安装适配器
 │   │   │   ├── noop_gene_install_adapter.py     # ZeroClaw/NanoBot 空实现
