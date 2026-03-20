@@ -2091,6 +2091,36 @@ async def _push_created_gene_to_registry(
     logger.info("Agent-created gene %s: no external registry to push to", slug)
 
 
+async def _push_approved_gene_to_registry(gene: Gene) -> None:
+    """Best-effort push when admin approves a gene (pending_admin -> approved)."""
+    manifest = _json_loads(gene.manifest) or {}
+    full_manifest = {
+        "slug": gene.slug,
+        "name": gene.name,
+        "version": gene.version,
+        "description": gene.description or "",
+        "short_description": gene.short_description or "",
+        "category": gene.category or "skill",
+        "tags": _json_loads(gene.tags) or [],
+        "icon": gene.icon,
+        **manifest,
+    }
+    target = getattr(gene, "source_registry", None)
+    aggregator = get_aggregator()
+    if target and target != "local":
+        result = await aggregator.publish_to(target, full_manifest)
+        if result:
+            logger.info("Approved gene %s pushed to %s", gene.slug, target)
+            return
+    for adapter_id in aggregator.adapter_ids:
+        if adapter_id != "local":
+            result = await aggregator.publish_to(adapter_id, full_manifest)
+            if result:
+                logger.info("Approved gene %s pushed to %s", gene.slug, adapter_id)
+                return
+    logger.info("Approved gene %s: no external registry to push to", gene.slug)
+
+
 async def review_gene(db: AsyncSession, gene_id: str, action: str, reason: str | None = None) -> dict:
     result = await db.execute(select(Gene).where(Gene.id == gene_id, not_deleted(Gene)))
     gene = result.scalar_one_or_none()
@@ -2103,6 +2133,7 @@ async def review_gene(db: AsyncSession, gene_id: str, action: str, reason: str |
         elif gene.review_status == GeneReviewStatus.pending_admin:
             gene.review_status = GeneReviewStatus.approved
             gene.is_published = True
+            _fire_task(_push_approved_gene_to_registry(gene))
         else:
             raise BadRequestError(f"当前审核状态 '{gene.review_status}' 不可审核通过")
     elif action == "reject":

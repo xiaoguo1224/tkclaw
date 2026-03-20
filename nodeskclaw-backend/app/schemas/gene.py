@@ -34,6 +34,8 @@ class GeneInfo(BaseModel):
     created_by: str | None = None
     org_id: str | None = None
     visibility: str = "public"
+    source_registry: str | None = None
+    source_registry_name: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -57,6 +59,8 @@ class GeneListItem(BaseModel):
     parent_gene_id: str | None = None
     created_by_instance_id: str | None = None
     visibility: str = "public"
+    source_registry: str | None = None
+    source_registry_name: str | None = None
 
     model_config = {"from_attributes": True}
 
