@@ -1,5 +1,9 @@
 """Convert GeneHub Registry responses to NoDeskClaw format.
 
+DEPRECATED: Conversion logic has been absorbed into GeneHubAdapter._gene_to_item().
+This module is kept for backward compatibility until all callers in gene_service.py
+are migrated to use RegistryAggregator (Phase 2.2). Do not add new usages.
+
 GeneHub uses slug-based identifiers and a different response envelope.
 NoDeskClaw frontends expect UUID-based ids and specific field names.
 """
