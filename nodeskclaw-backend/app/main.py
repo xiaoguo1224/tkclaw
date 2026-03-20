@@ -535,6 +535,59 @@ async def lifespan(app: FastAPI):
     set_pipeline(_security_pipeline)
     logger.info("Security Pipeline 已初始化 (%d plugins)", _security_pipeline.plugin_count)
 
+    # ── Registry Aggregator 初始化 ────────────────────
+    from app.services.registry_adapter import RegistryAdapter
+    from app.services import registry_aggregator
+    from app.services.local_adapter import LocalAdapter
+
+    _reg_adapters: list[RegistryAdapter] = [
+        LocalAdapter(session_factory=async_session_factory),
+    ]
+
+    _skill_registries_raw = settings.SKILL_REGISTRIES.strip()
+    _external_registry_configs: list[dict] = []
+    if _skill_registries_raw:
+        try:
+            _external_registry_configs = json.loads(_skill_registries_raw)
+            if not isinstance(_external_registry_configs, list):
+                logger.warning("SKILL_REGISTRIES 不是 JSON 数组，已忽略")
+                _external_registry_configs = []
+        except json.JSONDecodeError as _jde:
+            logger.warning("SKILL_REGISTRIES JSON 解析失败: %s", _jde)
+
+    if not _external_registry_configs and settings.GENEHUB_REGISTRY_URL:
+        _external_registry_configs.append({
+            "type": "genehub", "id": "genehub",
+            "url": settings.GENEHUB_REGISTRY_URL,
+            "api_key": settings.GENEHUB_API_KEY,
+            "name": "GeneHub",
+        })
+
+    for _rc in _external_registry_configs:
+        _rtype = _rc.get("type", "")
+        _rid = _rc.get("id", _rtype)
+        _rurl = _rc.get("url", "")
+        _rname = _rc.get("name", _rid)
+        _rkey = _rc.get("api_key", "")
+
+        if _rtype == "genehub" and _rurl:
+            from app.services.genehub_client import GeneHubAdapter
+            _reg_adapters.append(
+                GeneHubAdapter(registry_id=_rid, registry_name=_rname, base_url=_rurl, api_key=_rkey)
+            )
+            logger.info("已注册 GeneHubAdapter: %s (%s)", _rid, _rurl)
+        elif _rtype == "clawhub" and _rurl:
+            from app.services.clawhub_adapter import ClawHubAdapter
+            _reg_adapters.append(
+                ClawHubAdapter(registry_id=_rid, registry_name=_rname, base_url=_rurl, api_key=_rkey)
+            )
+            logger.info("已注册 ClawHubAdapter (stub): %s (%s)", _rid, _rurl)
+        else:
+            logger.warning("未知 registry type=%s, id=%s, 已跳过", _rtype, _rid)
+
+    registry_aggregator.init(_reg_adapters)
+    logger.info("RegistryAggregator 已初始化 (adapters=%s)", [a.registry_id for a in _reg_adapters])
+
     yield
 
     # ── Security Pipeline 销毁 ────────────────────────
@@ -576,8 +629,8 @@ async def lifespan(app: FastAPI):
     await health_checker.stop()
     await k8s_manager.close_all()
     logger.info("已关闭所有 K8s 连接")
-    from app.services import genehub_client
-    await genehub_client.close()
+    await registry_aggregator.close()
+    logger.info("RegistryAggregator 已关闭")
     await engine.dispose()
 
 
