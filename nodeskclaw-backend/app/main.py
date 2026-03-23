@@ -128,7 +128,7 @@ async def lifespan(app: FastAPI):
 
     logger = logging.getLogger(__name__)
 
-    # ── EE Model 注册（在 create_all 之前导入，使其加入 Base.metadata）──
+    # ── EE Model 注册（在 Alembic 迁移之前导入，使其加入 Base.metadata）──
     from app.core.feature_gate import feature_gate as _fg
     if _fg.is_ee:
         _proj_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
