@@ -22,6 +22,9 @@ class WorkspaceUpdate(BaseModel):
     description: str | None = None
     color: str | None = None
     icon: str | None = None
+    visibility_scope: str | None = None
+    allowed_department_ids: list[str] | None = None
+    auto_sync_mode: str | None = None
 
 
 class AgentBrief(BaseModel):
@@ -45,6 +48,9 @@ class WorkspaceInfo(BaseModel):
     color: str
     icon: str
     created_by: str
+    visibility_scope: str = "org"
+    allowed_department_ids: list[str] = []
+    auto_sync_mode: str = "manual"
     agent_count: int = 0
     agents: list[AgentBrief] = []
     created_at: datetime
@@ -191,6 +197,8 @@ class WorkspaceMemberInfo(BaseModel):
     role: str
     is_admin: bool = False
     permissions: list[str] = []
+    primary_department_name: str | None = None
+    secondary_department_names: list[str] = []
     created_at: datetime
 
 

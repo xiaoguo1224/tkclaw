@@ -21,7 +21,7 @@ from app.models.workspace_member import WorkspaceMember, WorkspaceRole
 from app.models.workspace_objective import WorkspaceObjective
 from app.models.workspace_schedule import WorkspaceSchedule
 from app.models.workspace_task import WorkspaceTask
-from app.services import storage_service
+from app.services import department_service, storage_service
 from app.services.runtime import node_card as node_card_service
 from app.schemas.workspace import (
     AddAgentRequest,
@@ -138,6 +138,9 @@ async def create_workspace(db: AsyncSession, org_id: str, user_id: str, data: Wo
     return WorkspaceInfo(
         id=ws.id, org_id=ws.org_id, name=ws.name, description=ws.description,
         color=ws.color, icon=ws.icon, created_by=ws.created_by,
+        visibility_scope=ws.visibility_scope,
+        allowed_department_ids=ws.allowed_department_ids or [],
+        auto_sync_mode=ws.auto_sync_mode,
         agent_count=0, agents=[], created_at=ws.created_at, updated_at=ws.updated_at,
     )
 
@@ -283,6 +286,9 @@ async def get_workspace(db: AsyncSession, workspace_id: str) -> WorkspaceInfo | 
     return WorkspaceInfo(
         id=ws.id, org_id=ws.org_id, name=ws.name, description=ws.description,
         color=ws.color, icon=ws.icon, created_by=ws.created_by,
+        visibility_scope=ws.visibility_scope,
+        allowed_department_ids=ws.allowed_department_ids or [],
+        auto_sync_mode=ws.auto_sync_mode,
         agent_count=len(agents),
         agents=[_agent_brief(inst, wa) for inst, wa in agents],
         created_at=ws.created_at, updated_at=ws.updated_at,
@@ -1084,19 +1090,35 @@ async def update_objective(
 
 async def list_workspace_members(db: AsyncSession, workspace_id: str) -> list[WorkspaceMemberInfo]:
     from app.models.user import User
+    workspace = (await db.execute(
+        select(Workspace).where(Workspace.id == workspace_id, Workspace.deleted_at.is_(None))
+    )).scalar_one_or_none()
+    if workspace is None:
+        return []
     result = await db.execute(
         select(WorkspaceMember, User).join(User, WorkspaceMember.user_id == User.id).where(
             WorkspaceMember.workspace_id == workspace_id,
             WorkspaceMember.deleted_at.is_(None),
         )
     )
+    rows = result.all()
+    department_memberships = await department_service.list_user_department_memberships(
+        workspace.org_id,
+        [user.id for _wm, user in rows],
+        db,
+    )
     members = []
-    for wm, user in result.all():
+    for wm, user in rows:
+        _primary_id, primary_name, _secondary_ids, secondary_names, _is_department_manager = (
+            department_service.summarize_user_departments(department_memberships.get(user.id, []))
+        )
         members.append(WorkspaceMemberInfo(
             user_id=user.id, user_name=user.name,
             user_email=user.email, user_avatar_url=user.avatar_url,
             role=wm.role, is_admin=wm.is_admin,
             permissions=wm.permissions or [],
+            primary_department_name=primary_name,
+            secondary_department_names=secondary_names,
             created_at=wm.created_at,
         ))
     return members
@@ -1108,9 +1130,43 @@ async def add_workspace_member(
     user_id: str,
     permissions: list[str] | None = None,
     is_admin: bool = False,
+    *,
+    operator_user_id: str | None = None,
 ) -> WorkspaceMemberInfo:
     from app.models.user import User
     from app.models.workspace_member import WORKSPACE_PERMISSIONS
+    from app.models.org_membership import OrgMembership
+
+    workspace = (await db.execute(
+        select(Workspace).where(Workspace.id == workspace_id, Workspace.deleted_at.is_(None))
+    )).scalar_one_or_none()
+    if workspace is None:
+        raise ValueError("办公室不存在")
+
+    org_member = (await db.execute(
+        select(OrgMembership.id).where(
+            OrgMembership.org_id == workspace.org_id,
+            OrgMembership.user_id == user_id,
+            not_deleted(OrgMembership),
+        )
+    )).scalar_one_or_none()
+    if org_member is None:
+        raise ValueError("用户不是当前组织成员")
+
+    if workspace.visibility_scope == "departments":
+        allowed_department_ids = set(workspace.allowed_department_ids or [])
+        primary_department_id = await department_service.get_user_primary_department_id(workspace.org_id, user_id, db)
+        if primary_department_id is None or primary_department_id not in allowed_department_ids:
+            raise ValueError("该成员不在办公室允许的部门范围内")
+
+    if operator_user_id:
+        manageable_scope = await department_service.get_workspace_manageable_scope(
+            workspace_id, workspace.org_id, operator_user_id, db,
+        )
+        if manageable_scope:
+            primary_department_id = await department_service.get_user_primary_department_id(workspace.org_id, user_id, db)
+            if primary_department_id is None or primary_department_id not in manageable_scope:
+                raise ValueError("只能添加本部门树成员")
 
     existing = await db.execute(
         select(WorkspaceMember).where(
@@ -1135,11 +1191,17 @@ async def add_workspace_member(
 
     user_result = await db.execute(select(User).where(User.id == user_id))
     user = user_result.scalar_one()
+    department_memberships = await department_service.list_user_department_memberships(workspace.org_id, [user.id], db)
+    _primary_id, primary_name, _secondary_ids, secondary_names, _is_department_manager = (
+        department_service.summarize_user_departments(department_memberships.get(user.id, []))
+    )
     return WorkspaceMemberInfo(
         user_id=user.id, user_name=user.name,
         user_email=user.email, user_avatar_url=user.avatar_url,
         role=wm.role, is_admin=wm.is_admin,
         permissions=wm.permissions or [],
+        primary_department_name=primary_name,
+        secondary_department_names=secondary_names,
         created_at=wm.created_at,
     )
 
@@ -1150,8 +1212,14 @@ async def update_workspace_member_permissions(
     user_id: str,
     permissions: list[str] | None = None,
     is_admin: bool | None = None,
+    operator_user_id: str | None = None,
 ) -> bool:
     from app.models.workspace_member import WORKSPACE_PERMISSIONS
+    workspace = (await db.execute(
+        select(Workspace).where(Workspace.id == workspace_id, Workspace.deleted_at.is_(None))
+    )).scalar_one_or_none()
+    if workspace is None:
+        return False
 
     result = await db.execute(
         select(WorkspaceMember).where(
@@ -1163,6 +1231,14 @@ async def update_workspace_member_permissions(
     wm = result.scalar_one_or_none()
     if wm is None:
         return False
+    if operator_user_id:
+        manageable_scope = await department_service.get_workspace_manageable_scope(
+            workspace_id, workspace.org_id, operator_user_id, db,
+        )
+        if manageable_scope:
+            primary_department_id = await department_service.get_user_primary_department_id(workspace.org_id, wm.user_id, db)
+            if primary_department_id is None or primary_department_id not in manageable_scope:
+                raise ValueError("只能管理本部门树成员")
     if permissions is not None:
         wm.permissions = [p for p in permissions if p in WORKSPACE_PERMISSIONS]
     if is_admin is not None:
@@ -1172,8 +1248,21 @@ async def update_workspace_member_permissions(
 
 
 async def remove_workspace_member(
-    db: AsyncSession, workspace_id: str, user_id: str, operator_name: str = "",
+    db: AsyncSession, workspace_id: str, user_id: str, operator_name: str = "", operator_user_id: str | None = None,
 ) -> bool:
+    workspace = (await db.execute(
+        select(Workspace).where(Workspace.id == workspace_id, Workspace.deleted_at.is_(None))
+    )).scalar_one_or_none()
+    if workspace is None:
+        return False
+    if operator_user_id:
+        manageable_scope = await department_service.get_workspace_manageable_scope(
+            workspace_id, workspace.org_id, operator_user_id, db,
+        )
+        if manageable_scope:
+            primary_department_id = await department_service.get_user_primary_department_id(workspace.org_id, user_id, db)
+            if primary_department_id is None or primary_department_id not in manageable_scope:
+                raise ValueError("只能移除本部门树成员")
     result = await db.execute(
         select(WorkspaceMember).where(
             WorkspaceMember.workspace_id == workspace_id,

@@ -5,6 +5,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import BaseModel
+from app.models.department import WorkspaceAutoSyncMode, WorkspaceVisibilityScope
 
 
 class Workspace(BaseModel):
@@ -17,6 +18,24 @@ class Workspace(BaseModel):
     icon: Mapped[str] = mapped_column(String(32), default="bot", nullable=False)
     created_by: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
     decoration_config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    visibility_scope: Mapped[str] = mapped_column(
+        String(32),
+        default=WorkspaceVisibilityScope.org,
+        nullable=False,
+        server_default=WorkspaceVisibilityScope.org,
+    )
+    allowed_department_ids: Mapped[list[str]] = mapped_column(
+        JSONB,
+        default=list,
+        nullable=False,
+        server_default="[]",
+    )
+    auto_sync_mode: Mapped[str] = mapped_column(
+        String(32),
+        default=WorkspaceAutoSyncMode.manual,
+        nullable=False,
+        server_default=WorkspaceAutoSyncMode.manual,
+    )
 
     # relationships
     organization = relationship("Organization", foreign_keys=[org_id])

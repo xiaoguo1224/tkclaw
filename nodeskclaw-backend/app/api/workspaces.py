@@ -753,6 +753,7 @@ async def add_member(
             db, workspace_id, data.user_id,
             permissions=data.permissions,
             is_admin=data.is_admin,
+            operator_user_id=user.id,
         )
     except ValueError as e:
         raise _error(400, 40032, "errors.workspace.add_member_invalid", str(e))
@@ -769,11 +770,15 @@ async def update_member(
     user=Depends(_get_current_user_dep()),
 ):
     await wm_service.check_workspace_access(workspace_id, user, "manage_members", db)
-    ok = await workspace_service.update_workspace_member_permissions(
-        db, workspace_id, user_id,
-        permissions=data.permissions,
-        is_admin=data.is_admin,
-    )
+    try:
+        ok = await workspace_service.update_workspace_member_permissions(
+            db, workspace_id, user_id,
+            permissions=data.permissions,
+            is_admin=data.is_admin,
+            operator_user_id=user.id,
+        )
+    except ValueError as e:
+        raise _error(400, 40032, "errors.workspace.update_member_invalid", str(e))
     if not ok:
         raise _error(404, 40434, "errors.workspace.member_not_found", "成员不存在")
     await hooks.emit("operation_audit", action="workspace.member_updated", target_type="workspace", target_id=workspace_id, actor_id=user.id, details={"member_user_id": user_id})
@@ -788,9 +793,12 @@ async def remove_member(
     user=Depends(_get_current_user_dep()),
 ):
     await wm_service.check_workspace_access(workspace_id, user, "manage_members", db)
-    ok = await workspace_service.remove_workspace_member(
-        db, workspace_id, user_id, operator_name=user.name,
-    )
+    try:
+        ok = await workspace_service.remove_workspace_member(
+            db, workspace_id, user_id, operator_name=user.name, operator_user_id=user.id,
+        )
+    except ValueError as e:
+        raise _error(400, 40032, "errors.workspace.remove_member_invalid", str(e))
     if not ok:
         raise _error(404, 40434, "errors.workspace.member_not_found", "成员不存在")
     await hooks.emit("operation_audit", action="workspace.member_removed", target_type="workspace", target_id=workspace_id, actor_id=user.id, details={"member_user_id": user_id})
@@ -818,7 +826,7 @@ async def search_users(
 ):
     user, org = org_ctx
     await wm_service.check_workspace_access(workspace_id, user, "manage_members", db)
-    results = await wm_service.search_org_users(workspace_id, org.id, q, db)
+    results = await wm_service.search_org_users(workspace_id, org.id, q, user.id, db)
     return _ok(results)
 
 

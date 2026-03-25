@@ -15,6 +15,7 @@ from app.models.workspace_member import (
     WORKSPACE_PERMISSIONS,
     WorkspaceMember,
 )
+from app.services import department_service
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,13 @@ async def check_workspace_access(
     if org_role == OrgRole.admin:
         return None
 
+    if required_permission == "manage_members":
+        managed_scope = await department_service.get_workspace_manageable_scope(
+            workspace_id, org_id, user.id, db,
+        )
+        if managed_scope:
+            return None
+
     member = (await db.execute(
         select(WorkspaceMember).where(
             WorkspaceMember.workspace_id == workspace_id,
@@ -98,6 +106,12 @@ async def check_workspace_member(
     if org_role == OrgRole.admin:
         return None
 
+    managed_scope = await department_service.get_workspace_manageable_scope(
+        workspace_id, org_id, user.id, db,
+    )
+    if managed_scope:
+        return None
+
     member = (await db.execute(
         select(WorkspaceMember).where(
             WorkspaceMember.workspace_id == workspace_id,
@@ -127,7 +141,19 @@ async def get_my_permissions(
         return {
             "is_admin": True,
             "is_org_admin": True,
+            "is_department_manager": False,
             "permissions": list(WORKSPACE_PERMISSIONS),
+        }
+
+    managed_scope = await department_service.get_workspace_manageable_scope(
+        workspace_id, org_id, user.id, db,
+    )
+    if managed_scope:
+        return {
+            "is_admin": False,
+            "is_org_admin": False,
+            "is_department_manager": True,
+            "permissions": ["manage_members"],
         }
 
     member = (await db.execute(
@@ -145,12 +171,14 @@ async def get_my_permissions(
         return {
             "is_admin": True,
             "is_org_admin": False,
+            "is_department_manager": False,
             "permissions": list(WORKSPACE_PERMISSIONS),
         }
 
     return {
         "is_admin": False,
         "is_org_admin": False,
+        "is_department_manager": False,
         "permissions": member.permissions or [],
     }
 
@@ -159,6 +187,7 @@ async def search_org_users(
     workspace_id: str,
     org_id: str,
     query_str: str,
+    operator_id: str,
     db: AsyncSession,
 ) -> list[dict]:
     """Search org members who are NOT already workspace members (excluding Admin users)."""
@@ -177,6 +206,10 @@ async def search_org_users(
         )
     )
 
+    scope_department_ids = await department_service.get_workspace_manageable_scope(
+        workspace_id, org_id, operator_id, db,
+    )
+
     stmt = (
         select(User)
         .join(OrgMembership, OrgMembership.user_id == User.id)
@@ -189,18 +222,39 @@ async def search_org_users(
         )
     )
 
+    if scope_department_ids:
+        allowed_user_ids = (
+            select(department_service.DepartmentMembership.user_id)
+            .where(
+                department_service.DepartmentMembership.org_id == org_id,
+                department_service.DepartmentMembership.department_id.in_(scope_department_ids),
+                department_service.DepartmentMembership.is_primary.is_(True),
+                not_deleted(department_service.DepartmentMembership),
+            )
+        )
+        stmt = stmt.where(User.id.in_(allowed_user_ids))
+
     if query_str and query_str.strip():
         pattern = f"%{query_str.strip()}%"
         stmt = stmt.where(or_(User.name.ilike(pattern), User.email.ilike(pattern)))
 
     stmt = stmt.limit(20)
-    result = await db.execute(stmt)
-    return [
-        {
-            "user_id": u.id,
-            "name": u.name,
-            "email": u.email,
-            "avatar_url": u.avatar_url,
-        }
-        for u in result.scalars().all()
-    ]
+    users = list((await db.execute(stmt)).scalars().all())
+    department_memberships = await department_service.list_user_department_memberships(
+        org_id, [user.id for user in users], db,
+    )
+    items = []
+    for user in users:
+        _primary_id, primary_name, _secondary_ids, _secondary_names, _is_department_manager = (
+            department_service.summarize_user_departments(department_memberships.get(user.id, []))
+        )
+        items.append(
+            {
+                "user_id": user.id,
+                "name": user.name,
+                "email": user.email,
+                "avatar_url": user.avatar_url,
+                "primary_department_name": primary_name,
+            }
+        )
+    return items
