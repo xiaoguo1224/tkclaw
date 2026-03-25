@@ -1236,6 +1236,8 @@ const enUS = {
   llm: {
     customProvider: "Custom Provider",
     addCustomProvider: "Custom",
+    addLocalModel: "Local Model",
+    localModelLabel: "Local Model",
     providerSlug: "Provider ID",
     providerSlugPlaceholder: "e.g. deepseek, local-ollama",
     providerSlugHint: "Lowercase letters, numbers and hyphens, max 32 chars",

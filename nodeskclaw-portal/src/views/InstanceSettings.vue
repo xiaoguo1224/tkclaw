@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, inject, type ComputedRef, type Ref } from 'vue'
-import { Loader2, Brain, Key, Trash2, Plus, RefreshCw, HardDrive, Save, ChevronDown, Check, Link, Star, X, AlertTriangle } from 'lucide-vue-next'
+import { Loader2, Brain, Key, Trash2, Plus, RefreshCw, HardDrive, Save, ChevronDown, Check, Link, Star, X, AlertTriangle, Cpu } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
@@ -28,6 +28,15 @@ const dirty = ref(false)
 
 // ── Constants ──
 
+const LOCAL_MODEL_PROVIDER = 'taoke'
+const LOCAL_MODEL_BASE_URL = 'http://10.0.14.20:11434/v1'
+const LOCAL_MODEL_API_KEY = 'taoke'
+const LOCAL_MODEL_API_TYPE = 'openai-completions'
+const LOCAL_MODEL_DEFAULT: ModelItem = {
+  id: 'Qwen3.5-122B-A10B-4bit',
+  name: 'Qwen3.5-122B-A10B-4bit',
+}
+
 const PROVIDERS = ['minimax-openai', 'minimax-anthropic', 'openai', 'anthropic', 'gemini', 'openrouter'] as const
 const PROVIDER_LABELS: Record<string, string> = {
   openai: 'OpenAI',
@@ -36,6 +45,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   openrouter: 'OpenRouter',
   'minimax-openai': 'MiniMax-OpenAI (CN)',
   'minimax-anthropic': 'MiniMax-Anthropic (CN)',
+  [LOCAL_MODEL_PROVIDER]: t('llm.localModelLabel'),
 }
 
 const PROVIDER_DEFAULT_URLS: Record<string, string> = {
@@ -187,6 +197,27 @@ function addProvider(provider: string) {
     selectedModel: null,
   })
   newProviderOpen.value = false
+  dirty.value = true
+}
+
+function addLocalModelProvider() {
+  if (providerConfigs.value.some(c => c.provider === LOCAL_MODEL_PROVIDER)) return
+  providerConfigs.value.push({
+    provider: LOCAL_MODEL_PROVIDER,
+    keySource: 'personal',
+    personalKeyNew: LOCAL_MODEL_API_KEY,
+    personalKeyMasked: '',
+    hasExistingPersonalKey: false,
+    baseUrl: LOCAL_MODEL_BASE_URL,
+    apiType: LOCAL_MODEL_API_TYPE,
+    isCustom: true,
+    showBaseUrl: true,
+    selectedModel: { ...LOCAL_MODEL_DEFAULT },
+  })
+  newProviderOpen.value = false
+  showCustomForm.value = false
+  customSlug.value = ''
+  customSlugError.value = ''
   dirty.value = true
 }
 
@@ -441,6 +472,15 @@ watch(() => instanceId.value, (val) => {
                 {{ t('llm.addCustomProvider') }}
               </div>
             </button>
+            <button
+              class="px-4 py-3 rounded-lg border border-border bg-card text-sm text-left hover:border-primary/50 hover:bg-primary/5 transition-colors cursor-pointer"
+              @click="addLocalModelProvider"
+            >
+              <div class="flex items-center gap-1.5">
+                <Cpu class="w-3.5 h-3.5" />
+                {{ t('llm.addLocalModel') }}
+              </div>
+            </button>
           </div>
         </div>
 
@@ -615,6 +655,14 @@ watch(() => instanceId.value, (val) => {
                 </button>
               </div>
             </div>
+            <button
+              v-if="!providerConfigs.some(c => c.provider === LOCAL_MODEL_PROVIDER)"
+              class="flex items-center gap-1 text-xs hover:text-foreground transition-colors cursor-pointer"
+              @click="addLocalModelProvider"
+            >
+              <Cpu class="w-3.5 h-3.5" />
+              {{ t('llm.addLocalModel') }}
+            </button>
             <button
               class="flex items-center gap-1 text-xs text-violet-400 hover:text-violet-300 transition-colors cursor-pointer"
               @click="newProviderOpen = false; showCustomForm = true"

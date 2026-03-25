@@ -1236,6 +1236,8 @@ const zhCN = {
   llm: {
     customProvider: "自定义 Provider",
     addCustomProvider: "自定义",
+    addLocalModel: "本地模型",
+    localModelLabel: "本地模型",
     providerSlug: "Provider 标识",
     providerSlugPlaceholder: "如 deepseek、local-ollama",
     providerSlugHint: "小写字母、数字和连字符，最长 32 字符",
