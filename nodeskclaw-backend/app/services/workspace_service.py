@@ -215,9 +215,10 @@ async def _apply_template_to_workspace(
 
 
 async def list_workspaces(
-    db: AsyncSession, org_id: str, user_id: str | None = None,
+    db: AsyncSession, org_id: str, user_id: str | None = None, department_id: str | None = None,
 ) -> list[WorkspaceListItem]:
     from app.models.org_membership import OrgMembership, OrgRole
+    from app.models.workspace_department import WorkspaceDepartment
 
     stmt = select(Workspace).where(
         Workspace.org_id == org_id,
@@ -239,6 +240,15 @@ async def list_workspaces(
                 WorkspaceMember.deleted_at.is_(None),
             )
             stmt = stmt.where(Workspace.id.in_(member_ws_ids))
+
+    if department_id:
+        selected_department_ids = await department_service.get_department_tree_ids(org_id, department_id, db)
+        linked_workspace_ids = select(WorkspaceDepartment.workspace_id).where(
+            WorkspaceDepartment.org_id == org_id,
+            WorkspaceDepartment.department_id.in_(selected_department_ids),
+            WorkspaceDepartment.deleted_at.is_(None),
+        )
+        stmt = stmt.where(Workspace.id.in_(linked_workspace_ids))
 
     result = await db.execute(stmt.order_by(Workspace.created_at.desc()))
     workspaces = result.scalars().all()
@@ -284,11 +294,13 @@ async def get_workspace(db: AsyncSession, workspace_id: str) -> WorkspaceInfo | 
     )
     agents = agents_result.all()
 
+    allowed_department_ids = await department_service.get_workspace_linked_department_ids(workspace_id, ws.org_id, db)
+
     return WorkspaceInfo(
         id=ws.id, org_id=ws.org_id, name=ws.name, description=ws.description,
         color=ws.color, icon=ws.icon, created_by=ws.created_by,
         visibility_scope=ws.visibility_scope,
-        allowed_department_ids=ws.allowed_department_ids or [],
+        allowed_department_ids=allowed_department_ids,
         auto_sync_mode=ws.auto_sync_mode,
         agent_count=len(agents),
         agents=[_agent_brief(inst, wa) for inst, wa in agents],
@@ -304,8 +316,13 @@ async def update_workspace(db: AsyncSession, workspace_id: str, data: WorkspaceU
     if ws is None:
         return None
 
-    for field, value in data.model_dump(exclude_unset=True).items():
+    payload = data.model_dump(exclude_unset=True)
+    department_ids = payload.pop("allowed_department_ids", None)
+    for field, value in payload.items():
         setattr(ws, field, value)
+    if department_ids is not None:
+        ws.allowed_department_ids = department_ids
+        await department_service.sync_workspace_departments(ws.id, ws.org_id, department_ids, db)
     await db.commit()
     return await get_workspace(db, workspace_id)
 

@@ -47,6 +47,7 @@ class Department(BaseModel):
     parent = relationship("Department", remote_side="Department.id", back_populates="children", foreign_keys=[parent_id])
     children = relationship("Department", back_populates="parent")
     memberships = relationship("DepartmentMembership", back_populates="department")
+    workspace_links = relationship("WorkspaceDepartment", back_populates="department")
 
 
 class DepartmentMembership(BaseModel):

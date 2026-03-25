@@ -14,6 +14,7 @@ from app.models.department import Department, DepartmentMembership, DepartmentMe
 from app.models.org_membership import OrgMembership, OrgRole
 from app.models.user import User
 from app.models.workspace import Workspace
+from app.models.workspace_department import WorkspaceDepartment
 from app.schemas.organization import DepartmentInfo, DepartmentMemberInfo
 
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9\-]{0,126}$")
@@ -491,6 +492,12 @@ async def get_org_department_scope_ids(org_id: str, db: AsyncSession) -> set[str
     return {department.id for department in departments}
 
 
+async def get_department_tree_ids(org_id: str, department_id: str, db: AsyncSession) -> set[str]:
+    departments = await _load_departments(org_id, db)
+    grouped = _build_children_map(departments)
+    return _collect_descendant_ids(department_id, grouped)
+
+
 async def get_user_managed_department_ids(org_id: str, user_id: str, db: AsyncSession) -> set[str]:
     managed_rows = (await db.execute(
         select(DepartmentMembership.department_id).where(
@@ -518,7 +525,71 @@ async def get_workspace_allowed_department_ids(workspace_id: str, db: AsyncSessi
         return set()
     if workspace.visibility_scope != "departments":
         return await get_org_department_scope_ids(workspace.org_id, db)
+    linked_department_ids = (await db.execute(
+        select(WorkspaceDepartment.department_id).where(
+            WorkspaceDepartment.workspace_id == workspace_id,
+            WorkspaceDepartment.org_id == workspace.org_id,
+            not_deleted(WorkspaceDepartment),
+        )
+    )).scalars().all()
+    if linked_department_ids:
+        return set(linked_department_ids)
     return set(workspace.allowed_department_ids or [])
+
+
+async def get_workspace_linked_department_ids(workspace_id: str, org_id: str, db: AsyncSession) -> list[str]:
+    linked_department_ids = (await db.execute(
+        select(WorkspaceDepartment.department_id).where(
+            WorkspaceDepartment.workspace_id == workspace_id,
+            WorkspaceDepartment.org_id == org_id,
+            not_deleted(WorkspaceDepartment),
+        )
+    )).scalars().all()
+    if linked_department_ids:
+        return sorted(set(linked_department_ids))
+    workspace = (await db.execute(
+        select(Workspace).where(
+            Workspace.id == workspace_id,
+            Workspace.org_id == org_id,
+            not_deleted(Workspace),
+        )
+    )).scalar_one_or_none()
+    if workspace is None:
+        return []
+    return sorted(set(workspace.allowed_department_ids or []))
+
+
+async def sync_workspace_departments(
+    workspace_id: str,
+    org_id: str,
+    department_ids: list[str],
+    db: AsyncSession,
+) -> None:
+    desired_ids = {department_id for department_id in department_ids if department_id}
+    for department_id in desired_ids:
+        await get_department(org_id, department_id, db)
+
+    existing_links = (await db.execute(
+        select(WorkspaceDepartment).where(
+            WorkspaceDepartment.workspace_id == workspace_id,
+            WorkspaceDepartment.org_id == org_id,
+            not_deleted(WorkspaceDepartment),
+        )
+    )).scalars().all()
+    existing_by_department = {link.department_id: link for link in existing_links}
+
+    for link in existing_links:
+        if link.department_id not in desired_ids:
+            link.soft_delete()
+
+    for department_id in desired_ids:
+        if department_id in existing_by_department:
+            continue
+        db.add(WorkspaceDepartment(
+            workspace_id=workspace_id,
+            department_id=department_id,
+            org_id=org_id,
+        ))
 
 
 async def can_manage_org_members(org_id: str, user_id: str, db: AsyncSession) -> bool:

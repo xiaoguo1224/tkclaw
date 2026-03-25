@@ -100,11 +100,12 @@ async def create_workspace(
 
 @router.get("")
 async def list_workspaces(
+    department_id: str | None = Query(None),
     org_ctx=Depends(get_current_org),
     db: AsyncSession = Depends(get_db),
 ):
     user, org = org_ctx
-    items = await workspace_service.list_workspaces(db, org.id, user_id=user.id)
+    items = await workspace_service.list_workspaces(db, org.id, user_id=user.id, department_id=department_id)
     return _ok([i.model_dump(mode="json") for i in items])
 
 
