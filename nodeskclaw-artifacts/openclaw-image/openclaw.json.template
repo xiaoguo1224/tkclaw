@@ -17,26 +17,7 @@
       "dangerouslyDisableDeviceAuth": true
     }
   },
-  "models": {
-    "mode": "merge",
-    "providers": {
-      "taoke": {
-        "baseUrl": "http://10.0.14.20:11434/v1",
-        "apiKey": "taoke",
-        "api": "openai-completions",
-        "models": [
-          { "id": "Qwen3.5-122B-A10B-4bit", "name": "Qwen3.5-122B-A10B-4bit" }
-        ]
-      }
-    }
-  },
-  "agents": {
-    "defaults": {
-      "model": {
-        "primary": "taoke/Qwen3.5-122B-A10B-4bit"
-      }
-    }
-  },
+
   "logging": {
     "level": "${OPENCLAW_LOG_LEVEL}"
   }
