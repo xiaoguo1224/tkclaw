@@ -38,6 +38,7 @@ const actionLoading = ref<string | null>(null)
 
 // invite dialog
 const showInviteDialog = ref(false)
+const memberDialogMode = ref<'invite' | 'direct'>('invite')
 const inviteEmails = ref<string[]>([])
 const inviteEmailInput = ref('')
 const inviteRole = ref('member')
@@ -45,6 +46,11 @@ const inviteLoading = ref(false)
 const inviteResults = ref<Array<{ email: string; status: string; invite_url?: string; email_sent?: boolean }>>([])
 const showInviteResults = ref(false)
 const copiedUrl = ref<string | null>(null)
+const directName = ref('')
+const directEmail = ref('')
+const directPassword = ref('')
+const directRole = ref('member')
+const directLoading = ref(false)
 
 // roles
 const roles = ref<Array<{ id: string; name_key: string }>>([])
@@ -183,13 +189,39 @@ async function handleInvite() {
   }
 }
 
+async function handleDirectCreate() {
+  if (!orgStore.currentOrgId) return
+  if (!directName.value.trim() || !directEmail.value.trim() || !directPassword.value.trim()) return
+  directLoading.value = true
+  try {
+    await api.post(`/orgs/${orgStore.currentOrgId}/members/direct`, {
+      name: directName.value.trim(),
+      email: directEmail.value.trim().toLowerCase(),
+      password: directPassword.value,
+      role: directRole.value,
+    })
+    await orgStore.fetchMembers()
+    toast.success(t('orgMembers.directAddSuccess'))
+    closeInviteDialog()
+  } catch (e) {
+    toast.error(resolveApiErrorMessage(e, t('orgMembers.directAddFailed')))
+  } finally {
+    directLoading.value = false
+  }
+}
+
 function closeInviteDialog() {
   showInviteDialog.value = false
+  memberDialogMode.value = 'invite'
   inviteEmails.value = []
   inviteEmailInput.value = ''
   inviteRole.value = 'member'
   inviteResults.value = []
   showInviteResults.value = false
+  directName.value = ''
+  directEmail.value = ''
+  directPassword.value = ''
+  directRole.value = 'member'
 }
 
 async function copyInviteUrl(url: string) {
@@ -289,7 +321,7 @@ async function copyPassword() {
       <button
         v-if="isOrgAdmin"
         class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
-        @click="showInviteDialog = true"
+        @click="memberDialogMode = 'invite'; showInviteDialog = true"
       >
         <UserPlus class="w-4 h-4" />
         {{ t('orgMembers.inviteMember') }}
@@ -459,13 +491,30 @@ async function copyPassword() {
         <div class="bg-card rounded-2xl border border-border shadow-xl w-full max-w-md p-6 space-y-4">
           <!-- Header -->
           <div class="flex items-center justify-between">
-            <h3 class="font-semibold text-base">{{ t('orgMembers.inviteDialogTitle') }}</h3>
+            <h3 class="font-semibold text-base">{{ memberDialogMode === 'invite' ? t('orgMembers.inviteDialogTitle') : t('orgMembers.directAddDialogTitle') }}</h3>
             <button class="text-muted-foreground hover:text-foreground" @click="closeInviteDialog">
               <X class="w-4 h-4" />
             </button>
           </div>
 
-          <template v-if="!showInviteResults">
+          <div class="grid grid-cols-2 gap-2 rounded-lg bg-muted/40 p-1">
+            <button
+              class="px-3 py-1.5 rounded-md text-sm transition-colors"
+              :class="memberDialogMode === 'invite' ? 'bg-card shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'"
+              @click="memberDialogMode = 'invite'"
+            >
+              {{ t('orgMembers.inviteMember') }}
+            </button>
+            <button
+              class="px-3 py-1.5 rounded-md text-sm transition-colors"
+              :class="memberDialogMode === 'direct' ? 'bg-card shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'"
+              @click="memberDialogMode = 'direct'; showInviteResults = false"
+            >
+              {{ t('orgMembers.directAddMember') }}
+            </button>
+          </div>
+
+          <template v-if="memberDialogMode === 'invite' && !showInviteResults">
             <!-- Email Input -->
             <div class="space-y-2">
               <label class="text-sm text-muted-foreground">{{ t('orgMembers.emailLabel') }}</label>
@@ -514,6 +563,60 @@ async function copyPassword() {
               >
                 <Loader2 v-if="inviteLoading" class="w-4 h-4 animate-spin" />
                 {{ t('orgMembers.sendInvite') }}
+              </button>
+            </div>
+          </template>
+
+          <template v-else-if="memberDialogMode === 'direct'">
+            <div class="space-y-2">
+              <label class="text-sm text-muted-foreground">{{ t('orgMembers.directNameLabel') }}</label>
+              <input
+                v-model="directName"
+                type="text"
+                :placeholder="t('orgMembers.directNamePlaceholder')"
+                class="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+            </div>
+
+            <div class="space-y-2">
+              <label class="text-sm text-muted-foreground">{{ t('orgMembers.emailLabel') }}</label>
+              <input
+                v-model="directEmail"
+                type="email"
+                :placeholder="t('orgMembers.directEmailPlaceholder')"
+                class="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+            </div>
+
+            <div class="space-y-2">
+              <label class="text-sm text-muted-foreground">{{ t('orgMembers.directPasswordLabel') }}</label>
+              <input
+                v-model="directPassword"
+                type="password"
+                :placeholder="t('orgMembers.directPasswordPlaceholder')"
+                class="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+              />
+            </div>
+
+            <div class="space-y-2">
+              <label class="text-sm text-muted-foreground">{{ t('orgMembers.roleLabel') }}</label>
+              <CustomSelect v-model="directRole" :options="roleOptions" trigger-class="w-full justify-between" />
+            </div>
+
+            <div class="flex justify-end gap-2 pt-2">
+              <button
+                class="px-4 py-2 rounded-lg border border-border text-sm hover:bg-accent transition-colors"
+                @click="closeInviteDialog"
+              >
+                {{ t('common.cancel') }}
+              </button>
+              <button
+                class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+                :disabled="!directName.trim() || !directEmail.trim() || directPassword.length < 6 || directLoading"
+                @click="handleDirectCreate"
+              >
+                <Loader2 v-if="directLoading" class="w-4 h-4 animate-spin" />
+                {{ t('orgMembers.directAddSubmit') }}
               </button>
             </div>
           </template>

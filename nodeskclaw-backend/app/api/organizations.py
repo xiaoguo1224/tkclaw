@@ -21,6 +21,7 @@ from app.models.user import User
 from app.schemas.common import ApiResponse
 from app.schemas.organization import (
     AddMemberRequest,
+    CreateMemberDirectRequest,
     MemberInfo,
     OAuthOrgSetupRequest,
     OrgCreate,
@@ -228,6 +229,26 @@ async def add_member(
     """添加成员（组织管理员+）。"""
     data = await org_service.add_member(org_id, body.user_id, body.role, db)
     await hooks.emit("operation_audit", action="org.member_added", target_type="org_membership", target_id=data.id, actor_id=_org_ctx[0].id, org_id=org_id)
+    return ApiResponse(data=data)
+
+
+@router.post("/{org_id}/members/direct", response_model=ApiResponse[MemberInfo])
+async def create_member_direct(
+    org_id: str,
+    body: CreateMemberDirectRequest,
+    db: AsyncSession = Depends(get_db),
+    _org_ctx: tuple = Depends(require_org_admin),
+):
+    """直接创建成员账号并加入组织（组织管理员+）。"""
+    data = await org_service.create_member_direct(
+        org_id=org_id,
+        name=body.name,
+        email=body.email,
+        password=body.password,
+        role=body.role,
+        db=db,
+    )
+    await hooks.emit("operation_audit", action="org.member_created_direct", target_type="org_membership", target_id=data.id, actor_id=_org_ctx[0].id, org_id=org_id)
     return ApiResponse(data=data)
 
 

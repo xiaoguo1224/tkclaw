@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class OrgCreate(BaseModel):
@@ -69,6 +69,23 @@ class MemberInfo(BaseModel):
 class AddMemberRequest(BaseModel):
     user_id: str
     role: str = "member"
+
+
+class CreateMemberDirectRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    email: EmailStr
+    password: str = Field(min_length=6, max_length=200)
+    role: str = "member"
+
+    @field_validator("name")
+    @classmethod
+    def _normalize_name(cls, v: str) -> str:
+        return v.strip()
+
+    @field_validator("email")
+    @classmethod
+    def _normalize_email(cls, v: EmailStr) -> str:
+        return str(v).strip().lower()
 
 
 class UpdateMemberRoleRequest(BaseModel):
