@@ -50,6 +50,7 @@ from app.models.user import User  # noqa: F401
 from app.models.user_llm_config import UserLlmConfig  # noqa: F401
 from app.models.user_llm_key import UserLlmKey  # noqa: F401
 from app.models.workspace import Workspace  # noqa: F401
+from app.models.workspace_department import WorkspaceDepartment  # noqa: F401
 from app.models.workspace_agent import WorkspaceAgent  # noqa: F401
 from app.models.workspace_file import WorkspaceFile  # noqa: F401
 from app.models.workspace_member import WorkspaceMember  # noqa: F401

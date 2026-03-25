@@ -42,3 +42,4 @@ class Workspace(BaseModel):
     creator = relationship("User", foreign_keys=[created_by])
     blackboard = relationship("Blackboard", back_populates="workspace", uselist=False, cascade="all, delete-orphan")
     members = relationship("WorkspaceMember", back_populates="workspace", cascade="all, delete-orphan")
+    department_links = relationship("WorkspaceDepartment", back_populates="workspace", cascade="all, delete-orphan")
