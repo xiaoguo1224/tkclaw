@@ -191,6 +191,7 @@ function addProvider(provider: string) {
 }
 
 function addCustomProvider() {
+  newProviderOpen.value = false
   const slug = customSlug.value.trim()
   if (!slug) return
   if (!/^[a-z][a-z0-9-]*[a-z0-9]$/.test(slug) || slug.length < 2 || slug.length > 32) {
@@ -596,7 +597,7 @@ watch(() => instanceId.value, (val) => {
               </button>
               <div
                 v-if="newProviderOpen"
-                class="absolute z-10 mt-1 w-56 rounded-lg border border-border bg-card shadow-lg overflow-hidden"
+                class="absolute z-50 mt-1 w-56 rounded-lg border border-border bg-card shadow-lg overflow-hidden"
               >
                 <button
                   v-for="p in unusedProviders"
@@ -616,7 +617,7 @@ watch(() => instanceId.value, (val) => {
             </div>
             <button
               class="flex items-center gap-1 text-xs text-violet-400 hover:text-violet-300 transition-colors cursor-pointer"
-              @click="showCustomForm = true"
+              @click="newProviderOpen = false; showCustomForm = true"
             >
               <Plus class="w-3.5 h-3.5" />
               {{ t('llm.addCustomProvider') }}
@@ -627,7 +628,7 @@ watch(() => instanceId.value, (val) => {
           <div v-if="showCustomForm" class="rounded-lg border border-violet-400/30 bg-violet-500/5 p-4 space-y-3">
             <div class="flex items-center justify-between">
               <span class="font-medium text-sm text-violet-400">{{ t('llm.customProvider') }}</span>
-              <button class="text-muted-foreground hover:text-foreground text-xs" @click="showCustomForm = false; customSlug = ''; customSlugError = ''">
+              <button class="text-muted-foreground hover:text-foreground text-xs" @click="newProviderOpen = false; showCustomForm = false; customSlug = ''; customSlugError = ''">
                 {{ t('common.cancel') }}
               </button>
             </div>
@@ -659,7 +660,7 @@ watch(() => instanceId.value, (val) => {
 
     <!-- Close dropdown overlay -->
     <Teleport to="body">
-      <div v-if="newProviderOpen" class="fixed inset-0 z-5" @click="newProviderOpen = false" />
+      <div v-if="newProviderOpen" class="fixed inset-0 z-40" @click="newProviderOpen = false" />
     </Teleport>
   </div>
 </template>

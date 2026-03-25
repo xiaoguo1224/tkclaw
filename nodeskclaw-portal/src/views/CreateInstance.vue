@@ -136,6 +136,7 @@ function addProvider(p: string) {
 }
 
 function addCustomProvider() {
+  newProviderOpen.value = false
   const slug = customSlug.value.trim()
   if (!slug) return
   if (!/^[a-z][a-z0-9-]*[a-z0-9]$/.test(slug) || slug.length < 2 || slug.length > 32) {
@@ -621,7 +622,7 @@ async function handleDeploy() {
                   </button>
                   <div
                     v-if="imageDropdownOpen"
-                    class="absolute z-10 mt-1 w-full max-h-48 overflow-y-auto rounded-lg border border-border bg-card shadow-lg"
+                    class="absolute z-50 mt-1 w-full max-h-48 overflow-y-auto rounded-lg border border-border bg-card shadow-lg"
                   >
                     <button
                       v-for="tag in imageTags"
@@ -895,7 +896,7 @@ async function handleDeploy() {
                 </button>
                 <div
                   v-if="newProviderOpen"
-                  class="absolute z-10 mt-1 w-56 rounded-lg border border-border bg-card shadow-lg overflow-hidden"
+                  class="absolute z-50 mt-1 w-56 rounded-lg border border-border bg-card shadow-lg overflow-hidden"
                 >
                   <button
                     v-for="p in unusedProviders"
@@ -915,7 +916,7 @@ async function handleDeploy() {
               </div>
               <button
                 class="px-3 py-1.5 rounded-md border border-dashed border-violet-400/50 text-sm text-violet-400 hover:border-violet-400 hover:bg-violet-500/5 transition-colors flex items-center gap-1"
-                @click="showCustomForm = true"
+                @click="newProviderOpen = false; showCustomForm = true"
               >
                 <Plus class="w-3.5 h-3.5" />
                 {{ t('llm.addCustomProvider') }}
@@ -926,7 +927,7 @@ async function handleDeploy() {
             <div v-if="showCustomForm" class="rounded-lg border border-violet-400/30 bg-violet-500/5 p-4 space-y-3">
               <div class="flex items-center justify-between">
                 <span class="font-medium text-sm text-violet-400">{{ t('llm.customProvider') }}</span>
-                <button class="text-muted-foreground hover:text-foreground text-xs" @click="showCustomForm = false; customSlug = ''; customSlugError = ''">
+                <button class="text-muted-foreground hover:text-foreground text-xs" @click="newProviderOpen = false; showCustomForm = false; customSlug = ''; customSlugError = ''">
                   {{ t('common.cancel') }}
                 </button>
               </div>
@@ -988,6 +989,6 @@ async function handleDeploy() {
 
   <!-- 点击外部关闭下拉框 -->
   <Teleport to="body">
-    <div v-if="imageDropdownOpen" class="fixed inset-0 z-5" @click="imageDropdownOpen = false" />
+    <div v-if="imageDropdownOpen" class="fixed inset-0 z-40" @click="imageDropdownOpen = false" />
   </Teleport>
 </template>

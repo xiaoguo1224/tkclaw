@@ -146,7 +146,7 @@ watch(() => props.provider, () => {
 
     <div
       v-if="open"
-      class="absolute z-20 mt-1 w-full rounded-lg border border-border bg-card shadow-lg overflow-hidden"
+      class="absolute z-50 mt-1 w-full rounded-lg border border-border bg-card shadow-lg overflow-hidden"
     >
       <!-- Manual input mode -->
       <div v-if="manualMode" class="p-3 space-y-2">
