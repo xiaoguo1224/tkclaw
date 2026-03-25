@@ -23,7 +23,6 @@ from app.schemas.workspace import (
     BlackboardSectionPatch,
     BlackboardUpdate,
     ChatMessageRequest,
-    DecorationUpdate,
     ObjectiveCreate,
     ObjectiveUpdate,
     TaskCreate,
@@ -579,50 +578,6 @@ async def attribute_tokens_to_tasks(
 
     await db.commit()
     return _ok({"updated_tasks": updated})
-
-
-# ── Decoration ───────────────────────────────────────
-
-@router.get("/{workspace_id}/decoration")
-async def get_decoration(
-    workspace_id: str,
-    db: AsyncSession = Depends(get_db),
-    user=Depends(_get_current_user_dep()),
-):
-    await wm_service.check_workspace_member(workspace_id, user, db)
-    from app.models.workspace import Workspace
-    ws = (await db.execute(
-        sa_select(Workspace).where(Workspace.id == workspace_id, Workspace.deleted_at.is_(None))
-    )).scalar_one_or_none()
-    if ws is None:
-        raise _error(404, 40401, "errors.workspace.not_found", "办公室不存在")
-    config = ws.decoration_config or {}
-    hexes = config.get("hexes", {})
-    return _ok({"hexes": hexes})
-
-
-@router.put("/{workspace_id}/decoration")
-async def update_decoration(
-    workspace_id: str,
-    data: DecorationUpdate,
-    db: AsyncSession = Depends(get_db),
-    user=Depends(_get_current_user_dep()),
-):
-    await wm_service.check_workspace_access(workspace_id, user, "manage_settings", db)
-    from app.models.workspace import Workspace
-    ws = (await db.execute(
-        sa_select(Workspace).where(Workspace.id == workspace_id, Workspace.deleted_at.is_(None))
-    )).scalar_one_or_none()
-    if ws is None:
-        raise _error(404, 40401, "errors.workspace.not_found", "办公室不存在")
-
-    new_config = {"hexes": {k: v.model_dump() for k, v in (data.hexes or {}).items()}}
-    ws.decoration_config = new_config
-    from sqlalchemy.orm.attributes import flag_modified
-    flag_modified(ws, "decoration_config")
-    await db.commit()
-    await db.refresh(ws)
-    return _ok({"hexes": new_config["hexes"]})
 
 
 # ── Workspace Schedules ──────────────────────────────

@@ -19,11 +19,6 @@ interface TopologyNode {
   color?: string
 }
 
-export interface HexDecorationDisplay {
-  floorUrl?: string
-  furnitureUrls?: string[]
-}
-
 interface PerfSummary {
   totalTasks: number
   completedTasks: number
@@ -41,13 +36,9 @@ const props = withDefaults(defineProps<{
   messageFlowStats?: MessageFlowPair[]
   isMovingHex?: boolean
   movingHexSource?: { q: number, r: number } | null
-  hexDecorations?: Record<string, HexDecorationDisplay>
-  decoratingHexKey?: string | null
-  isDecorationMode?: boolean
   perfSummary?: PerfSummary | null
   perfLoading?: boolean
 }>(), {
-  isDecorationMode: false,
 })
 
 function formatK(n: number): string {
@@ -60,7 +51,6 @@ const emit = defineEmits<{
   (e: 'hex-click', payload: { q: number, r: number, type: 'empty' | 'agent' | 'blackboard' | 'corridor' | 'human', agentId?: string, entityId?: string }): void
   (e: 'agent-dblclick', id: string): void
   (e: 'agent-hover', id: string | null): void
-  (e: 'decoration-hex-click', payload: { q: number, r: number }): void
 }>()
 
 const svgRef = ref<SVGSVGElement | null>(null)
@@ -143,53 +133,6 @@ const GRID_RANGE = 8
 
 const HEX_CELL_W = Math.sqrt(3) * HEX_RADIUS
 const HEX_CELL_H = 2 * HEX_RADIUS
-
-const TILE_W = HEX_CELL_W / 3
-const TILE_H = TILE_W / 2
-
-function floorRhombusPoints(cx: number, cy: number): string {
-  const R = HEX_RADIUS
-  const s3h = Math.sqrt(3) / 2 * R
-  return [
-    `${cx},${cy}`,
-    `${cx + s3h},${cy + R / 2}`,
-    `${cx},${cy + R}`,
-    `${cx - s3h},${cy + R / 2}`,
-  ].join(' ')
-}
-
-const decoratedHexPositions = computed(() => {
-  const decos = props.hexDecorations || {}
-  return Object.entries(decos).map(([key, deco]) => {
-    const [q, r] = key.split(',').map(Number)
-    const pos = worldPos(q, r)
-    const patId = deco.floorUrl
-      ? `floor-pat-${deco.floorUrl.replace(/[^a-zA-Z0-9]/g, '_')}`
-      : undefined
-    return { key, q, r, px: pos.px, py: pos.py, ...deco, floorPatternId: patId }
-  })
-})
-
-const uniqueFloorPatterns = computed(() => {
-  const urls = new Set<string>()
-  for (const hex of decoratedHexPositions.value) {
-    if (hex.floorUrl) urls.add(hex.floorUrl)
-  }
-  return [...urls].map(url => ({
-    id: `floor-pat-${url.replace(/[^a-zA-Z0-9]/g, '_')}`,
-    url,
-  }))
-})
-
-const furniturePositions = computed(() => {
-  const items: { id: string; px: number; py: number; url: string }[] = []
-  for (const hex of decoratedHexPositions.value) {
-    for (const url of (hex.furnitureUrls || [])) {
-      items.push({ id: `${hex.key}-${url}`, px: hex.px, py: hex.py, url })
-    }
-  }
-  return items
-})
 
 const EDGE_X1 = -0.866 * HEX_RADIUS
 const EDGE_Y1 = -0.5 * HEX_RADIUS
@@ -395,48 +338,9 @@ const emptyHexes = computed(() => {
       <clipPath id="hex-clip">
         <polygon :points="hexPointsStr(0, 0, HEX_RADIUS)" />
       </clipPath>
-      <pattern
-        v-for="pat in uniqueFloorPatterns"
-        :key="pat.id"
-        :id="pat.id"
-        patternUnits="userSpaceOnUse"
-        :width="TILE_W"
-        :height="TILE_H"
-      >
-        <image :href="pat.url" :width="TILE_W" :height="TILE_H" />
-      </pattern>
     </defs>
 
     <g :transform="transformStr">
-      <!-- Per-hex floor texture layer (isometric rhombus with tiled pattern) -->
-      <g class="floor-layer">
-        <polygon
-          v-for="item in decoratedHexPositions"
-          v-show="item.floorPatternId"
-          :key="`floor-${item.key}`"
-          :points="floorRhombusPoints(item.px, item.py)"
-          :fill="item.floorPatternId ? `url(#${item.floorPatternId})` : 'none'"
-        />
-      </g>
-
-      <!-- Per-hex furniture sprites -->
-      <g v-if="furniturePositions.length" class="furniture-layer" pointer-events="none">
-        <g
-          v-for="f in furniturePositions"
-          :key="`furniture-${f.id}`"
-          :transform="`translate(${f.px}, ${f.py})`"
-        >
-          <image
-            :href="f.url"
-            :x="-HEX_CELL_W * 0.225"
-            :y="HEX_RADIUS * 0.05"
-            :width="HEX_CELL_W * 0.45"
-            :height="HEX_CELL_H * 0.45"
-            preserveAspectRatio="xMidYMid meet"
-          />
-        </g>
-      </g>
-
       <!-- Honeycomb grid -->
       <path
         :d="honeycombGrid"
@@ -466,7 +370,7 @@ const emptyHexes = computed(() => {
         :key="`empty-${hex.q}-${hex.r}`"
         class="cursor-pointer"
         :transform="`translate(${hex.px}, ${hex.py})`"
-        @click.stop="!isDecorationMode && emit('hex-click', { q: hex.q, r: hex.r, type: 'empty' })"
+        @click.stop="emit('hex-click', { q: hex.q, r: hex.r, type: 'empty' })"
       >
         <polygon
           :points="hexPoints(0, 0)"
@@ -481,7 +385,7 @@ const emptyHexes = computed(() => {
       <!-- Blackboard hex at center (q=0, r=0) -->
       <g
         class="cursor-pointer bb-hex"
-        @click.stop="isDecorationMode ? emit('decoration-hex-click', { q: 0, r: 0 }) : emit('hex-click', { q: 0, r: 0, type: 'blackboard' })"
+        @click.stop="emit('hex-click', { q: 0, r: 0, type: 'blackboard' })"
         @pointerenter="hoveredId = '__blackboard__'"
         @pointerleave="hoveredId = null"
       >
@@ -534,8 +438,8 @@ const emptyHexes = computed(() => {
         :key="agent.instance_id"
         class="cursor-pointer transition-transform"
         :transform="`translate(${agent.px}, ${agent.py}) ${hoveredId === agent.instance_id ? 'scale(1.08)' : ''}`"
-        @click.stop="isDecorationMode ? emit('decoration-hex-click', { q: agent.hex_q, r: agent.hex_r }) : emit('hex-click', { q: agent.hex_q, r: agent.hex_r, type: 'agent', agentId: agent.instance_id })"
-        @dblclick="!isDecorationMode && emit('agent-dblclick', agent.instance_id)"
+        @click.stop="emit('hex-click', { q: agent.hex_q, r: agent.hex_r, type: 'agent', agentId: agent.instance_id })"
+        @dblclick="emit('agent-dblclick', agent.instance_id)"
         @pointerenter="hoveredId = agent.instance_id; emit('agent-hover', agent.instance_id)"
         @pointerleave="hoveredId = null; emit('agent-hover', null)"
       >
@@ -599,7 +503,7 @@ const emptyHexes = computed(() => {
         :key="'corridor-' + ch.entity_id"
         class="cursor-pointer transition-transform"
         :transform="`translate(${ch.px}, ${ch.py}) ${hoveredId === 'corridor-' + ch.entity_id ? 'scale(1.06)' : ''}`"
-        @click.stop="isDecorationMode ? emit('decoration-hex-click', { q: ch.hex_q, r: ch.hex_r }) : emit('hex-click', { q: ch.hex_q, r: ch.hex_r, type: 'corridor', entityId: ch.entity_id })"
+        @click.stop="emit('hex-click', { q: ch.hex_q, r: ch.hex_r, type: 'corridor', entityId: ch.entity_id })"
         @pointerenter="hoveredId = 'corridor-' + ch.entity_id"
         @pointerleave="hoveredId = null"
       >
@@ -637,7 +541,7 @@ const emptyHexes = computed(() => {
         :key="'human-' + hh.entity_id"
         class="cursor-pointer transition-transform"
         :transform="`translate(${hh.px}, ${hh.py}) ${hoveredId === 'human-' + hh.entity_id ? 'scale(1.06)' : ''}`"
-        @click.stop="isDecorationMode ? emit('decoration-hex-click', { q: hh.hex_q, r: hh.hex_r }) : emit('hex-click', { q: hh.hex_q, r: hh.hex_r, type: 'human', entityId: hh.entity_id })"
+        @click.stop="emit('hex-click', { q: hh.hex_q, r: hh.hex_r, type: 'human', entityId: hh.entity_id })"
         @pointerenter="hoveredId = 'human-' + hh.entity_id"
         @pointerleave="hoveredId = null"
       >
@@ -710,20 +614,6 @@ const emptyHexes = computed(() => {
         />
       </g>
 
-      <!-- Decoration mode: highlight the hex being decorated -->
-      <g
-        v-if="isDecorationMode && decoratingHexKey"
-        :transform="`translate(${worldPos(Number(decoratingHexKey.split(',')[0]), Number(decoratingHexKey.split(',')[1])).px}, ${worldPos(Number(decoratingHexKey.split(',')[0]), Number(decoratingHexKey.split(',')[1])).py})`"
-      >
-        <polygon
-          :points="hexPoints(0, 0)"
-          fill="none"
-          stroke="#a78bfa"
-          stroke-width="3"
-          stroke-dasharray="6,3"
-          class="animate-selected-ring"
-        />
-      </g>
     </g>
   </svg>
 </template>

@@ -271,22 +271,6 @@ const enUS = {
   evolutionLog: {
     unsupportedRuntime: "Evolution log is not supported by this engine",
   },
-  decoration: {
-    panel_title: 'Office Decoration',
-    select_hex_hint: 'Click a workstation to start decorating',
-    current_hex: 'Current hex: {name}',
-    floor: {
-      title: 'Floor',
-      terrazzo_diamond: 'Terrazzo',
-    },
-    furniture: {
-      title: 'Furniture',
-      hint: 'Click an icon to add or remove furniture',
-      office_chair: 'Office Chair',
-    },
-    save: 'Save Decoration',
-    reset: 'Reset',
-  },
   workspaceView: {
     addAgent: "Add AI Employee",
     pickHexHint: "Click an empty hex to place the AI Employee",

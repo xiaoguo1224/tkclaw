@@ -164,15 +164,6 @@ export interface TopologyInfo {
   edges: TopologyEdge[]
 }
 
-export interface HexDecoration {
-  floor_asset_id: string | null
-  furniture: string[]
-}
-
-export interface DecorationConfig {
-  hexes: Record<string, HexDecoration>
-}
-
 export interface MessageFlowPair {
   sender_hex_key: string
   receiver_hex_key: string
@@ -251,8 +242,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const topology = ref<TopologyInfo | null>(null)
   const messageFlowStats = ref<MessageFlowPair[]>([])
   const heatmap = ref<HeatmapEntry[]>([])
-
-  const decoration = ref<DecorationConfig | null>(null)
 
   const myPermissions = ref<string[]>([])
   const isWorkspaceAdmin = ref(false)
@@ -1177,28 +1166,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     await fetchTopology(workspaceId)
   }
 
-  // ── Decoration ─────────────────────────────────────
-
-  async function fetchDecoration(workspaceId: string) {
-    try {
-      const res = await api.get(`/workspaces/${workspaceId}/decoration`)
-      decoration.value = res.data.data
-    } catch (e) {
-      console.error('fetchDecoration error:', e)
-      decoration.value = null
-    }
-  }
-
-  async function saveDecoration(workspaceId: string, hexes: Record<string, HexDecoration>) {
-    try {
-      const res = await api.put(`/workspaces/${workspaceId}/decoration`, { hexes })
-      decoration.value = res.data.data
-    } catch (e) {
-      console.error('saveDecoration error:', e)
-      throw e
-    }
-  }
-
   async function fetchMyPermissions(workspaceId: string) {
     try {
       const res = await api.get(`/workspaces/${workspaceId}/my-permissions`)
@@ -1251,7 +1218,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     blackboard.value = null
     schedules.value = []
     topology.value = null
-    decoration.value = null
     members.value = []
     chatMessages.value = []
     corridorHexes.value = []
@@ -1283,7 +1249,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     topologyEdges: computed(() => topology.value?.edges || []),
     messageFlowStats,
     heatmap,
-    decoration,
     myPermissions,
     isWorkspaceAdmin,
     isOrgAdmin,
@@ -1345,8 +1310,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     renameHumanHex,
     deleteHumanHex,
     updateHumanHexChannel,
-    fetchDecoration,
-    saveDecoration,
     fetchMyPermissions,
     hasPermission,
     addMember,

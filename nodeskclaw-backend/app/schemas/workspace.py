@@ -62,21 +62,6 @@ class WorkspaceListItem(BaseModel):
     created_at: datetime
 
 
-# ── Decoration ───────────────────────────────────────
-
-class HexDecoration(BaseModel):
-    floor_asset_id: str | None = None
-    furniture: list[str] = []
-
-
-class DecorationConfig(BaseModel):
-    hexes: dict[str, HexDecoration] = {}
-
-
-class DecorationUpdate(BaseModel):
-    hexes: dict[str, HexDecoration] | None = None
-
-
 # ── Tasks & Objectives ───────────────────────────────
 
 class TaskCreate(BaseModel):

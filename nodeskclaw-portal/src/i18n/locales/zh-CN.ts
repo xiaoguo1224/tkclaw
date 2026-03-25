@@ -271,22 +271,6 @@ const zhCN = {
   evolutionLog: {
     unsupportedRuntime: "当前 AI 员工引擎不支持进化日志",
   },
-  decoration: {
-    panel_title: '办公室装修',
-    select_hex_hint: '请点击一个工位开始装修',
-    current_hex: '当前工位: {name}',
-    floor: {
-      title: '地板',
-      terrazzo_diamond: '水磨石',
-    },
-    furniture: {
-      title: '家具',
-      hint: '点击图标可添加或移除该家具',
-      office_chair: '办公椅',
-    },
-    save: '保存装修',
-    reset: '重置',
-  },
   workspaceView: {
     addAgent: "添加 AI 员工",
     pickHexHint: "点击一个空白工位来放置 AI 员工",
