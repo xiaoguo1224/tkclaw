@@ -1,8 +1,11 @@
 services:
   postgres:
+    platform: linux/amd64
     image: postgres:16-alpine
     volumes:
       - pg_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-nodeskclaw}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nodeskclaw}
@@ -15,6 +18,7 @@ services:
     restart: unless-stopped
 
   nodeskclaw-backend:
+    platform: linux/amd64
     build:
       context: .
       dockerfile: nodeskclaw-backend/Dockerfile
@@ -26,19 +30,20 @@ services:
       - ./nodeskclaw-backend/.env
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - $HOME/.nodeskclaw/docker-instances:$HOME/.nodeskclaw/docker-instances
+      - ${DOCKER_DATA_DIR}:${DOCKER_DATA_DIR}
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://nodeskclaw:nodeskclaw@postgres:5432/nodeskclaw}
       DATABASE_NAME_SUFFIX: ""
       LLM_PROXY_URL: http://llm-proxy:8080
       LLM_PROXY_INTERNAL_URL: http://llm-proxy:8080
       NODESKCLAW_EDITION: ce
-      DOCKER_DATA_DIR: $HOME/.nodeskclaw/docker-instances
+      DOCKER_DATA_DIR: ${DOCKER_DATA_DIR}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     restart: unless-stopped
 
   llm-proxy:
+    platform: linux/amd64
     build:
       context: nodeskclaw-llm-proxy
     depends_on:
@@ -55,6 +60,7 @@ services:
     restart: unless-stopped
 
   portal:
+    platform: linux/amd64
     build:
       context: nodeskclaw-portal
     depends_on:
