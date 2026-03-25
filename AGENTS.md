@@ -85,6 +85,9 @@ vue-tsc -b                                # 类型检查
 docker build --platform linux/amd64 -t my-image:latest .
 ```
 
+### 数据库规则
+在进行数据库修改的时候，需要记录sql语句，例如：`alter table users add 列_name integer`;
+每次修改都需要记录下来，创建sql文件，命名规则为"日期+操作（增加、删除字段等）"，放在`nodeskclaw-backend\flyway`文件夹
 ### 导入完整性
 
 在函数/代码块内使用模型或工具类时，必须确保该作用域内有对应的 import。不要假设外层已导入。
