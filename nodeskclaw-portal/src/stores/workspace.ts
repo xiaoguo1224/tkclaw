@@ -35,6 +35,9 @@ export interface WorkspaceInfo {
   color: string
   icon: string
   created_by: string
+  visibility_scope: string
+  allowed_department_ids: string[]
+  auto_sync_mode: string
   agent_count: number
   agents: AgentBrief[]
   created_at: string
@@ -103,6 +106,8 @@ export interface WorkspaceMemberInfo {
   role: string
   is_admin: boolean
   permissions: string[]
+  primary_department_name: string | null
+  secondary_department_names: string[]
   created_at: string
 }
 
@@ -257,6 +262,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const myPermissions = ref<string[]>([])
   const isWorkspaceAdmin = ref(false)
   const isOrgAdmin = ref(false)
+  const isDepartmentManager = ref(false)
   const fileUploadEnabled = ref(false)
 
   // ── Workspace CRUD ────────────────────────────────
@@ -1206,11 +1212,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       myPermissions.value = data.permissions || []
       isWorkspaceAdmin.value = data.is_admin || false
       isOrgAdmin.value = data.is_org_admin || false
+      isDepartmentManager.value = data.is_department_manager || false
     } catch (e) {
       console.error('fetchMyPermissions error:', e)
       myPermissions.value = []
       isWorkspaceAdmin.value = false
       isOrgAdmin.value = false
+      isDepartmentManager.value = false
     }
   }
 
@@ -1262,6 +1270,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     myPermissions.value = []
     isWorkspaceAdmin.value = false
     isOrgAdmin.value = false
+    isDepartmentManager.value = false
   }
 
   return {
@@ -1287,6 +1296,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     myPermissions,
     isWorkspaceAdmin,
     isOrgAdmin,
+    isDepartmentManager,
     resetCurrentState,
     setChatVisible,
     setPostsTabVisible,

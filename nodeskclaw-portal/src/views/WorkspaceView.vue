@@ -712,6 +712,7 @@ interface HumanSeatCandidate {
   user_name: string
   user_email?: string | null
   user_avatar_url?: string | null
+  primary_department_name?: string | null
   alreadyInWorkspace: boolean
 }
 
@@ -723,6 +724,7 @@ const availableMembers = computed<HumanSeatCandidate[]>(() => {
     user_name: member.user_name,
     user_email: member.user_email,
     user_avatar_url: member.user_avatar_url,
+    primary_department_name: member.primary_department_name,
     alreadyInWorkspace: true,
   }))
   const merged = new Map<string, HumanSeatCandidate>()
@@ -741,6 +743,7 @@ async function loadHumanSeatCandidates() {
       user_name: user.name,
       user_email: user.email,
       user_avatar_url: user.avatar_url,
+      primary_department_name: user.primary_department_name,
       alreadyInWorkspace: false,
     }))
   } catch {
@@ -1505,13 +1508,16 @@ function handleKeydown(e: KeyboardEvent) {
                 <div v-else class="w-8 h-8 rounded-full bg-amber-500/20 flex items-center justify-center shrink-0">
                   <User class="w-4 h-4 text-amber-500" />
                 </div>
-                <div class="min-w-0">
-                  <div class="text-sm font-medium truncate">{{ member.user_name }}</div>
-                  <div v-if="member.user_email" class="text-xs text-muted-foreground truncate">{{ member.user_email }}</div>
-                  <div v-if="!member.alreadyInWorkspace" class="text-[10px] text-amber-500 truncate">
-                    {{ t('hexAction.autoAddToWorkspace') }}
+                  <div class="min-w-0">
+                    <div class="text-sm font-medium truncate">{{ member.user_name }}</div>
+                    <div v-if="member.user_email" class="text-xs text-muted-foreground truncate">{{ member.user_email }}</div>
+                    <div v-if="member.primary_department_name" class="text-[10px] text-muted-foreground truncate">
+                      {{ member.primary_department_name }}
+                    </div>
+                    <div v-if="!member.alreadyInWorkspace" class="text-[10px] text-amber-500 truncate">
+                      {{ t('hexAction.autoAddToWorkspace') }}
+                    </div>
                   </div>
-                </div>
               </button>
             </div>
             <div class="flex justify-end pt-2">
