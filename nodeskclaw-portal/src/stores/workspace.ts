@@ -267,10 +267,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   // ── Workspace CRUD ────────────────────────────────
 
-  async function fetchWorkspaces() {
+  async function fetchWorkspaces(departmentId?: string | null) {
     loading.value = true
     try {
-      const res = await api.get('/workspaces')
+      const params: Record<string, string> = {}
+      if (departmentId) params.department_id = departmentId
+      const res = await api.get('/workspaces', { params })
       workspaces.value = res.data.data || []
     } catch (e) {
       console.error('fetchWorkspaces error:', e)

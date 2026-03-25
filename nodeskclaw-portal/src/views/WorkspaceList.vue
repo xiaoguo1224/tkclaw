@@ -1,17 +1,39 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Plus, Loader2, Bot } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useOrgStore } from '@/stores/org'
 import WorkspaceCard from '@/components/workspace/WorkspaceCard.vue'
+import CustomSelect from '@/components/shared/CustomSelect.vue'
 
 const router = useRouter()
 const store = useWorkspaceStore()
+const orgStore = useOrgStore()
 const { t } = useI18n()
+const selectedDepartmentId = ref('')
 
-onMounted(() => {
-  store.fetchWorkspaces()
+function flattenDepartments(items = orgStore.departments, depth = 0): Array<{ id: string; label: string }> {
+  return items.flatMap(item => [
+    { id: item.id, label: `${' '.repeat(depth * 2)}${item.name}` },
+    ...flattenDepartments(item.children || [], depth + 1),
+  ])
+}
+
+const departmentOptions = computed(() => [
+  { value: '', label: t('workspaceList.allDepartments') },
+  ...flattenDepartments().map(item => ({ value: item.id, label: item.label })),
+])
+
+onMounted(async () => {
+  if (!orgStore.currentOrgId) await orgStore.fetchCurrentOrg()
+  if (orgStore.currentOrgId) await orgStore.fetchDepartments()
+  await store.fetchWorkspaces(selectedDepartmentId.value || null)
+})
+
+watch(selectedDepartmentId, async value => {
+  await store.fetchWorkspaces(value || null)
 })
 
 function openWorkspace(id: string) {
@@ -40,6 +62,16 @@ function createNew() {
       </button>
     </div>
 
+    <div class="mb-6 max-w-xs">
+      <label class="text-sm font-medium block mb-2">{{ t('workspaceList.departmentFilter') }}</label>
+      <CustomSelect
+        :model-value="selectedDepartmentId"
+        :options="departmentOptions"
+        trigger-class="w-full justify-between"
+        @update:model-value="(value: string | null) => { selectedDepartmentId = value || '' }"
+      />
+    </div>
+
     <!-- Loading -->
     <div v-if="store.loading" class="flex items-center justify-center py-20">
       <Loader2 class="w-6 h-6 animate-spin text-muted-foreground" />
@@ -55,7 +87,7 @@ function createNew() {
       </div>
       <h3 class="text-lg font-semibold">{{ t('workspaceList.emptyTitle') }}</h3>
       <p class="text-sm text-muted-foreground max-w-sm mx-auto">
-        {{ t('workspaceList.emptyDescription') }}
+        {{ selectedDepartmentId ? t('workspaceList.emptyByDepartment') : t('workspaceList.emptyDescription') }}
       </p>
       <button
         class="mt-4 px-6 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"

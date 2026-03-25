@@ -559,9 +559,12 @@ const enUS = {
   workspaceList: {
     title: "My Cyber Offices",
     subtitle: "Manage your AI Employee collaboration spaces",
+    departmentFilter: "View by Department",
+    allDepartments: "All Departments",
     createNew: "New Cyber Office",
     emptyTitle: "No cyber offices yet",
     emptyDescription: "Create a cyber office, add Agents, and let them collaborate on tasks.",
+    emptyByDepartment: "There are no linked cyber offices under this department yet.",
     createFirst: "Create your first cyber office",
   },
   workspaceCard: {
@@ -744,6 +747,15 @@ const enUS = {
     deleteConfirm: "Delete department {name}?",
     deleteFailed: "Failed to delete department",
     empty: "No departments yet",
+    managerTitle: "Manage Department Managers",
+    managerSelectLabel: "Select Manager",
+    setManager: "Set as Manager",
+    currentManagers: "Current Managers",
+    noManagers: "No managers yet",
+    managerBadge: "Manager",
+    removeManager: "Remove Manager",
+    managerUpdated: "Department managers updated",
+    managerUpdateFailed: "Failed to update department managers",
   },
   acceptInvite: {
     title: "Join Organization",
