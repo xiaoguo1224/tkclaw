@@ -118,7 +118,7 @@ docker compose -f docker-compose.yml -f docker-compose.ee.yml up -d
 | 服务 | 地址 |
 |---|---|
 | 用户门户（Portal） | http://localhost |
-| 后端 API | http://localhost:8000 |
+| 后端 API | http://localhost:4510 |
 | 管理后台（EE） | http://localhost:8001 |
 
 **初始账号** -- 首次启动时，后端会自动创建管理员账号并生成随机密码，打印在日志中：
@@ -173,8 +173,8 @@ cp .env.example .env
 
 | 模式 | 服务 | 端口 |
 |------|------|------|
-| CE | 后端 + Portal | 8000, 4517 |
-| EE | 后端 + Portal + Admin | 8000, 4517, 4518 |
+| CE | 后端 + Portal | 4510, 4517 |
+| EE | 后端 + Portal + Admin | 4510, 4517, 4518 |
 
 <details>
 <summary>手动启动（备选）</summary>
@@ -184,10 +184,10 @@ cp .env.example .env
 ```bash
 cd nodeskclaw-backend
 uv sync
-uv run uvicorn app.main:app --reload --port 8000
+uv run uvicorn app.main:app --reload --port 4510
 ```
 
-API 地址 `http://localhost:8000` | Swagger 文档 `http://localhost:8000/docs` | 首次启动自动迁移数据库。
+API 地址 `http://localhost:4510` | Swagger 文档 `http://localhost:4510/docs` | 首次启动自动迁移数据库。
 
 **前端（Portal）：**
 

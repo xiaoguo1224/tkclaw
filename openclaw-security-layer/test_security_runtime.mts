@@ -121,7 +121,7 @@ async function testPluginHooks() {
 }
 
 async function main() {
-  const endpoint = process.env.SECURITY_WS_ENDPOINT ?? "ws://localhost:8000";
+  const endpoint = process.env.SECURITY_WS_ENDPOINT ?? "ws://localhost:4510";
   const enabled = process.env.SECURITY_LAYER_ENABLED ?? "true";
   console.log(`Security WS endpoint: ${endpoint}`);
   console.log(`Security layer enabled: ${enabled}`);

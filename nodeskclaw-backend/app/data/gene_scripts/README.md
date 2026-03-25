@@ -22,7 +22,7 @@ gene_scripts/
 
 | 变量 | 说明 |
 |------|------|
-| `DESKCLAW_API_URL` | Backend API 地址（如 `http://localhost:8000/api/v1`） |
+| `DESKCLAW_API_URL` | Backend API 地址（如 `http://localhost:4510/api/v1`） |
 | `DESKCLAW_TOKEN` | 实例 proxy_token |
 | `DESKCLAW_WORKSPACE_ID` | 当前工作区 ID |
 | `DESKCLAW_INSTANCE_ID` | 当前实例 ID（可选，部分脚本的默认值） |

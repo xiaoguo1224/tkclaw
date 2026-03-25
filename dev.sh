@@ -37,8 +37,8 @@ usage() {
   --help       显示本帮助
 
 服务端口:
-  backend    http://localhost:8000
-  llm-proxy  http://localhost:8080
+  backend    http://localhost:4510
+  llm-proxy  http://localhost:4511
   portal     http://localhost:4517
   admin(EE)  http://localhost:4518
 EOF
@@ -60,7 +60,7 @@ cleanup() {
     wait "$pid" 2>/dev/null || true
   done
   # 兜底：杀死仍在占用服务端口的孤儿进程
-  for port in 8000 8080; do
+  for port in 4510 4511; do
     local remaining
     remaining=$(lsof -ti :"$port" 2>/dev/null || true)
     if [ -n "$remaining" ]; then
@@ -232,15 +232,15 @@ require_port_free() {
   fi
 }
 
-require_port_free 8000 "backend"
-require_port_free 8080 "llm-proxy"
+require_port_free 4510 "backend"
+require_port_free 4511 "llm-proxy"
 
 # ── 启动服务 ──────────────────────────────────────────────
 log "启动服务..."
 
 export NODESKCLAW_EDITION="$MODE"
-export LLM_PROXY_URL="http://localhost:8080"
-export LLM_PROXY_INTERNAL_URL="http://localhost:8080"
+export LLM_PROXY_URL="http://localhost:4511"
+export LLM_PROXY_INTERNAL_URL="http://localhost:4511"
 
 if [ -z "${DATABASE_URL:-}" ]; then
   DATABASE_URL=$(grep '^DATABASE_URL=' "$BACKEND_DIR/.env" | head -1 | cut -d= -f2-)
@@ -249,11 +249,11 @@ fi
 
 _LLM_PROXY_DB_URL=$(cd "$BACKEND_DIR" && uv run python3 -c "from app.core.config import settings; print(settings.DATABASE_URL)" 2>/dev/null)
 
-(cd "$LLM_PROXY_DIR" && DATABASE_URL="${_LLM_PROXY_DB_URL:-$DATABASE_URL}" uv run uvicorn app.main:app --host 0.0.0.0 --port 8080 --timeout-graceful-shutdown 3) \
+(cd "$LLM_PROXY_DIR" && DATABASE_URL="${_LLM_PROXY_DB_URL:-$DATABASE_URL}" uv run uvicorn app.main:app --host 0.0.0.0 --port 4511 --timeout-graceful-shutdown 3) \
   2>&1 | prefix_output "$CYAN" "llm-prx" &
 PIDS+=($!)
 
-(cd "$BACKEND_DIR" && uv run uvicorn app.main:app --reload --port 8000 --timeout-graceful-shutdown 3) \
+(cd "$BACKEND_DIR" && uv run uvicorn app.main:app --reload --port 4510 --timeout-graceful-shutdown 3) \
   2>&1 | prefix_output "$BLUE" "backend" &
 PIDS+=($!)
 
@@ -277,8 +277,8 @@ MODE_UPPER=$(echo "$MODE" | tr '[:lower:]' '[:upper:]')
 echo "${BOLD}========================================${RESET}"
 echo "${BOLD} NoDeskClaw 本地开发环境 (${MODE_UPPER})${RESET}"
 echo "${BOLD}========================================${RESET}"
-echo "  ${BLUE}Backend${RESET}  http://localhost:8000"
-echo "  ${CYAN}LLM Prx${RESET}  http://localhost:8080"
+echo "  ${BLUE}Backend${RESET}  http://localhost:4510"
+echo "  ${CYAN}LLM Prx${RESET}  http://localhost:4511"
 echo "  ${GREEN}Portal${RESET}   http://localhost:4517"
 if [ "$MODE" = "ee" ]; then
   echo "  ${YELLOW}Admin${RESET}    http://localhost:4518"

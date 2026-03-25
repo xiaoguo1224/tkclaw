@@ -65,7 +65,7 @@ async fn main() {
     tracing_subscriber::fmt::init();
 
     let endpoint =
-        std::env::var("SECURITY_WS_ENDPOINT").unwrap_or_else(|_| "ws://localhost:8000".into());
+        std::env::var("SECURITY_WS_ENDPOINT").unwrap_or_else(|_| "ws://localhost:4510".into());
     let enabled =
         std::env::var("SECURITY_LAYER_ENABLED").unwrap_or_else(|_| "true".into());
     println!("Security WS endpoint: {endpoint}");

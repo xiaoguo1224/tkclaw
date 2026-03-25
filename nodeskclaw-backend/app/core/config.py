@@ -101,7 +101,7 @@ class Settings(BaseSettings):
     LLM_PROXY_INTERNAL_URL: str = ""  # K8s 集群内网地址，用于 openclaw.json 中的 baseUrl（绕过 ALB）
 
     # ── Agent API（AI 员工 Pod 回调后端的内网地址）────────
-    AGENT_API_BASE_URL: str = "http://localhost:8000/api/v1"
+    AGENT_API_BASE_URL: str = "http://localhost:4510/api/v1"
 
     # ── Agent Tunnel（实例通过 WebSocket 主动连接后端的地址）────
     TUNNEL_BASE_URL: str = ""

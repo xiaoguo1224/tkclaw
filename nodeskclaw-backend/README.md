@@ -232,7 +232,7 @@ API 路由同时挂载在两个前缀下：
 
 Admin 后台权限**严格依赖 `AdminMembership`**，`is_super_admin` 不再自动放行。CE Portal 超管和 EE Admin 平台管理员是**独立的账号体系**，由不同的种子函数分别初始化。
 
-启动后访问 `http://localhost:8000/docs` 查看完整 API 文档（Swagger UI）。
+启动后访问 `http://localhost:4510/docs` 查看完整 API 文档（Swagger UI）。
 
 ## 错误响应契约（i18n 对齐）
 

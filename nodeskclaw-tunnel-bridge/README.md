@@ -34,7 +34,7 @@ ZeroClaw bridge 和 NanoBot channel 默认传入结构化日志 callbacks。
 | `NODESKCLAW_TUNNEL_URL` | Tunnel WebSocket 地址 | 否（优先级高于 API_URL 推导） |
 | `NODESKCLAW_INSTANCE_ID` | 实例 ID | 是 |
 | `NODESKCLAW_TOKEN` | 认证 token | 是 |
-| `ZEROCLAW_GATEWAY_URL` | ZeroClaw 本地地址（默认 `http://localhost:8080`） | 否 |
+| `ZEROCLAW_GATEWAY_URL` | ZeroClaw 本地地址（默认 `http://localhost:4511`） | 否 |
 | `ZEROCLAW_BEARER_TOKEN` | ZeroClaw Bearer token | 否 |
 
 ## 安装

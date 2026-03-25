@@ -12,7 +12,7 @@ from .client import TunnelCallbacks, TunnelClient
 
 logger = logging.getLogger("nodeskclaw_tunnel_bridge.zeroclaw")
 
-DEFAULT_GATEWAY_URL = "http://localhost:8080"
+DEFAULT_GATEWAY_URL = "http://localhost:4511"
 
 
 class ZeroClawBridge:

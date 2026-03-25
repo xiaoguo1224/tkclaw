@@ -119,8 +119,8 @@ docker compose -f docker-compose.yml -f docker-compose.ee.yml up -d
 | Service | URL |
 |---|---|
 | Portal | http://localhost |
-| Backend API | http://localhost:8000 |
-| LLM Proxy | http://localhost:8080 |
+| Backend API | http://localhost:4510 |
+| LLM Proxy | http://localhost:4511 |
 | Admin (EE) | http://localhost:8001 |
 
 **Initial credentials** -- on first startup the backend creates an admin account with a random password and prints it to the log:
@@ -175,8 +175,8 @@ The script handles dependency installation, starts all services with colored log
 
 | Mode | Services | Ports |
 |------|----------|-------|
-| CE | backend + llm-proxy + portal | 8000, 8080, 4517 |
-| EE | backend + llm-proxy + portal + admin | 8000, 8080, 4517, 4518 |
+| CE | backend + llm-proxy + portal | 4510, 4511, 4517 |
+| EE | backend + llm-proxy + portal + admin | 4510, 4511, 4517, 4518 |
 
 <details>
 <summary>Manual Start (alternative)</summary>
@@ -186,10 +186,10 @@ The script handles dependency installation, starts all services with colored log
 ```bash
 cd nodeskclaw-backend
 uv sync
-uv run uvicorn app.main:app --reload --port 8000
+uv run uvicorn app.main:app --reload --port 4510
 ```
 
-API at `http://localhost:8000` | Swagger at `http://localhost:8000/docs` | Auto-migration on first boot.
+API at `http://localhost:4510` | Swagger at `http://localhost:4510/docs` | Auto-migration on first boot.
 
 **Frontend (Portal):**
 

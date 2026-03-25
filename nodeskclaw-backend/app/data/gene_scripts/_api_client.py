@@ -2,7 +2,7 @@
 
 Uses only Python standard library (urllib.request + json).
 Authentication via environment variables:
-  DESKCLAW_API_URL        Backend API base URL (e.g. http://localhost:8000/api/v1)
+  DESKCLAW_API_URL        Backend API base URL (e.g. http://localhost:4510/api/v1)
   DESKCLAW_TOKEN          Instance proxy_token for Bearer auth
   DESKCLAW_WORKSPACE_ID   Current workspace ID
 """
@@ -16,7 +16,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-API_URL = os.environ.get("DESKCLAW_API_URL", "http://localhost:8000/api/v1")
+API_URL = os.environ.get("DESKCLAW_API_URL", "http://localhost:4510/api/v1")
 TOKEN = os.environ.get("DESKCLAW_TOKEN", "")
 WORKSPACE_ID = os.environ.get("DESKCLAW_WORKSPACE_ID", "")
 

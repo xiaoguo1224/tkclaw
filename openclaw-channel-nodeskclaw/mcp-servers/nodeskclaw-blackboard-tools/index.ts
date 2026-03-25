@@ -7,7 +7,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 
-const API = process.env.NODESKCLAW_API_URL || "http://localhost:8000/api/v1";
+const API = process.env.NODESKCLAW_API_URL || "http://localhost:4510/api/v1";
 const TOKEN = process.env.NODESKCLAW_TOKEN || "";
 const WORKSPACE_ID = process.env.NODESKCLAW_WORKSPACE_ID || "";
 

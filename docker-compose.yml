@@ -36,7 +36,7 @@ services:
       NODESKCLAW_EDITION: ce
       DOCKER_DATA_DIR: $HOME/.nodeskclaw/docker-instances
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - "${BACKEND_PORT:-4510}:8000"
     restart: unless-stopped
 
   llm-proxy:
@@ -53,7 +53,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://nodeskclaw:nodeskclaw@postgres:5432/nodeskclaw}
       # LLM_LOG_CONTENT: "true"
     ports:
-      - "${LLM_PROXY_PORT:-8080}:8080"
+      - "${LLM_PROXY_PORT:-4511}:8080"
     restart: unless-stopped
 
   portal:
