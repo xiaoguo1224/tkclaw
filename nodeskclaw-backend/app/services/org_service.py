@@ -13,7 +13,7 @@ from app.models.oauth_connection import UserOAuthConnection
 from app.models.org_membership import OrgMembership, OrgRole
 from app.models.org_oauth_binding import OrgOAuthBinding
 from app.models.organization import Organization
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.organization import MemberInfo, OAuthOrgSetupRequest, OrgCreate, OrgInfo, OrgUpdate
 
 logger = logging.getLogger(__name__)
@@ -327,6 +327,60 @@ async def add_member(org_id: str, user_id: str, role: str, db: AsyncSession) -> 
     if user.current_org_id is None:
         user.current_org_id = org_id
 
+    await db.commit()
+    await db.refresh(membership)
+
+    return MemberInfo(
+        id=membership.id,
+        user_id=membership.user_id,
+        org_id=membership.org_id,
+        role=membership.role,
+        is_super_admin=user.is_super_admin,
+        user_name=user.name,
+        user_email=user.email,
+        user_avatar_url=user.avatar_url,
+        created_at=membership.created_at,
+    )
+
+
+async def create_member_direct(
+    org_id: str,
+    name: str,
+    email: str,
+    password: str,
+    role: str,
+    db: AsyncSession,
+) -> MemberInfo:
+    """直接创建账号并加入组织。"""
+    from app.services.auth_service import _hash_password
+
+    normalized_email = email.strip().lower()
+
+    existing_user = (
+        await db.execute(
+            select(User).where(
+                User.email == normalized_email,
+                User.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one_or_none()
+    if existing_user is not None:
+        raise ConflictError("该邮箱已注册账号")
+
+    user = User(
+        name=name.strip(),
+        email=normalized_email,
+        password_hash=_hash_password(password),
+        role=UserRole.user,
+        is_active=True,
+        must_change_password=False,
+        current_org_id=org_id,
+    )
+    db.add(user)
+    await db.flush()
+
+    membership = OrgMembership(user_id=user.id, org_id=org_id, role=role)
+    db.add(membership)
     await db.commit()
     await db.refresh(membership)
 
