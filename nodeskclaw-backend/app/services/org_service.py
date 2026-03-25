@@ -15,6 +15,7 @@ from app.models.org_oauth_binding import OrgOAuthBinding
 from app.models.organization import Organization
 from app.models.user import User, UserRole
 from app.schemas.organization import MemberInfo, OAuthOrgSetupRequest, OrgCreate, OrgInfo, OrgUpdate
+from app.services import department_service
 
 logger = logging.getLogger(__name__)
 
@@ -283,8 +284,15 @@ async def list_members(
             admin_filter,
         )
     )
+    rows = result.all()
+    department_memberships = await department_service.list_user_department_memberships(
+        org_id, [user.id for _membership, user in rows], db,
+    )
     members = []
-    for membership, user in result.all():
+    for membership, user in rows:
+        primary_department_id, primary_department_name, secondary_department_ids, secondary_departments, is_department_manager = (
+            department_service.summarize_user_departments(department_memberships.get(user.id, []))
+        )
         members.append(MemberInfo(
             id=membership.id,
             user_id=membership.user_id,
@@ -294,12 +302,25 @@ async def list_members(
             user_name=user.name,
             user_email=user.email,
             user_avatar_url=user.avatar_url,
+            primary_department_id=primary_department_id,
+            primary_department_name=primary_department_name,
+            secondary_department_ids=secondary_department_ids,
+            secondary_departments=secondary_departments,
+            is_department_manager=is_department_manager,
             created_at=membership.created_at,
         ))
     return members
 
 
-async def add_member(org_id: str, user_id: str, role: str, db: AsyncSession) -> MemberInfo:
+async def add_member(
+    org_id: str,
+    user_id: str,
+    role: str,
+    db: AsyncSession,
+    *,
+    primary_department_id: str | None = None,
+    secondary_department_ids: list[str] | None = None,
+) -> MemberInfo:
     """添加成员到组织。"""
     # 检查用户存在
     user_result = await db.execute(
@@ -327,8 +348,21 @@ async def add_member(org_id: str, user_id: str, role: str, db: AsyncSession) -> 
     if user.current_org_id is None:
         user.current_org_id = org_id
 
+    await department_service.assign_member_departments(
+        org_id=org_id,
+        user_id=user_id,
+        primary_department_id=primary_department_id,
+        secondary_department_ids=secondary_department_ids or [],
+        db=db,
+    )
+
     await db.commit()
     await db.refresh(membership)
+
+    department_memberships = await department_service.list_user_department_memberships(org_id, [user.id], db)
+    primary_id, primary_name, secondary_department_ids, secondary_departments, is_department_manager = (
+        department_service.summarize_user_departments(department_memberships.get(user.id, []))
+    )
 
     return MemberInfo(
         id=membership.id,
@@ -339,6 +373,11 @@ async def add_member(org_id: str, user_id: str, role: str, db: AsyncSession) -> 
         user_name=user.name,
         user_email=user.email,
         user_avatar_url=user.avatar_url,
+        primary_department_id=primary_id,
+        primary_department_name=primary_name,
+        secondary_department_ids=secondary_department_ids,
+        secondary_departments=secondary_departments,
+        is_department_manager=is_department_manager,
         created_at=membership.created_at,
     )
 
@@ -350,6 +389,8 @@ async def create_member_direct(
     password: str,
     role: str,
     db: AsyncSession,
+    primary_department_id: str | None = None,
+    secondary_department_ids: list[str] | None = None,
 ) -> MemberInfo:
     """直接创建账号并加入组织。"""
     from app.services.auth_service import _hash_password
@@ -381,8 +422,20 @@ async def create_member_direct(
 
     membership = OrgMembership(user_id=user.id, org_id=org_id, role=role)
     db.add(membership)
+    await department_service.assign_member_departments(
+        org_id=org_id,
+        user_id=user.id,
+        primary_department_id=primary_department_id,
+        secondary_department_ids=secondary_department_ids or [],
+        db=db,
+    )
     await db.commit()
     await db.refresh(membership)
+
+    department_memberships = await department_service.list_user_department_memberships(org_id, [user.id], db)
+    primary_id, primary_name, secondary_department_ids, secondary_departments, is_department_manager = (
+        department_service.summarize_user_departments(department_memberships.get(user.id, []))
+    )
 
     return MemberInfo(
         id=membership.id,
@@ -393,6 +446,11 @@ async def create_member_direct(
         user_name=user.name,
         user_email=user.email,
         user_avatar_url=user.avatar_url,
+        primary_department_id=primary_id,
+        primary_department_name=primary_name,
+        secondary_department_ids=secondary_department_ids,
+        secondary_departments=secondary_departments,
+        is_department_manager=is_department_manager,
         created_at=membership.created_at,
     )
 
@@ -415,6 +473,10 @@ async def update_member_role(org_id: str, membership_id: str, role: str, db: Asy
     membership, user = row
     membership.role = role
     await db.commit()
+    department_memberships = await department_service.list_user_department_memberships(org_id, [user.id], db)
+    primary_id, primary_name, secondary_department_ids, secondary_departments, is_department_manager = (
+        department_service.summarize_user_departments(department_memberships.get(user.id, []))
+    )
 
     return MemberInfo(
         id=membership.id,
@@ -425,6 +487,63 @@ async def update_member_role(org_id: str, membership_id: str, role: str, db: Asy
         user_name=user.name,
         user_email=user.email,
         user_avatar_url=user.avatar_url,
+        primary_department_id=primary_id,
+        primary_department_name=primary_name,
+        secondary_department_ids=secondary_department_ids,
+        secondary_departments=secondary_departments,
+        is_department_manager=is_department_manager,
+        created_at=membership.created_at,
+    )
+
+
+async def update_member_departments(
+    org_id: str,
+    membership_id: str,
+    primary_department_id: str | None,
+    secondary_department_ids: list[str],
+    db: AsyncSession,
+) -> MemberInfo:
+    result = await db.execute(
+        select(OrgMembership, User)
+        .join(User, OrgMembership.user_id == User.id)
+        .where(
+            OrgMembership.id == membership_id,
+            OrgMembership.org_id == org_id,
+            not_deleted(OrgMembership),
+        )
+    )
+    row = result.first()
+    if row is None:
+        raise NotFoundError("成员记录不存在")
+
+    membership, user = row
+    await department_service.assign_member_departments(
+        org_id=org_id,
+        user_id=membership.user_id,
+        primary_department_id=primary_department_id,
+        secondary_department_ids=secondary_department_ids,
+        db=db,
+    )
+    await db.commit()
+    department_memberships = await department_service.list_user_department_memberships(org_id, [user.id], db)
+    primary_id, primary_name, secondary_department_ids, secondary_departments, is_department_manager = (
+        department_service.summarize_user_departments(department_memberships.get(user.id, []))
+    )
+
+    return MemberInfo(
+        id=membership.id,
+        user_id=membership.user_id,
+        org_id=membership.org_id,
+        role=membership.role,
+        is_super_admin=user.is_super_admin,
+        user_name=user.name,
+        user_email=user.email,
+        user_avatar_url=user.avatar_url,
+        primary_department_id=primary_id,
+        primary_department_name=primary_name,
+        secondary_department_ids=secondary_department_ids,
+        secondary_departments=secondary_departments,
+        is_department_manager=is_department_manager,
         created_at=membership.created_at,
     )
 
@@ -452,6 +571,16 @@ async def remove_member(org_id: str, membership_id: str, db: AsyncSession) -> No
     )
     if membership.role == OrgRole.admin and admin_count.scalar_one() <= 1:
         raise ForbiddenError("组织至少需要一个管理员")
+
+    department_memberships = (await db.execute(
+        select(department_service.DepartmentMembership).where(
+            department_service.DepartmentMembership.org_id == org_id,
+            department_service.DepartmentMembership.user_id == membership.user_id,
+            not_deleted(department_service.DepartmentMembership),
+        )
+    )).scalars().all()
+    for department_membership in department_memberships:
+        department_membership.soft_delete()
 
     membership.soft_delete()
     await db.commit()

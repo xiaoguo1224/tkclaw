@@ -10,6 +10,7 @@ from app.models.circuit_state import CircuitState  # noqa: F401
 from app.models.cluster import Cluster  # noqa: F401
 from app.models.corridor import CorridorHex, HexConnection  # noqa: F401
 from app.models.dead_letter import DeadLetter  # noqa: F401
+from app.models.department import Department, DepartmentMembership  # noqa: F401
 from app.models.decision_record import DecisionRecord  # noqa: F401
 from app.models.delivery_log import DeliveryLog  # noqa: F401
 from app.models.deploy_record import DeployRecord  # noqa: F401

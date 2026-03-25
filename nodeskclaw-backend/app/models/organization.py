@@ -29,5 +29,6 @@ class Organization(BaseModel):
     # relationships
     dedicated_cluster = relationship("Cluster", foreign_keys=[cluster_id])
     memberships = relationship("OrgMembership", back_populates="organization", cascade="all, delete-orphan")
+    departments = relationship("Department", back_populates="organization")
     instances = relationship("Instance", back_populates="organization")
     oauth_bindings = relationship("OrgOAuthBinding", back_populates="organization", cascade="all, delete-orphan")

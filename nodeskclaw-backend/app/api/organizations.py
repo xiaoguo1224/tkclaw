@@ -22,6 +22,12 @@ from app.schemas.common import ApiResponse
 from app.schemas.organization import (
     AddMemberRequest,
     CreateMemberDirectRequest,
+    DepartmentCreate,
+    DepartmentInfo,
+    DepartmentMemberAddRequest,
+    DepartmentMemberInfo,
+    DepartmentMemberUpdateRequest,
+    DepartmentUpdate,
     MemberInfo,
     OAuthOrgSetupRequest,
     OrgCreate,
@@ -29,9 +35,10 @@ from app.schemas.organization import (
     OrgNameUpdate,
     OrgUpdate,
     ResetPasswordResponse,
+    UpdateMemberDepartmentsRequest,
     UpdateMemberRoleRequest,
 )
-from app.services import auth_service, org_service
+from app.services import auth_service, department_service, org_service
 
 router = APIRouter()
 
@@ -215,7 +222,24 @@ async def list_members(
     current_user: User = Depends(get_current_user),
 ):
     """列出组织成员（组织成员+）。"""
+    if not await department_service.can_manage_org_members(org_id, current_user.id, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error_code": 40328,
+                "message_key": "errors.department.forbidden",
+                "message": "没有部门管理权限",
+            },
+        )
     data = await org_service.list_members(org_id, db, current_user_id=current_user.id)
+    managed_scope = await department_service.get_user_managed_department_ids(org_id, current_user.id, db)
+    if managed_scope:
+        data = [
+            item for item in data
+            if item.user_id == current_user.id
+            or item.primary_department_id in managed_scope
+            or bool(set(item.secondary_department_ids).intersection(managed_scope))
+        ]
     return ApiResponse(data=data)
 
 
@@ -227,7 +251,14 @@ async def add_member(
     _org_ctx: tuple = Depends(require_org_admin),
 ):
     """添加成员（组织管理员+）。"""
-    data = await org_service.add_member(org_id, body.user_id, body.role, db)
+    data = await org_service.add_member(
+        org_id,
+        body.user_id,
+        body.role,
+        db,
+        primary_department_id=body.primary_department_id,
+        secondary_department_ids=body.secondary_department_ids,
+    )
     await hooks.emit("operation_audit", action="org.member_added", target_type="org_membership", target_id=data.id, actor_id=_org_ctx[0].id, org_id=org_id)
     return ApiResponse(data=data)
 
@@ -247,6 +278,8 @@ async def create_member_direct(
         password=body.password,
         role=body.role,
         db=db,
+        primary_department_id=body.primary_department_id,
+        secondary_department_ids=body.secondary_department_ids,
     )
     await hooks.emit("operation_audit", action="org.member_created_direct", target_type="org_membership", target_id=data.id, actor_id=_org_ctx[0].id, org_id=org_id)
     return ApiResponse(data=data)
@@ -263,6 +296,44 @@ async def update_member_role(
     """修改成员角色（组织管理员+）。"""
     data = await org_service.update_member_role(org_id, membership_id, body.role, db)
     await hooks.emit("operation_audit", action="org.member_role_updated", target_type="org_membership", target_id=membership_id, actor_id=_org_ctx[0].id, org_id=org_id)
+    return ApiResponse(data=data)
+
+
+@router.put("/{org_id}/members/{membership_id}/departments", response_model=ApiResponse[MemberInfo])
+async def update_member_departments(
+    org_id: str,
+    membership_id: str,
+    body: UpdateMemberDepartmentsRequest,
+    db: AsyncSession = Depends(get_db),
+    _org_ctx: tuple = Depends(require_org_member),
+):
+    """修改成员部门归属（组织管理员或部门负责人）。"""
+    operator = _org_ctx[0]
+    membership = (await db.execute(
+        select(OrgMembership).where(
+            OrgMembership.id == membership_id,
+            OrgMembership.org_id == org_id,
+            OrgMembership.deleted_at.is_(None),
+        )
+    )).scalar_one_or_none()
+    if membership is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error_code": 40402,
+                "message_key": "errors.org.member_not_found",
+                "message": "该用户不是当前组织的成员",
+            },
+        )
+    await department_service.require_org_member_scope(org_id, operator.id, membership.user_id, db)
+    data = await org_service.update_member_departments(
+        org_id,
+        membership_id,
+        body.primary_department_id,
+        body.secondary_department_ids,
+        db,
+    )
+    await hooks.emit("operation_audit", action="org.member_departments_updated", target_type="org_membership", target_id=membership_id, actor_id=operator.id, org_id=org_id)
     return ApiResponse(data=data)
 
 
@@ -344,6 +415,146 @@ async def reset_member_password(
     plain = await auth_service.admin_reset_password(user_id, db)
     await hooks.emit("operation_audit", action="org.member_password_reset", target_type="org_membership", target_id=user_id, actor_id=current_user.id, org_id=org_id)
     return ApiResponse(data=ResetPasswordResponse(password=plain))
+
+
+# ── 部门管理 ─────────────────────────────────────────────
+
+@router.get("/{org_id}/departments", response_model=ApiResponse[list[DepartmentInfo]])
+async def list_departments(
+    org_id: str,
+    db: AsyncSession = Depends(get_db),
+    _org_ctx: tuple = Depends(require_org_member),
+):
+    data = await department_service.list_departments(org_id, db)
+    return ApiResponse(data=data)
+
+
+@router.post("/{org_id}/departments", response_model=ApiResponse[DepartmentInfo])
+async def create_department(
+    org_id: str,
+    body: DepartmentCreate,
+    db: AsyncSession = Depends(get_db),
+    _org_ctx: tuple = Depends(require_org_admin),
+):
+    data = await department_service.create_department(org_id, body, db)
+    await hooks.emit("operation_audit", action="department.created", target_type="department", target_id=data.id, actor_id=_org_ctx[0].id, org_id=org_id)
+    return ApiResponse(data=data)
+
+
+@router.put("/{org_id}/departments/{department_id}", response_model=ApiResponse[DepartmentInfo])
+async def update_department(
+    org_id: str,
+    department_id: str,
+    body: DepartmentUpdate,
+    db: AsyncSession = Depends(get_db),
+    _org_ctx: tuple = Depends(require_org_admin),
+):
+    data = await department_service.update_department(org_id, department_id, body, db)
+    await hooks.emit("operation_audit", action="department.updated", target_type="department", target_id=department_id, actor_id=_org_ctx[0].id, org_id=org_id)
+    return ApiResponse(data=data)
+
+
+@router.delete("/{org_id}/departments/{department_id}", response_model=ApiResponse)
+async def delete_department(
+    org_id: str,
+    department_id: str,
+    db: AsyncSession = Depends(get_db),
+    _org_ctx: tuple = Depends(require_org_admin),
+):
+    await department_service.delete_department(org_id, department_id, db)
+    await hooks.emit("operation_audit", action="department.deleted", target_type="department", target_id=department_id, actor_id=_org_ctx[0].id, org_id=org_id)
+    return ApiResponse(message="部门已删除")
+
+
+@router.get("/{org_id}/departments/{department_id}/members", response_model=ApiResponse[list[DepartmentMemberInfo]])
+async def list_department_members(
+    org_id: str,
+    department_id: str,
+    db: AsyncSession = Depends(get_db),
+    _org_ctx: tuple = Depends(require_org_member),
+):
+    data = await department_service.list_department_members(org_id, department_id, db)
+    return ApiResponse(data=data)
+
+
+@router.post("/{org_id}/departments/{department_id}/members", response_model=ApiResponse[DepartmentMemberInfo])
+async def add_department_member(
+    org_id: str,
+    department_id: str,
+    body: DepartmentMemberAddRequest,
+    db: AsyncSession = Depends(get_db),
+    _org_ctx: tuple = Depends(require_org_member),
+):
+    operator = _org_ctx[0]
+    await department_service.require_org_member_scope(org_id, operator.id, body.user_id, db)
+    data = await department_service.add_department_member(org_id, department_id, body, db)
+    await hooks.emit("operation_audit", action="department.member_added", target_type="department_membership", target_id=data.id, actor_id=operator.id, org_id=org_id)
+    return ApiResponse(data=data)
+
+
+@router.put("/{org_id}/departments/{department_id}/members/{membership_id}", response_model=ApiResponse[DepartmentMemberInfo])
+async def update_department_member(
+    org_id: str,
+    department_id: str,
+    membership_id: str,
+    body: DepartmentMemberUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    _org_ctx: tuple = Depends(require_org_member),
+):
+    operator = _org_ctx[0]
+    target = (await db.execute(
+        select(department_service.DepartmentMembership).where(
+            department_service.DepartmentMembership.id == membership_id,
+            department_service.DepartmentMembership.org_id == org_id,
+            department_service.DepartmentMembership.department_id == department_id,
+            department_service.DepartmentMembership.deleted_at.is_(None),
+        )
+    )).scalar_one_or_none()
+    if target is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error_code": 40440,
+                "message_key": "errors.department.member_not_found",
+                "message": "部门成员不存在",
+            },
+        )
+    await department_service.require_org_member_scope(org_id, operator.id, target.user_id, db)
+    data = await department_service.update_department_member(org_id, department_id, membership_id, body, db)
+    await hooks.emit("operation_audit", action="department.member_updated", target_type="department_membership", target_id=membership_id, actor_id=operator.id, org_id=org_id)
+    return ApiResponse(data=data)
+
+
+@router.delete("/{org_id}/departments/{department_id}/members/{membership_id}", response_model=ApiResponse)
+async def remove_department_member(
+    org_id: str,
+    department_id: str,
+    membership_id: str,
+    db: AsyncSession = Depends(get_db),
+    _org_ctx: tuple = Depends(require_org_member),
+):
+    operator = _org_ctx[0]
+    target = (await db.execute(
+        select(department_service.DepartmentMembership).where(
+            department_service.DepartmentMembership.id == membership_id,
+            department_service.DepartmentMembership.org_id == org_id,
+            department_service.DepartmentMembership.department_id == department_id,
+            department_service.DepartmentMembership.deleted_at.is_(None),
+        )
+    )).scalar_one_or_none()
+    if target is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error_code": 40440,
+                "message_key": "errors.department.member_not_found",
+                "message": "部门成员不存在",
+            },
+        )
+    await department_service.require_org_member_scope(org_id, operator.id, target.user_id, db)
+    await department_service.remove_department_member(org_id, department_id, membership_id, db)
+    await hooks.emit("operation_audit", action="department.member_removed", target_type="department_membership", target_id=membership_id, actor_id=operator.id, org_id=org_id)
+    return ApiResponse(message="部门成员已移除")
 
 
 # ── 组织级 AKR 汇总 ────────────────────────────────────
