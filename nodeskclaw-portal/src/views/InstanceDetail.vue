@@ -77,6 +77,15 @@ const logsVisible = ref(false)
 const logsContent = ref('')
 const logsLoading = ref(false)
 
+function normalizeLogsContent(payload: unknown): string {
+  if (typeof payload === 'string') return payload
+  if (payload && typeof payload === 'object' && 'data' in payload) {
+    const data = (payload as { data?: unknown }).data
+    return typeof data === 'string' ? data : JSON.stringify(data, null, 2)
+  }
+  return payload == null ? '' : JSON.stringify(payload, null, 2)
+}
+
 async function viewLogs(podName: string) {
   if (logsVisible.value) {
     logsVisible.value = false
@@ -86,7 +95,7 @@ async function viewLogs(podName: string) {
   logsContent.value = ''
   try {
     const res = await api.get(`/instances/${instanceId.value}/pods/${podName}/logs`, { params: { tail: 100 } })
-    logsContent.value = res.data?.logs || res.data || ''
+    logsContent.value = normalizeLogsContent(res.data).trim()
     logsVisible.value = true
   } catch {
     toast.error(t('instanceDetail.logsLoadFailed'))
@@ -404,7 +413,10 @@ async function handleDelete() {
               <X class="w-3.5 h-3.5" />
             </button>
           </div>
-          <pre class="p-3 text-xs font-mono leading-relaxed overflow-auto max-h-64 bg-black/30 text-foreground">{{ logsContent || '...' }}</pre>
+          <div class="max-h-80 overflow-auto bg-zinc-950 text-zinc-100">
+            <div v-if="logsLoading" class="px-3 py-2 text-xs font-mono text-zinc-400">...</div>
+            <pre v-else class="p-3 text-xs font-mono leading-6 whitespace-pre-wrap break-words">{{ logsContent || '-' }}</pre>
+          </div>
         </div>
       </div>
       <div v-else-if="restarting" class="p-4 rounded-xl border border-amber-500/20 bg-amber-500/5">
