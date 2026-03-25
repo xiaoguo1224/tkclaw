@@ -87,6 +87,15 @@ interface LlmConfigEntry {
   selectedModel: ModelItem | null
 }
 
+const LOCAL_MODEL_PROVIDER = 'taoke'
+const LOCAL_MODEL_BASE_URL = 'http://10.0.14.20:11434/v1'
+const LOCAL_MODEL_API_KEY = 'taoke'
+const LOCAL_MODEL_API_TYPE = 'openai-completions'
+const LOCAL_MODEL_DEFAULT: ModelItem = {
+  id: 'Qwen3.5-122B-A10B-4bit',
+  name: 'Qwen3.5-122B-A10B-4bit',
+}
+
 const PROVIDERS = ['minimax-openai', 'minimax-anthropic', 'openai', 'anthropic', 'gemini', 'openrouter'] as const
 const PROVIDER_LABELS: Record<string, string> = {
   openai: 'OpenAI',
@@ -95,6 +104,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   openrouter: 'OpenRouter',
   'minimax-openai': 'MiniMax-OpenAI (CN)',
   'minimax-anthropic': 'MiniMax-Anthropic (CN)',
+  [LOCAL_MODEL_PROVIDER]: t('llm.localModelLabel'),
 }
 
 const PROVIDER_DEFAULT_URLS: Record<string, string> = {
@@ -133,6 +143,24 @@ function addProvider(p: string) {
     selectedModel: null,
   })
   newProviderOpen.value = false
+}
+
+function addLocalModelProvider() {
+  if (llmConfigs.value.some(c => c.provider === LOCAL_MODEL_PROVIDER)) return
+  llmConfigs.value.push({
+    provider: LOCAL_MODEL_PROVIDER,
+    keySource: 'personal',
+    personalKey: LOCAL_MODEL_API_KEY,
+    baseUrl: LOCAL_MODEL_BASE_URL,
+    apiType: LOCAL_MODEL_API_TYPE,
+    isCustom: true,
+    showBaseUrl: true,
+    selectedModel: { ...LOCAL_MODEL_DEFAULT },
+  })
+  newProviderOpen.value = false
+  showCustomForm.value = false
+  customSlug.value = ''
+  customSlugError.value = ''
 }
 
 function addCustomProvider() {
@@ -854,7 +882,7 @@ async function handleDeploy() {
             </div>
 
             <!-- 选择 Provider -->
-            <div v-if="llmConfigs.length === 0 && unusedProviders.length > 0" class="space-y-2">
+            <div v-if="llmConfigs.length === 0" class="space-y-2">
               <p class="text-xs text-muted-foreground">选择你使用的大模型服务商</p>
               <div class="grid grid-cols-2 gap-2">
                 <button
@@ -869,6 +897,15 @@ async function handleDeploy() {
                       <Star class="w-3 h-3 fill-amber-500 text-amber-500" />
                       Working Plan
                     </span>
+                  </div>
+                </button>
+                <button
+                  class="px-4 py-3 rounded-lg border border-border bg-card text-sm text-left hover:border-primary/50 hover:bg-primary/5 transition-colors"
+                  @click="addLocalModelProvider"
+                >
+                  <div class="flex items-center gap-1.5">
+                    <Cpu class="w-3.5 h-3.5" />
+                    {{ t('llm.addLocalModel') }}
                   </div>
                 </button>
                 <button
@@ -914,6 +951,14 @@ async function handleDeploy() {
                   </button>
                 </div>
               </div>
+              <button
+                v-if="!llmConfigs.some(c => c.provider === LOCAL_MODEL_PROVIDER)"
+                class="px-3 py-1.5 rounded-md border border-border text-sm hover:border-primary/50 hover:bg-primary/5 transition-colors flex items-center gap-1"
+                @click="addLocalModelProvider"
+              >
+                <Cpu class="w-3.5 h-3.5" />
+                {{ t('llm.addLocalModel') }}
+              </button>
               <button
                 class="px-3 py-1.5 rounded-md border border-dashed border-violet-400/50 text-sm text-violet-400 hover:border-violet-400 hover:bg-violet-500/5 transition-colors flex items-center gap-1"
                 @click="newProviderOpen = false; showCustomForm = true"
