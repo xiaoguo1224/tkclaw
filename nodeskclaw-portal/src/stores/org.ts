@@ -29,7 +29,28 @@ export interface MemberInfo {
   user_name: string | null
   user_email: string | null
   user_avatar_url: string | null
+  primary_department_id: string | null
+  primary_department_name: string | null
+  secondary_department_ids: string[]
+  secondary_departments: string[]
+  is_department_manager: boolean
   created_at: string
+}
+
+export interface DepartmentInfo {
+  id: string
+  org_id: string
+  parent_id: string | null
+  name: string
+  slug: string
+  description: string
+  sort_order: number
+  is_active: boolean
+  member_count: number
+  manager_count: number
+  created_at: string
+  updated_at: string
+  children: DepartmentInfo[]
 }
 
 export interface OrgUsage {
@@ -46,6 +67,7 @@ export interface OrgUsage {
 export const useOrgStore = defineStore('org', () => {
   const currentOrg = ref<OrgInfo | null>(null)
   const members = ref<MemberInfo[]>([])
+  const departments = ref<DepartmentInfo[]>([])
   const usage = ref<OrgUsage | null>(null)
   const loading = ref(false)
 
@@ -96,9 +118,52 @@ export const useOrgStore = defineStore('org', () => {
     }
   }
 
-  async function addMember(userId: string, role: string = 'member') {
+  async function fetchDepartments() {
     if (!currentOrgId.value) return
-    const res = await api.post(`/orgs/${currentOrgId.value}/members`, { user_id: userId, role })
+    const res = await api.get(`/orgs/${currentOrgId.value}/departments`)
+    departments.value = res.data.data ?? []
+  }
+
+  async function createDepartment(payload: {
+    name: string
+    slug: string
+    parent_id?: string | null
+    description?: string
+    sort_order?: number
+    is_active?: boolean
+  }) {
+    if (!currentOrgId.value) return
+    const res = await api.post(`/orgs/${currentOrgId.value}/departments`, payload)
+    await fetchDepartments()
+    return res.data.data as DepartmentInfo
+  }
+
+  async function updateDepartment(departmentId: string, payload: Record<string, unknown>) {
+    if (!currentOrgId.value) return
+    const res = await api.put(`/orgs/${currentOrgId.value}/departments/${departmentId}`, payload)
+    await fetchDepartments()
+    return res.data.data as DepartmentInfo
+  }
+
+  async function deleteDepartment(departmentId: string) {
+    if (!currentOrgId.value) return
+    await api.delete(`/orgs/${currentOrgId.value}/departments/${departmentId}`)
+    await fetchDepartments()
+  }
+
+  async function addMember(
+    userId: string,
+    role: string = 'member',
+    primaryDepartmentId?: string | null,
+    secondaryDepartmentIds: string[] = [],
+  ) {
+    if (!currentOrgId.value) return
+    const res = await api.post(`/orgs/${currentOrgId.value}/members`, {
+      user_id: userId,
+      role,
+      primary_department_id: primaryDepartmentId ?? null,
+      secondary_department_ids: secondaryDepartmentIds,
+    })
     members.value.push(res.data.data)
     return res.data.data
   }
@@ -117,6 +182,21 @@ export const useOrgStore = defineStore('org', () => {
     members.value = members.value.filter(m => m.id !== membershipId)
   }
 
+  async function updateMemberDepartments(
+    membershipId: string,
+    primaryDepartmentId: string | null,
+    secondaryDepartmentIds: string[],
+  ) {
+    if (!currentOrgId.value) return
+    const res = await api.put(`/orgs/${currentOrgId.value}/members/${membershipId}/departments`, {
+      primary_department_id: primaryDepartmentId,
+      secondary_department_ids: secondaryDepartmentIds,
+    })
+    const idx = members.value.findIndex(m => m.id === membershipId)
+    if (idx >= 0) members.value[idx] = res.data.data
+    return res.data.data
+  }
+
   // ── 用量 ──
 
   async function fetchUsage() {
@@ -133,14 +213,20 @@ export const useOrgStore = defineStore('org', () => {
     currentOrg,
     currentOrgId,
     members,
+    departments,
     usage,
     loading,
     fetchMyOrg,
     fetchCurrentOrg,
     updateOrgName,
     fetchMembers,
+    fetchDepartments,
+    createDepartment,
+    updateDepartment,
+    deleteDepartment,
     addMember,
     updateMemberRole,
+    updateMemberDepartments,
     removeMember,
     fetchUsage,
   }

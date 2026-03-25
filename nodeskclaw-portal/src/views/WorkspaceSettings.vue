@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { ArrowLeft, Save, Trash2, Loader2, Users, Palette, UserPlus, Search, Shield, ShieldCheck, X, LayoutTemplate } from 'lucide-vue-next'
 import { useWorkspaceStore, WORKSPACE_PERMISSIONS, PERMISSION_PRESETS, type WorkspaceMemberInfo } from '@/stores/workspace'
 import { useAuthStore } from '@/stores/auth'
+import { useOrgStore } from '@/stores/org'
 import { resolveApiErrorMessage } from '@/i18n/error'
 import { useToast } from '@/composables/useToast'
 import { useConfirm } from '@/composables/useConfirm'
@@ -15,6 +16,7 @@ const route = useRoute()
 const router = useRouter()
 const store = useWorkspaceStore()
 const authStore = useAuthStore()
+const orgStore = useOrgStore()
 const toast = useToast()
 const { confirm } = useConfirm()
 
@@ -26,6 +28,8 @@ const canDeleteWorkspace = computed(() => store.hasPermission('delete_workspace'
 const name = ref('')
 const description = ref('')
 const color = ref('#a78bfa')
+const visibilityScope = ref('org')
+const allowedDepartmentIds = ref<string[]>([])
 const saving = ref(false)
 const deleting = ref(false)
 
@@ -35,6 +39,8 @@ const colors = [
 ]
 
 onMounted(async () => {
+  if (!orgStore.currentOrgId) await orgStore.fetchCurrentOrg()
+  if (orgStore.currentOrgId) await orgStore.fetchDepartments()
   await store.fetchWorkspace(workspaceId.value)
   await store.fetchMyPermissions(workspaceId.value)
   await store.fetchMembers(workspaceId.value)
@@ -42,8 +48,30 @@ onMounted(async () => {
     name.value = store.currentWorkspace.name
     description.value = store.currentWorkspace.description
     color.value = store.currentWorkspace.color
+    visibilityScope.value = store.currentWorkspace.visibility_scope || 'org'
+    allowedDepartmentIds.value = [...(store.currentWorkspace.allowed_department_ids || [])]
   }
 })
+
+const visibilityOptions = computed(() => [
+  { value: 'org', label: t('workspaceSettings.visibilityOrg') },
+  { value: 'departments', label: t('workspaceSettings.visibilityDepartments') },
+])
+
+function flattenDepartments(items = orgStore.departments, depth = 0): Array<{ id: string; label: string }> {
+  return items.flatMap(item => [
+    { id: item.id, label: `${' '.repeat(depth * 2)}${item.name}` },
+    ...flattenDepartments(item.children || [], depth + 1),
+  ])
+}
+
+const departmentOptions = computed(() => flattenDepartments())
+
+function toggleAllowedDepartment(departmentId: string) {
+  const idx = allowedDepartmentIds.value.indexOf(departmentId)
+  if (idx >= 0) allowedDepartmentIds.value.splice(idx, 1)
+  else allowedDepartmentIds.value.push(departmentId)
+}
 
 async function handleSave() {
   saving.value = true
@@ -52,6 +80,8 @@ async function handleSave() {
       name: name.value.trim(),
       description: description.value.trim(),
       color: color.value,
+      visibility_scope: visibilityScope.value,
+      allowed_department_ids: visibilityScope.value === 'departments' ? allowedDepartmentIds.value : [],
     })
     toast.success(t('workspaceSettings.saved'))
   } catch (e) {
@@ -356,6 +386,36 @@ async function handleRemoveMember(member: WorkspaceMemberInfo) {
             :style="{ backgroundColor: c }"
             @click="color = c"
           />
+        </div>
+      </div>
+
+      <div v-if="canManageSettings" class="space-y-3">
+        <div class="space-y-2">
+          <label class="text-sm font-medium">{{ t('workspaceSettings.visibilityScope') }}</label>
+          <CustomSelect
+            :model-value="visibilityScope"
+            :options="visibilityOptions"
+            trigger-class="w-full justify-between"
+            @update:model-value="(value: string | null) => { visibilityScope = value || 'org' }"
+          />
+        </div>
+        <div v-if="visibilityScope === 'departments'" class="space-y-2">
+          <label class="text-sm font-medium">{{ t('workspaceSettings.allowedDepartments') }}</label>
+          <div class="grid grid-cols-2 gap-2 rounded-lg border border-border p-3 bg-muted/20">
+            <label
+              v-for="option in departmentOptions"
+              :key="option.id"
+              class="flex items-center gap-2 text-xs"
+            >
+              <input
+                type="checkbox"
+                class="rounded border-border"
+                :checked="allowedDepartmentIds.includes(option.id)"
+                @change="toggleAllowedDepartment(option.id)"
+              />
+              <span class="truncate">{{ option.label }}</span>
+            </label>
+          </div>
         </div>
       </div>
 

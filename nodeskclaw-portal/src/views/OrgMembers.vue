@@ -34,6 +34,7 @@ const { confirm } = useConfirm()
 
 const loading = ref(true)
 const searchQuery = ref('')
+const departmentFilter = ref('all')
 const actionLoading = ref<string | null>(null)
 
 // invite dialog
@@ -50,7 +51,12 @@ const directName = ref('')
 const directEmail = ref('')
 const directPassword = ref('')
 const directRole = ref('member')
+const directPrimaryDepartmentId = ref<string | null>(null)
+const directSecondaryDepartmentIds = ref<string[]>([])
 const directLoading = ref(false)
+const editingDepartmentsMemberId = ref<string | null>(null)
+const editingPrimaryDepartmentId = ref<string | null>(null)
+const editingSecondaryDepartmentIds = ref<string[]>([])
 
 // roles
 const roles = ref<Array<{ id: string; name_key: string }>>([])
@@ -73,14 +79,39 @@ const roleOptions = computed(() =>
   roles.value.map(r => ({ value: r.id, label: t(r.name_key) }))
 )
 
+function flattenDepartments(items = orgStore.departments, depth = 0): Array<{ id: string; name: string; depth: number }> {
+  return items.flatMap(item => [
+    { id: item.id, name: item.name, depth },
+    ...flattenDepartments(item.children || [], depth + 1),
+  ])
+}
+
+const departmentOptions = computed(() => [
+  { value: '', label: t('orgMembers.noDepartment') },
+  ...flattenDepartments().map(item => ({
+    value: item.id,
+    label: `${' '.repeat(item.depth * 2)}${item.name}`,
+  })),
+])
+
+const departmentFilterOptions = computed(() => [
+  { value: 'all', label: t('orgMembers.allDepartments') },
+  ...flattenDepartments().map(item => ({
+    value: item.id,
+    label: `${' '.repeat(item.depth * 2)}${item.name}`,
+  })),
+])
+
 const filteredMembers = computed(() => {
-  if (!searchQuery.value) return orgStore.members
   const q = searchQuery.value.toLowerCase()
-  return orgStore.members.filter(
-    m =>
-      (m.user_name?.toLowerCase().includes(q)) ||
-      (m.user_email?.toLowerCase().includes(q))
-  )
+  return orgStore.members.filter(m => {
+    const matchesSearch = !searchQuery.value
+      || (m.user_name?.toLowerCase().includes(q))
+      || (m.user_email?.toLowerCase().includes(q))
+    const matchesDepartment = departmentFilter.value === 'all'
+      || m.primary_department_id === departmentFilter.value
+    return matchesSearch && matchesDepartment
+  })
 })
 
 const filteredPending = computed(() => {
@@ -98,6 +129,7 @@ onMounted(async () => {
   if (orgStore.currentOrgId) {
     await Promise.all([
       orgStore.fetchMembers(),
+      orgStore.fetchDepartments(),
       fetchRoles(),
       fetchPendingInvitations(),
     ])
@@ -199,6 +231,8 @@ async function handleDirectCreate() {
       email: directEmail.value.trim().toLowerCase(),
       password: directPassword.value,
       role: directRole.value,
+      primary_department_id: directPrimaryDepartmentId.value,
+      secondary_department_ids: directSecondaryDepartmentIds.value.filter(id => id !== directPrimaryDepartmentId.value),
     })
     await orgStore.fetchMembers()
     toast.success(t('orgMembers.directAddSuccess'))
@@ -222,6 +256,8 @@ function closeInviteDialog() {
   directEmail.value = ''
   directPassword.value = ''
   directRole.value = 'member'
+  directPrimaryDepartmentId.value = null
+  directSecondaryDepartmentIds.value = []
 }
 
 async function copyInviteUrl(url: string) {
@@ -254,6 +290,42 @@ async function handleRoleChange(member: MemberInfo, newRole: string) {
     await orgStore.updateMemberRole(member.id, newRole)
   } catch (e: any) {
     toast.error(e?.response?.data?.message || t('orgMembers.updateRoleFailed'))
+  } finally {
+    actionLoading.value = null
+  }
+}
+
+function openDepartmentEditor(member: MemberInfo) {
+  editingDepartmentsMemberId.value = member.id
+  editingPrimaryDepartmentId.value = member.primary_department_id
+  editingSecondaryDepartmentIds.value = [...(member.secondary_department_ids || [])]
+}
+
+function cancelDepartmentEditor() {
+  editingDepartmentsMemberId.value = null
+  editingPrimaryDepartmentId.value = null
+  editingSecondaryDepartmentIds.value = []
+}
+
+function toggleSecondaryDepartment(departmentId: string) {
+  if (!departmentId || departmentId === editingPrimaryDepartmentId.value) return
+  const index = editingSecondaryDepartmentIds.value.indexOf(departmentId)
+  if (index >= 0) editingSecondaryDepartmentIds.value.splice(index, 1)
+  else editingSecondaryDepartmentIds.value.push(departmentId)
+}
+
+async function saveDepartmentEditor(member: MemberInfo) {
+  actionLoading.value = member.id
+  try {
+    await orgStore.updateMemberDepartments(
+      member.id,
+      editingPrimaryDepartmentId.value,
+      editingSecondaryDepartmentIds.value.filter(id => id !== editingPrimaryDepartmentId.value),
+    )
+    toast.success(t('orgMembers.departmentSaved'))
+    cancelDepartmentEditor()
+  } catch (e) {
+    toast.error(resolveApiErrorMessage(e, t('orgMembers.departmentSaveFailed')))
   } finally {
     actionLoading.value = null
   }
@@ -351,6 +423,9 @@ async function copyPassword() {
           class="w-full pl-9 pr-4 py-2 rounded-lg border border-border bg-card text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
         />
       </div>
+      <div class="mb-4">
+        <CustomSelect v-model="departmentFilter" :options="departmentFilterOptions" trigger-class="w-full justify-between" />
+      </div>
 
       <!-- Member Count -->
       <p class="text-xs text-muted-foreground mb-3">
@@ -359,74 +434,125 @@ async function copyPassword() {
 
       <div class="space-y-2">
         <!-- Active Members -->
-        <div
-          v-for="member in filteredMembers"
-          :key="member.id"
-          class="flex items-center justify-between p-4 rounded-xl border border-border bg-card"
-        >
-          <div class="flex items-center gap-3">
-            <div class="w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center text-sm font-medium text-primary shrink-0 overflow-hidden">
-              <img v-if="member.user_avatar_url" :src="member.user_avatar_url" class="w-9 h-9 rounded-full" alt="" />
-              <span v-else>{{ (member.user_name || '?').charAt(0) }}</span>
-            </div>
-            <div>
-              <div class="flex items-center gap-2">
-                <span class="font-medium text-sm">{{ member.user_name || t('orgMembers.unknownUser') }}</span>
-                <span
-                  v-if="member.user_id === authStore.user?.id"
-                  class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-primary/15 text-primary"
-                >{{ t('orgMembers.me') }}</span>
-                <span
-                  v-if="member.is_super_admin"
-                  class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-500/15 text-red-400"
-                >
-                  <Crown class="w-3 h-3" />
-                  {{ t('orgMembers.roleSuperAdmin') }}
-                </span>
-                <span
-                  v-else-if="member.role === 'admin'"
-                  class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/15 text-amber-400"
-                >
-                  <Crown class="w-3 h-3" />
-                  {{ t('orgMembers.roleAdmin') }}
-                </span>
-                <span
-                  v-else
-                  class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-500/10 text-blue-400"
-                >
-                  <Shield class="w-3 h-3" />
-                  {{ t('orgMembers.roleMember') }}
-                </span>
+        <div v-for="member in filteredMembers" :key="member.id" class="p-4 rounded-xl border border-border bg-card">
+          <div class="flex items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+              <div class="w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center text-sm font-medium text-primary shrink-0 overflow-hidden">
+                <img v-if="member.user_avatar_url" :src="member.user_avatar_url" class="w-9 h-9 rounded-full" alt="" />
+                <span v-else>{{ (member.user_name || '?').charAt(0) }}</span>
               </div>
-              <p class="text-xs text-muted-foreground mt-0.5">{{ member.user_email || '-' }}</p>
+              <div>
+                <div class="flex items-center gap-2">
+                  <span class="font-medium text-sm">{{ member.user_name || t('orgMembers.unknownUser') }}</span>
+                  <span
+                    v-if="member.user_id === authStore.user?.id"
+                    class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-primary/15 text-primary"
+                  >{{ t('orgMembers.me') }}</span>
+                  <span
+                    v-if="member.is_super_admin"
+                    class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-500/15 text-red-400"
+                  >
+                    <Crown class="w-3 h-3" />
+                    {{ t('orgMembers.roleSuperAdmin') }}
+                  </span>
+                  <span
+                    v-else-if="member.role === 'admin'"
+                    class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/15 text-amber-400"
+                  >
+                    <Crown class="w-3 h-3" />
+                    {{ t('orgMembers.roleAdmin') }}
+                  </span>
+                  <span
+                    v-else
+                    class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-500/10 text-blue-400"
+                  >
+                    <Shield class="w-3 h-3" />
+                    {{ t('orgMembers.roleMember') }}
+                  </span>
+                </div>
+                <p class="text-xs text-muted-foreground mt-0.5">{{ member.user_email || '-' }}</p>
+                <p class="text-xs text-muted-foreground mt-1">
+                  {{ t('orgMembers.primaryDepartmentLabel') }}: {{ member.primary_department_name || t('orgMembers.noDepartment') }}
+                </p>
+                <p v-if="member.secondary_departments.length > 0" class="text-xs text-muted-foreground mt-0.5">
+                  {{ t('orgMembers.secondaryDepartmentsLabel') }}: {{ member.secondary_departments.join(' / ') }}
+                </p>
+              </div>
+            </div>
+
+            <div v-if="isOrgAdmin && member.user_id !== authStore.user?.id" class="flex items-center gap-2">
+              <CustomSelect
+                :model-value="member.role"
+                :options="roleOptions"
+                size="xs"
+                :disabled="actionLoading === member.id"
+                @update:model-value="(v: string | null) => handleRoleChange(member, v!)"
+              />
+              <button
+                v-if="member.role !== 'admin'"
+                class="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                :disabled="actionLoading === member.id"
+                :title="t('orgMembers.resetPassword')"
+                @click="handleResetPassword(member)"
+              >
+                <KeyRound class="w-4 h-4" />
+              </button>
+              <button
+                class="p-1.5 rounded-md text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                :disabled="actionLoading === member.id"
+                @click="handleRemove(member)"
+              >
+                <Loader2 v-if="actionLoading === member.id" class="w-4 h-4 animate-spin" />
+                <Trash2 v-else class="w-4 h-4" />
+              </button>
             </div>
           </div>
-
-          <!-- Actions (admin only, not self) -->
-          <div v-if="isOrgAdmin && member.user_id !== authStore.user?.id" class="flex items-center gap-2">
+          <div v-if="isOrgAdmin && editingDepartmentsMemberId === member.id" class="mt-3 pt-3 border-t border-border space-y-3">
+          <div class="space-y-2">
+            <label class="text-xs text-muted-foreground">{{ t('orgMembers.primaryDepartmentLabel') }}</label>
             <CustomSelect
-              :model-value="member.role"
-              :options="roleOptions"
-              size="xs"
-              :disabled="actionLoading === member.id"
-              @update:model-value="(v: string | null) => handleRoleChange(member, v!)"
+              :model-value="editingPrimaryDepartmentId || ''"
+              :options="departmentOptions"
+              trigger-class="w-full justify-between"
+              @update:model-value="(value: string | null) => { editingPrimaryDepartmentId = value || null }"
             />
-            <button
-              v-if="member.role !== 'admin'"
-              class="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
-              :disabled="actionLoading === member.id"
-              :title="t('orgMembers.resetPassword')"
-              @click="handleResetPassword(member)"
-            >
-              <KeyRound class="w-4 h-4" />
+          </div>
+          <div class="space-y-2">
+            <label class="text-xs text-muted-foreground">{{ t('orgMembers.secondaryDepartmentsLabel') }}</label>
+            <div class="grid grid-cols-2 gap-2">
+              <label
+                v-for="option in departmentOptions.filter(item => item.value)"
+                :key="option.value"
+                class="flex items-center gap-2 text-xs p-2 rounded-lg bg-muted/40"
+              >
+                <input
+                  type="checkbox"
+                  class="rounded border-border"
+                  :checked="editingSecondaryDepartmentIds.includes(option.value)"
+                  :disabled="editingPrimaryDepartmentId === option.value"
+                  @change="toggleSecondaryDepartment(option.value)"
+                />
+                <span class="truncate">{{ option.label }}</span>
+              </label>
+            </div>
+          </div>
+          <div class="flex justify-end gap-2">
+            <button class="px-3 py-1.5 rounded-lg border border-border text-xs hover:bg-accent transition-colors" @click="cancelDepartmentEditor">
+              {{ t('common.cancel') }}
             </button>
             <button
-              class="p-1.5 rounded-md text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors"
+              class="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs hover:bg-primary/90 transition-colors disabled:opacity-50"
               :disabled="actionLoading === member.id"
-              @click="handleRemove(member)"
+              @click="saveDepartmentEditor(member)"
             >
-              <Loader2 v-if="actionLoading === member.id" class="w-4 h-4 animate-spin" />
-              <Trash2 v-else class="w-4 h-4" />
+              <Loader2 v-if="actionLoading === member.id" class="w-3 h-3 animate-spin inline mr-1" />
+              {{ t('common.save') }}
+            </button>
+          </div>
+          </div>
+          <div v-else-if="isOrgAdmin && member.user_id !== authStore.user?.id" class="mt-3 pt-3 border-t border-border">
+            <button class="text-xs text-primary hover:underline" @click="openDepartmentEditor(member)">
+              {{ t('orgMembers.editDepartments') }}
             </button>
           </div>
         </div>
@@ -601,6 +727,40 @@ async function copyPassword() {
             <div class="space-y-2">
               <label class="text-sm text-muted-foreground">{{ t('orgMembers.roleLabel') }}</label>
               <CustomSelect v-model="directRole" :options="roleOptions" trigger-class="w-full justify-between" />
+            </div>
+
+            <div class="space-y-2">
+              <label class="text-sm text-muted-foreground">{{ t('orgMembers.primaryDepartmentLabel') }}</label>
+              <CustomSelect
+                :model-value="directPrimaryDepartmentId || ''"
+                :options="departmentOptions"
+                trigger-class="w-full justify-between"
+                @update:model-value="(value: string | null) => { directPrimaryDepartmentId = value || null }"
+              />
+            </div>
+
+            <div class="space-y-2">
+              <label class="text-sm text-muted-foreground">{{ t('orgMembers.secondaryDepartmentsLabel') }}</label>
+              <div class="grid grid-cols-2 gap-2">
+                <label
+                  v-for="option in departmentOptions.filter(item => item.value)"
+                  :key="option.value"
+                  class="flex items-center gap-2 text-xs p-2 rounded-lg bg-muted/40"
+                >
+                  <input
+                    type="checkbox"
+                    class="rounded border-border"
+                    :checked="directSecondaryDepartmentIds.includes(option.value)"
+                    :disabled="directPrimaryDepartmentId === option.value"
+                    @change="() => {
+                      const idx = directSecondaryDepartmentIds.indexOf(option.value)
+                      if (idx >= 0) directSecondaryDepartmentIds.splice(idx, 1)
+                      else directSecondaryDepartmentIds.push(option.value)
+                    }"
+                  />
+                  <span class="truncate">{{ option.label }}</span>
+                </label>
+              </div>
             </div>
 
             <div class="flex justify-end gap-2 pt-2">
