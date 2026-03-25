@@ -9,6 +9,7 @@ from typing import Coroutine
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.base import not_deleted
 from app.models.blackboard import Blackboard
 from app.models.blackboard_file import BlackboardFile
 from app.models.blackboard_post import BlackboardPost
