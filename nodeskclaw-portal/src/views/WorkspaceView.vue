@@ -23,6 +23,7 @@ import type { HexDecoration } from '@/stores/workspace'
 import { useToast } from '@/composables/useToast'
 import { axialToWorld } from '@/composables/useHexLayout'
 import { getCurrentLocale, setCurrentLocale } from '@/i18n'
+import { resolveApiErrorMessage } from '@/i18n/error'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -315,6 +316,7 @@ async function bootstrapWorkspaceDeferred(wsId: string, generation: number) {
     store.fetchMembers(wsId),
     store.fetchDecoration(wsId),
     loadPerfSummary(wsId),
+    loadHumanSeatCandidates(),
   ])
   if (generation !== workspaceBootstrapGeneration) return
   store.connectSSE(wsId, onSSEEvent)
@@ -486,7 +488,7 @@ function onAgentDblClick(_id: string) {
   chatOpen.value = true
 }
 
-function onHexAction(action: string) {
+async function onHexAction(action: string) {
   switch (action) {
     case 'add-agent': {
       const q = selectedHex.value?.q
@@ -547,6 +549,7 @@ function onHexAction(action: string) {
           toast.info(t('hexAction.noAvailableMembers'))
         } else {
           pendingHumanHex.value = { q, r }
+          await loadHumanSeatCandidates()
           showMemberPicker.value = true
         }
       }
@@ -704,14 +707,65 @@ async function handleRenameAgent() {
 const showMemberPicker = ref(false)
 const pendingHumanHex = ref<{ q: number; r: number } | null>(null)
 
-const availableMembers = computed(() => store.members)
+interface HumanSeatCandidate {
+  user_id: string
+  user_name: string
+  user_email?: string | null
+  user_avatar_url?: string | null
+  alreadyInWorkspace: boolean
+}
 
-async function pickMember(userId: string, userName?: string) {
+const extraSeatCandidates = ref<HumanSeatCandidate[]>([])
+
+const availableMembers = computed<HumanSeatCandidate[]>(() => {
+  const workspaceMembers = store.members.map((member) => ({
+    user_id: member.user_id,
+    user_name: member.user_name,
+    user_email: member.user_email,
+    user_avatar_url: member.user_avatar_url,
+    alreadyInWorkspace: true,
+  }))
+  const merged = new Map<string, HumanSeatCandidate>()
+  for (const member of workspaceMembers) merged.set(member.user_id, member)
+  for (const member of extraSeatCandidates.value) {
+    if (!merged.has(member.user_id)) merged.set(member.user_id, member)
+  }
+  return [...merged.values()]
+})
+
+async function loadHumanSeatCandidates() {
+  try {
+    const users = await store.searchOrgUsers(workspaceId.value, '')
+    extraSeatCandidates.value = (users || []).map((user: any) => ({
+      user_id: user.user_id,
+      user_name: user.name,
+      user_email: user.email,
+      user_avatar_url: user.avatar_url,
+      alreadyInWorkspace: false,
+    }))
+  } catch {
+    extraSeatCandidates.value = []
+  }
+}
+
+async function pickMember(member: HumanSeatCandidate) {
   const hex = pendingHumanHex.value
   if (!hex) return
   showMemberPicker.value = false
-  await store.createHumanHex(workspaceId.value, userId, hex.q, hex.r, undefined, userName || undefined)
-  pendingHumanHex.value = null
+  try {
+    if (!member.alreadyInWorkspace) {
+      await store.addMember(workspaceId.value, member.user_id)
+      await store.fetchMembers(workspaceId.value)
+      await loadHumanSeatCandidates()
+    }
+    await store.createHumanHex(workspaceId.value, member.user_id, hex.q, hex.r, undefined, member.user_name || undefined)
+    pendingHumanHex.value = null
+  } catch (e) {
+    const fallbackKey = member.alreadyInWorkspace
+      ? 'hexAction.placeHumanSeatFailed'
+      : 'hexAction.addWorkspaceMemberFailed'
+    toast.error(resolveApiErrorMessage(e, t(fallbackKey)))
+  }
 }
 
 const showColorPicker = ref(false)
@@ -1441,7 +1495,7 @@ function handleKeydown(e: KeyboardEvent) {
                 v-for="member in availableMembers"
                 :key="member.user_id"
                 class="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted transition-colors text-left"
-                @click="pickMember(member.user_id, member.user_name)"
+                @click="pickMember(member)"
               >
                 <div
                   v-if="member.user_avatar_url"
@@ -1454,6 +1508,9 @@ function handleKeydown(e: KeyboardEvent) {
                 <div class="min-w-0">
                   <div class="text-sm font-medium truncate">{{ member.user_name }}</div>
                   <div v-if="member.user_email" class="text-xs text-muted-foreground truncate">{{ member.user_email }}</div>
+                  <div v-if="!member.alreadyInWorkspace" class="text-[10px] text-amber-500 truncate">
+                    {{ t('hexAction.autoAddToWorkspace') }}
+                  </div>
                 </div>
               </button>
             </div>
