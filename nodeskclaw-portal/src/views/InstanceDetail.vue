@@ -85,7 +85,7 @@ async function viewLogs(podName: string) {
   logsLoading.value = true
   logsContent.value = ''
   try {
-    const res = await api.get(`/api/v1/instances/${instanceId.value}/pods/${podName}/logs`, { params: { tail: 100 } })
+    const res = await api.get(`/instances/${instanceId.value}/pods/${podName}/logs`, { params: { tail: 100 } })
     logsContent.value = res.data?.logs || res.data || ''
     logsVisible.value = true
   } catch {
