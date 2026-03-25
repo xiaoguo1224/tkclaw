@@ -53,6 +53,19 @@ export interface DepartmentInfo {
   children: DepartmentInfo[]
 }
 
+export interface DepartmentMemberInfo {
+  id: string
+  org_id: string
+  department_id: string
+  user_id: string
+  role: string
+  is_primary: boolean
+  user_name: string | null
+  user_email: string | null
+  user_avatar_url: string | null
+  created_at: string
+}
+
 export interface OrgUsage {
   instance_count: number
   instance_limit: number
@@ -151,6 +164,45 @@ export const useOrgStore = defineStore('org', () => {
     await fetchDepartments()
   }
 
+  async function fetchDepartmentMembers(departmentId: string) {
+    if (!currentOrgId.value) return []
+    const res = await api.get(`/orgs/${currentOrgId.value}/departments/${departmentId}/members`)
+    return (res.data.data ?? []) as DepartmentMemberInfo[]
+  }
+
+  async function addDepartmentMember(
+    departmentId: string,
+    userId: string,
+    role: string = 'member',
+    isPrimary: boolean = false,
+  ) {
+    if (!currentOrgId.value) return
+    const res = await api.post(`/orgs/${currentOrgId.value}/departments/${departmentId}/members`, {
+      user_id: userId,
+      role,
+      is_primary: isPrimary,
+    })
+    await fetchDepartments()
+    return res.data.data as DepartmentMemberInfo
+  }
+
+  async function updateDepartmentMember(
+    departmentId: string,
+    membershipId: string,
+    payload: { role?: string; is_primary?: boolean },
+  ) {
+    if (!currentOrgId.value) return
+    const res = await api.put(`/orgs/${currentOrgId.value}/departments/${departmentId}/members/${membershipId}`, payload)
+    await fetchDepartments()
+    return res.data.data as DepartmentMemberInfo
+  }
+
+  async function removeDepartmentMember(departmentId: string, membershipId: string) {
+    if (!currentOrgId.value) return
+    await api.delete(`/orgs/${currentOrgId.value}/departments/${departmentId}/members/${membershipId}`)
+    await fetchDepartments()
+  }
+
   async function addMember(
     userId: string,
     role: string = 'member',
@@ -224,6 +276,10 @@ export const useOrgStore = defineStore('org', () => {
     createDepartment,
     updateDepartment,
     deleteDepartment,
+    fetchDepartmentMembers,
+    addDepartmentMember,
+    updateDepartmentMember,
+    removeDepartmentMember,
     addMember,
     updateMemberRole,
     updateMemberDepartments,

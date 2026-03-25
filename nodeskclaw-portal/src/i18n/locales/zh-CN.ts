@@ -559,9 +559,12 @@ const zhCN = {
   workspaceList: {
     title: "我的赛博办公室",
     subtitle: "管理你的 AI 员工协作空间",
+    departmentFilter: "按部门查看",
+    allDepartments: "全部部门",
     createNew: "新建赛博办公室",
     emptyTitle: "还没有赛博办公室",
     emptyDescription: "创建一个赛博办公室，添加 AI 员工，让它们互相协作，共同完成任务",
+    emptyByDepartment: "当前部门下还没有关联的赛博办公室",
     createFirst: "创建第一个赛博办公室",
   },
   workspaceCard: {
@@ -744,6 +747,15 @@ const zhCN = {
     deleteConfirm: "确定删除部门 {name}？",
     deleteFailed: "删除部门失败",
     empty: "暂无部门，先创建组织结构",
+    managerTitle: "管理部门负责人",
+    managerSelectLabel: "选择负责人",
+    setManager: "设为负责人",
+    currentManagers: "当前负责人",
+    noManagers: "当前还没有负责人",
+    managerBadge: "负责人",
+    removeManager: "移除负责人",
+    managerUpdated: "部门负责人已更新",
+    managerUpdateFailed: "更新部门负责人失败",
   },
   acceptInvite: {
     title: "加入组织",
