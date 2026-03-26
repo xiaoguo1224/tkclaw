@@ -88,6 +88,7 @@ SENSITIVE_KEYS = {
 
 WECOM_OFFICIAL_PLUGIN_PACKAGE = "@wecom/wecom-openclaw-plugin"
 WECOM_OFFICIAL_PLUGIN_NAME = "wecom-openclaw-plugin"
+WECOM_OFFICIAL_PLUGIN_PATH = f"/root/.openclaw/extensions/{WECOM_OFFICIAL_PLUGIN_NAME}"
 _WECOM_PLUGIN_CHECK_SCRIPT = textwrap.dedent("""\
     const fs = require('fs');
     const path = require('path');
@@ -350,6 +351,9 @@ def ensure_wecom_plugin_config(config: dict) -> dict:
     allow = plugins.setdefault("allow", [])
     if WECOM_OFFICIAL_PLUGIN_NAME not in allow:
         allow.append(WECOM_OFFICIAL_PLUGIN_NAME)
+    entries = plugins.setdefault("entries", {})
+    entries.pop("wecom", None)
+    entries[WECOM_OFFICIAL_PLUGIN_NAME] = {"enabled": True}
 
     tools = config.setdefault("tools", {})
     if isinstance(tools.get("allow"), list):
@@ -362,6 +366,45 @@ def ensure_wecom_plugin_config(config: dict) -> dict:
     return config
 
 
+def cleanup_stale_wecom_plugin_config(config: dict) -> tuple[dict, bool]:
+    changed = False
+    plugins = config.get("plugins")
+    if not isinstance(plugins, dict):
+        return config, changed
+
+    allow = plugins.get("allow")
+    if isinstance(allow, list):
+        new_allow = [item for item in allow if item != WECOM_OFFICIAL_PLUGIN_NAME]
+        if new_allow != allow:
+            plugins["allow"] = new_allow
+            changed = True
+
+    entries = plugins.get("entries")
+    if isinstance(entries, dict):
+        if entries.pop("wecom", None) is not None:
+            changed = True
+        if entries.pop(WECOM_OFFICIAL_PLUGIN_NAME, None) is not None:
+            changed = True
+
+    installs = plugins.get("installs")
+    if isinstance(installs, dict):
+        if installs.pop(WECOM_OFFICIAL_PLUGIN_NAME, None) is not None:
+            changed = True
+
+    load = plugins.get("load")
+    if isinstance(load, dict) and isinstance(load.get("paths"), list):
+        paths = load["paths"]
+        filtered = [
+            p for p in paths
+            if WECOM_OFFICIAL_PLUGIN_NAME not in str(p)
+        ]
+        if filtered != paths:
+            load["paths"] = filtered
+            changed = True
+
+    return config, changed
+
+
 async def ensure_official_wecom_plugin_installed(
     instance: Instance,
     db: AsyncSession,
@@ -372,11 +415,24 @@ async def ensure_official_wecom_plugin_installed(
     if not force and await is_official_wecom_plugin_installed(instance, db):
         return {"status": "installed", "already_installed": True, "package": WECOM_OFFICIAL_PLUGIN_PACKAGE}
 
-    output = await _run_openclaw_exec(
-        instance,
-        db,
-        ["npx", "-y", "@wecom/wecom-openclaw-cli", "install", "--skip-config"],
-    )
+    adapter = get_config_adapter("openclaw")
+    async with remote_fs(instance, db) as fs:
+        config = await adapter.read_config(fs) or {}
+        config, changed = cleanup_stale_wecom_plugin_config(config)
+        if changed:
+            await adapter.write_config(fs, config)
+
+    output = ""
+    try:
+        output = await _run_openclaw_exec(
+            instance,
+            db,
+            ["npx", "-y", "@wecom/wecom-openclaw-cli", "install", "--skip-config"],
+        )
+    except AppException as e:
+        if not await is_official_wecom_plugin_installed(instance, db):
+            raise
+        output = f"installer_non_zero_but_plugin_present: {e.message}"
     if not await is_official_wecom_plugin_installed(instance, db):
         raise AppException(
             code=50200,
@@ -385,7 +441,6 @@ async def ensure_official_wecom_plugin_installed(
             message_key="errors.channel.install_failed",
         )
 
-    adapter = get_config_adapter("openclaw")
     async with remote_fs(instance, db) as fs:
         config = await adapter.read_config(fs) or {}
         ensure_wecom_plugin_config(config)
