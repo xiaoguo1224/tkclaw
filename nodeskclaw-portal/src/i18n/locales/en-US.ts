@@ -545,6 +545,7 @@ const enUS = {
     subtitle: "Manage your AI Employee collaboration spaces",
     departmentFilter: "View by Department",
     allDepartments: "All Departments",
+    noDepartmentOptions: "No department filters are available for your current role",
     createNew: "New Cyber Office",
     emptyTitle: "No cyber offices yet",
     emptyDescription: "Create a cyber office, add Agents, and let them collaborate on tasks.",
@@ -557,6 +558,9 @@ const enUS = {
     activeCount: "{active}/{total} active",
     noDescription: "No description",
     agentCount: "{count} AI Employee(s)",
+    memberCount: "{count} member(s)",
+    departmentsLabel: "Owning Departments",
+    noDepartments: "No linked departments",
   },
   addAgentView: {
     title: "Add AI Employee",

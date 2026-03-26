@@ -545,6 +545,7 @@ const zhCN = {
     subtitle: "管理你的 AI 员工协作空间",
     departmentFilter: "按部门查看",
     allDepartments: "全部部门",
+    noDepartmentOptions: "当前角色暂无可筛选部门",
     createNew: "新建赛博办公室",
     emptyTitle: "还没有赛博办公室",
     emptyDescription: "创建一个赛博办公室，添加 AI 员工，让它们互相协作，共同完成任务",
@@ -557,6 +558,9 @@ const zhCN = {
     activeCount: "{active}/{total} 活跃",
     noDescription: "无描述",
     agentCount: "{count} 个 AI 员工",
+    memberCount: "{count} 位成员",
+    departmentsLabel: "主管部门",
+    noDepartments: "未关联部门",
   },
   addAgentView: {
     title: "添加 AI 员工",

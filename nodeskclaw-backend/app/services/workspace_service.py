@@ -218,6 +218,7 @@ async def list_workspaces(
     db: AsyncSession, org_id: str, user_id: str | None = None, department_id: str | None = None,
 ) -> list[WorkspaceListItem]:
     from app.models.org_membership import OrgMembership, OrgRole
+    from app.models.department import Department
     from app.models.workspace_department import WorkspaceDepartment
 
     stmt = select(Workspace).where(
@@ -252,6 +253,38 @@ async def list_workspaces(
 
     result = await db.execute(stmt.order_by(Workspace.created_at.desc()))
     workspaces = result.scalars().all()
+    workspace_ids = [ws.id for ws in workspaces]
+
+    member_count_map: dict[str, int] = {}
+    department_names_map: dict[str, list[str]] = {}
+    if workspace_ids:
+        member_rows = (await db.execute(
+            select(
+                WorkspaceMember.workspace_id,
+                func.count(WorkspaceMember.id),
+            ).where(
+                WorkspaceMember.workspace_id.in_(workspace_ids),
+                WorkspaceMember.deleted_at.is_(None),
+            ).group_by(WorkspaceMember.workspace_id)
+        )).all()
+        member_count_map = {workspace_id: count or 0 for workspace_id, count in member_rows}
+
+        department_rows = (await db.execute(
+            select(
+                WorkspaceDepartment.workspace_id,
+                Department.name,
+            ).join(
+                Department,
+                Department.id == WorkspaceDepartment.department_id,
+            ).where(
+                WorkspaceDepartment.workspace_id.in_(workspace_ids),
+                WorkspaceDepartment.org_id == org_id,
+                WorkspaceDepartment.deleted_at.is_(None),
+                Department.deleted_at.is_(None),
+            ).order_by(Department.sort_order.asc(), Department.created_at.asc())
+        )).all()
+        for workspace_id, department_name in department_rows:
+            department_names_map.setdefault(workspace_id, []).append(department_name)
 
     items = []
     for ws in workspaces:
@@ -269,10 +302,96 @@ async def list_workspaces(
             id=ws.id, name=ws.name, description=ws.description,
             color=ws.color, icon=ws.icon,
             agent_count=len(agents),
+            member_count=member_count_map.get(ws.id, 0),
+            department_names=department_names_map.get(ws.id, []),
             agents=[_agent_brief(inst, wa) for inst, wa in agents],
             created_at=ws.created_at,
         ))
     return items
+
+
+async def list_workspace_filter_departments(
+    db: AsyncSession,
+    org_id: str,
+    user_id: str,
+):
+    from app.models.department import Department
+    from app.models.org_membership import OrgMembership, OrgRole
+    from app.models.workspace_department import WorkspaceDepartment
+
+    departments = (await db.execute(
+        select(Department).where(
+            Department.org_id == org_id,
+            Department.deleted_at.is_(None),
+        ).order_by(Department.sort_order.asc(), Department.created_at.asc())
+    )).scalars().all()
+    if not departments:
+        return []
+
+    org_role = (await db.execute(
+        select(OrgMembership.role).where(
+            OrgMembership.user_id == user_id,
+            OrgMembership.org_id == org_id,
+            OrgMembership.deleted_at.is_(None),
+        )
+    )).scalar_one_or_none()
+
+    if org_role == OrgRole.admin:
+        allowed_department_ids = {department.id for department in departments}
+    else:
+        managed_department_ids = await department_service.get_user_managed_department_ids(org_id, user_id, db)
+        member_workspace_ids = (await db.execute(
+            select(WorkspaceMember.workspace_id).join(
+                Workspace,
+                Workspace.id == WorkspaceMember.workspace_id,
+            ).where(
+                WorkspaceMember.user_id == user_id,
+                WorkspaceMember.deleted_at.is_(None),
+                Workspace.org_id == org_id,
+                Workspace.deleted_at.is_(None),
+            )
+        )).scalars().all()
+        joined_department_ids: set[str] = set()
+        if member_workspace_ids:
+            joined_department_ids = set((await db.execute(
+                select(WorkspaceDepartment.department_id).where(
+                    WorkspaceDepartment.workspace_id.in_(member_workspace_ids),
+                    WorkspaceDepartment.org_id == org_id,
+                    WorkspaceDepartment.deleted_at.is_(None),
+                )
+            )).scalars().all())
+        allowed_department_ids = managed_department_ids.union(joined_department_ids)
+
+    if not allowed_department_ids:
+        return []
+
+    department_ids = {department.id for department in departments}
+    child_depth_map: dict[str, int] = {}
+    roots: list[Department] = []
+    children_by_parent: dict[str, list[Department]] = {}
+    for department in departments:
+        if department.parent_id and department.parent_id in department_ids:
+            children_by_parent.setdefault(department.parent_id, []).append(department)
+        else:
+            roots.append(department)
+
+    stack: list[tuple[Department, int]] = [(root, 0) for root in roots]
+    while stack:
+        current, depth = stack.pop()
+        child_depth_map[current.id] = depth
+        children = children_by_parent.get(current.id, [])
+        for child in reversed(children):
+            stack.append((child, depth + 1))
+
+    return [
+        {
+            "id": department.id,
+            "name": department.name,
+            "depth": child_depth_map.get(department.id, 0),
+        }
+        for department in departments
+        if department.id in allowed_department_ids
+    ]
 
 
 async def get_workspace(db: AsyncSession, workspace_id: str) -> WorkspaceInfo | None:
