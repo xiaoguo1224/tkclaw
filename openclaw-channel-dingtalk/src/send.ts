@@ -1,7 +1,7 @@
 import type { SessionWebhookEntry, ResolvedDingTalkAccount } from "./types.js";
 
 const DINGTALK_API = "https://api.dingtalk.com";
-const TOKEN_CACHE_TTL_MS = 7000 * 1000;
+const TOKEN_CACHE_SAFETY_MARGIN_MS = 5 * 60 * 1000;
 
 const webhookStore = new Map<string, SessionWebhookEntry>();
 
@@ -44,9 +44,10 @@ async function getAccessToken(account: ResolvedDingTalkAccount): Promise<string>
   }
 
   const body = (await resp.json()) as { accessToken: string; expireIn: number };
+  const ttlMs = (body.expireIn > 0 ? body.expireIn : 7200) * 1000 - TOKEN_CACHE_SAFETY_MARGIN_MS;
   cachedToken = {
     token: body.accessToken,
-    expiresAt: Date.now() + TOKEN_CACHE_TTL_MS,
+    expiresAt: Date.now() + Math.max(ttlMs, 60_000),
   };
 
   return body.accessToken;

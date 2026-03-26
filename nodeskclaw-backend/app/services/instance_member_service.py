@@ -245,7 +245,14 @@ async def update_member(
     await db.commit()
     await db.refresh(member)
 
-    user = (await db.execute(select(User).where(User.id == member.user_id))).scalar_one()
+    user = (
+        await db.execute(
+            select(User).where(
+                User.id == member.user_id,
+                User.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one()
     return {
         "id": member.id,
         "instance_id": member.instance_id,

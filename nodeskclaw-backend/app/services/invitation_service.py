@@ -234,7 +234,10 @@ async def validate_invite_token(
     is_expired = expires < now or invitation.status != InvitationStatus.pending
 
     org = (await db.execute(
-        select(Organization).where(Organization.id == invitation.org_id)
+        select(Organization).where(
+            Organization.id == invitation.org_id,
+            Organization.deleted_at.is_(None),
+        )
     )).scalar_one_or_none()
 
     existing_user = (await db.execute(

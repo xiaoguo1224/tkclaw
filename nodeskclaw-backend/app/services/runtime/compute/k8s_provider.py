@@ -59,7 +59,12 @@ class K8sComputeProvider:
 
             from app.models.instance import Instance
             from sqlalchemy import select
-            result = await db.execute(select(Instance).where(Instance.id == config.instance_id))
+            result = await db.execute(
+                select(Instance).where(
+                    Instance.id == config.instance_id,
+                    Instance.deleted_at.is_(None),
+                )
+            )
             inst = result.scalar_one_or_none()
             endpoint = f"https://{inst.ingress_domain}" if inst and inst.ingress_domain else ""
             status = inst.status if inst else "creating"

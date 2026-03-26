@@ -195,6 +195,14 @@ feat(instance): 实例列表新增搜索和过滤功能
 fix(deploy): 修复 env_vars 存数据库未序列化的问题
 ```
 
+### 社区 PR 合并
+
+- 必须保留外部贡献者的 commit 归属（Author 字段）
+- 使用 `git cherry-pick`（不加 `--no-commit`）保留原始 author
+- 维护者的修复作为独立 commit 叠加在原始 commit 之上
+- 合并前用 `git log --format="%an - %s"` 验证归属正确
+- 禁止 squash merge 吞掉贡献者的 commit
+
 ### 禁止
 
 - 禁止 `Co-authored-by` 署名
