@@ -75,6 +75,32 @@ async def system_capabilities():
     }
 
 
+@api_router.get("/files/local/{file_key:path}", tags=["文件"])
+async def serve_local_file(file_key: str, expires: str = "", sig: str = ""):
+    """Serve a local file using HMAC-signed URL (no Bearer token required)."""
+    from fastapi.responses import FileResponse
+    from app.services import storage_service
+
+    if storage_service._use_tos():
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Local file serving disabled when TOS is active")
+
+    if not expires or not sig:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Missing signature parameters")
+
+    if not storage_service.verify_signature(file_key, expires, sig):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Invalid or expired signature")
+
+    file_path = storage_service._get_local_dir() / file_key
+    if not file_path.is_file():
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return FileResponse(file_path)
+
+
 api_router.include_router(auth_router, prefix="/auth", tags=["认证"])
 api_router.include_router(org_router, prefix="/orgs", tags=["组织"])
 api_router.include_router(org_settings_router, prefix="/orgs", tags=["组织设置"])

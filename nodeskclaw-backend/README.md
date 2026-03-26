@@ -178,7 +178,8 @@ API 路由同时挂载在两个前缀下：
 | `/api/v1/workspaces/templates` | 工作区模板 | 列表、创建、详情、删除、应用到工作区 |
 | `/api/v1/workspaces/{ws}/blackboard/posts` | 黑板讨论区 | 帖子 CRUD、置顶、已读标记、未读计数 |
 | `/api/v1/workspaces/{ws}/blackboard/posts/{id}/replies` | 黑板讨论区 | 帖子回复 |
-| `/api/v1/workspaces/{ws}/blackboard/files` | 共享文件 | TOS 共享文件列表、上传、下载、删除、创建目录 |
+| `/api/v1/workspaces/{ws}/blackboard/files` | 共享文件 | 共享文件列表、上传、下载、删除、创建目录（TOS 或本地存储） |
+| `/api/v1/files/local/{key}` | 文件下载 | 本地存储模式的 HMAC 签名文件下载端点 |
 | `/api/v1/enterprise-files/agents` | 企业空间 | 列出可浏览的 Agent 实例 |
 | `/api/v1/enterprise-files/agents/{id}/files` | 企业空间 | 列出 Agent 目录文件（query: path） |
 | `/api/v1/enterprise-files/agents/{id}/files/content` | 企业空间 | 读取文件内容（仅文本） |
@@ -429,6 +430,18 @@ CE/EE 模式覆盖：
 | `GENEHUB_API_KEY` | （旧版兼容）GeneHub Registry API Key |
 
 支持的 adapter 类型：`genehub`（GeneHub/DeskHub 协议）、`clawhub`（ClawHub，当前 stub）。系统始终包含本地 LocalAdapter，无外部 Registry 时纯本地运行。
+
+文件存储配置：
+
+| 变量 | 说明 |
+|------|------|
+| `TOS_ENDPOINT` | 火山云 TOS 对象存储 Endpoint。与 `TOS_BUCKET` 同时配置后使用 TOS 存储 |
+| `TOS_BUCKET` | TOS Bucket 名称 |
+| `TOS_ACCESS_KEY_ID` | TOS Access Key |
+| `TOS_SECRET_ACCESS_KEY` | TOS Secret Key |
+| `LOCAL_STORAGE_DIR` | 本地文件存储目录。TOS 未配置时自动启用本地存储：Docker 容器内默认 `/nodeskclaw-data/shared-files`，本地开发默认 `~/.nodeskclaw/shared-files` |
+
+TOS 未配置时系统自动 fallback 到本地文件系统存储，无需额外配置即可使用共享文件和聊天附件功能。
 
 ### 启动
 

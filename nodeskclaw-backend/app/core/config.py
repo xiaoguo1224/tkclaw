@@ -135,6 +135,9 @@ class Settings(BaseSettings):
     TOS_SECRET_ACCESS_KEY: str = ""
     TOS_KEY_PREFIX: str = ""
 
+    # ── 本地文件存储（TOS 未配置时自动启用）────────────────
+    LOCAL_STORAGE_DIR: str = ""
+
     # ── CORS ─────────────────────────────────────────────
     CORS_ORIGINS: list[str] = ["http://localhost:4517", "http://localhost:4518"]
 

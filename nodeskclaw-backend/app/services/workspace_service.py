@@ -1695,12 +1695,8 @@ async def read_shared_file(
     if f is None or not f.tos_key:
         return None
 
-    url = await storage_service.get_presigned_url(f.tos_key, expires=300)
-    import httpx
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(url)
-        resp.raise_for_status()
-    return base64.b64encode(resp.content).decode(), f.content_type
+    content = await storage_service.download_file(f.tos_key)
+    return base64.b64encode(content).decode(), f.content_type
 
 
 async def delete_shared_file(
