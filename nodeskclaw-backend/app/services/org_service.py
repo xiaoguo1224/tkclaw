@@ -617,7 +617,60 @@ async def create_member_direct(
         )
     ).scalar_one_or_none()
     if existing_user is not None:
-        raise ConflictError("该邮箱已注册账号")
+        existing_membership = (await db.execute(
+            select(OrgMembership).where(
+                OrgMembership.user_id == existing_user.id,
+                OrgMembership.org_id == org_id,
+                not_deleted(OrgMembership),
+            )
+        )).scalar_one_or_none()
+        if existing_membership is not None:
+            raise ConflictError("该邮箱已是当前组织成员")
+
+        membership = OrgMembership(user_id=existing_user.id, org_id=org_id, role=role)
+        db.add(membership)
+        if existing_user.current_org_id is None:
+            existing_user.current_org_id = org_id
+        await department_service.assign_member_departments(
+            org_id=org_id,
+            user_id=existing_user.id,
+            primary_department_id=primary_department_id,
+            secondary_department_ids=secondary_department_ids or [],
+            db=db,
+        )
+        await db.commit()
+        await db.refresh(membership)
+        ai_provision = await provision_default_ai_employee_for_member(org_id, existing_user, db)
+        if ai_provision.status == "success" and ai_provision.instance_id:
+            membership.default_instance_id = ai_provision.instance_id
+            await db.commit()
+            await db.refresh(membership)
+
+        department_memberships = await department_service.list_user_department_memberships(org_id, [existing_user.id], db)
+        primary_id, primary_name, secondary_department_ids, secondary_departments, is_department_manager = (
+            department_service.summarize_user_departments(department_memberships.get(existing_user.id, []))
+        )
+
+        return MemberInfo(
+            id=membership.id,
+            user_id=membership.user_id,
+            org_id=membership.org_id,
+            role=membership.role,
+            is_super_admin=existing_user.is_super_admin,
+            user_name=existing_user.name,
+            user_email=existing_user.email,
+            user_avatar_url=existing_user.avatar_url,
+            primary_department_id=primary_id,
+            primary_department_name=primary_name,
+            secondary_department_ids=secondary_department_ids,
+            secondary_departments=secondary_departments,
+            is_department_manager=is_department_manager,
+            default_ai_instance_id=membership.default_instance_id,
+            default_ai_instance_name=_build_ai_employee_name(existing_user.name) if membership.default_instance_id else None,
+            has_default_ai=bool(membership.default_instance_id),
+            ai_provision=ai_provision,
+            created_at=membership.created_at,
+        )
 
     user = User(
         name=name.strip(),
@@ -711,16 +764,26 @@ async def list_member_default_ai_candidates(
     if row is None:
         raise NotFoundError("成员记录不存在")
 
+    used_instance_ids = set((await db.execute(
+        select(OrgMembership.default_instance_id).where(
+            OrgMembership.org_id == org_id,
+            OrgMembership.id != membership_id,
+            OrgMembership.default_instance_id.is_not(None),
+            not_deleted(OrgMembership),
+        )
+    )).scalars().all())
+    used_instance_ids.discard(None)
+
     result = await db.execute(
         select(Instance).where(
             Instance.org_id == org_id,
-            Instance.created_by == row.user_id,
             not_deleted(Instance),
         ).order_by(Instance.created_at.desc())
     )
     return [
         MemberDefaultAiCandidateInfo(id=inst.id, name=inst.name, status=inst.status)
         for inst in result.scalars().all()
+        if inst.id not in used_instance_ids
     ]
 
 
@@ -758,8 +821,16 @@ async def update_member_default_ai(
             raise NotFoundError("AI 员工不存在")
         if instance.org_id != org_id:
             raise ForbiddenError("不允许关联其他组织的 AI 员工")
-        if instance.created_by != membership.user_id:
-            raise ForbiddenError("仅可关联该成员创建的 AI 员工")
+        used_by_other = (await db.execute(
+            select(OrgMembership.id).where(
+                OrgMembership.org_id == org_id,
+                OrgMembership.id != membership_id,
+                OrgMembership.default_instance_id == instance.id,
+                not_deleted(OrgMembership),
+            )
+        )).scalar_one_or_none()
+        if used_by_other is not None:
+            raise ConflictError("该 AI 员工已被其他成员设置为默认")
         membership.default_instance_id = instance.id
 
     await db.commit()
