@@ -126,7 +126,10 @@ async def cancel_deploy(deploy_id: str) -> str:
     async with async_session_factory() as db:
         # 1. 查部署记录 + 实例
         rec_result = await db.execute(
-            select(DeployRecord).where(DeployRecord.id == deploy_id)
+            select(DeployRecord).where(
+                DeployRecord.id == deploy_id,
+                DeployRecord.deleted_at.is_(None),
+            )
         )
         record = rec_result.scalar_one_or_none()
         if not record:
@@ -135,7 +138,10 @@ async def cancel_deploy(deploy_id: str) -> str:
             return f"部署已结束（状态: {record.status}）"
 
         inst_result = await db.execute(
-            select(Instance).where(Instance.id == record.instance_id)
+            select(Instance).where(
+                Instance.id == record.instance_id,
+                Instance.deleted_at.is_(None),
+            )
         )
         instance = inst_result.scalar_one_or_none()
         if not instance:
@@ -167,7 +173,10 @@ async def cancel_deploy(deploy_id: str) -> str:
                     logger.info("取消部署，已清理 Docker 容器: %s", instance.slug)
             else:
                 cluster_result = await db.execute(
-                    select(Cluster).where(Cluster.id == instance.cluster_id)
+                    select(Cluster).where(
+                        Cluster.id == instance.cluster_id,
+                        Cluster.deleted_at.is_(None),
+                    )
                 )
                 cluster = cluster_result.scalar_one_or_none()
                 if cluster and cluster.is_k8s and cluster.credentials_encrypted:
@@ -653,12 +662,22 @@ async def _execute_via_compute_provider(ctx: _DeployContext) -> None:
         return
 
     async with async_session_factory() as db:
-        rec_result = await db.execute(select(DeployRecord).where(DeployRecord.id == ctx.record_id))
+        rec_result = await db.execute(
+            select(DeployRecord).where(
+                DeployRecord.id == ctx.record_id,
+                DeployRecord.deleted_at.is_(None),
+            )
+        )
         record = rec_result.scalar_one()
         record.status = DeployStatus.success
         record.finished_at = datetime.now(timezone.utc)
 
-        inst_result = await db.execute(select(Instance).where(Instance.id == ctx.instance_id))
+        inst_result = await db.execute(
+            select(Instance).where(
+                Instance.id == ctx.instance_id,
+                Instance.deleted_at.is_(None),
+            )
+        )
         instance = inst_result.scalar_one()
         instance.status = InstanceStatus.running
 
@@ -703,13 +722,23 @@ async def _mark_deploy_failed(ctx: _DeployContext, message: str) -> None:
 
     try:
         async with async_session_factory() as db:
-            rec_result = await db.execute(select(DeployRecord).where(DeployRecord.id == ctx.record_id))
+            rec_result = await db.execute(
+                select(DeployRecord).where(
+                    DeployRecord.id == ctx.record_id,
+                    DeployRecord.deleted_at.is_(None),
+                )
+            )
             record = rec_result.scalar_one()
             record.status = DeployStatus.failed
             record.message = message
             record.finished_at = datetime.now(timezone.utc)
 
-            inst_result = await db.execute(select(Instance).where(Instance.id == ctx.instance_id))
+            inst_result = await db.execute(
+                select(Instance).where(
+                    Instance.id == ctx.instance_id,
+                    Instance.deleted_at.is_(None),
+                )
+            )
             instance = inst_result.scalar_one()
             instance.soft_delete()
             await db.execute(
@@ -760,7 +789,10 @@ async def _execute_deploy_inner(ctx, async_session_factory, get_config, total, s
             _publish(1, steps[0])
 
             cluster_result = await db.execute(
-                select(Cluster).where(Cluster.id == ctx.cluster_id)
+                select(Cluster).where(
+                    Cluster.id == ctx.cluster_id,
+                    Cluster.deleted_at.is_(None),
+                )
             )
             cluster = cluster_result.scalar_one()
             from app.services.runtime.registries.compute_registry import require_k8s_client
@@ -870,7 +902,10 @@ async def _execute_deploy_inner(ctx, async_session_factory, get_config, total, s
                 )
                 await k8s.create_or_skip(k8s.networking.create_namespaced_ingress, ctx.namespace, ing)
                 inst_result = await db.execute(
-                    select(Instance).where(Instance.id == ctx.instance_id)
+                    select(Instance).where(
+                        Instance.id == ctx.instance_id,
+                        Instance.deleted_at.is_(None),
+                    )
                 )
                 instance = inst_result.scalar_one()
                 instance.ingress_domain = ingress_host
@@ -971,9 +1006,19 @@ async def _execute_deploy_inner(ctx, async_session_factory, get_config, total, s
 
                 await asyncio.sleep(2)
 
-            rec_result = await db.execute(select(DeployRecord).where(DeployRecord.id == ctx.record_id))
+            rec_result = await db.execute(
+                select(DeployRecord).where(
+                    DeployRecord.id == ctx.record_id,
+                    DeployRecord.deleted_at.is_(None),
+                )
+            )
             record = rec_result.scalar_one()
-            inst_result = await db.execute(select(Instance).where(Instance.id == ctx.instance_id))
+            inst_result = await db.execute(
+                select(Instance).where(
+                    Instance.id == ctx.instance_id,
+                    Instance.deleted_at.is_(None),
+                )
+            )
             instance = inst_result.scalar_one()
 
             if deployment_ready:
@@ -1114,13 +1159,23 @@ async def _execute_deploy_inner(ctx, async_session_factory, get_config, total, s
             await adapter.cleanup_proxy(ctx)
 
             try:
-                rec_result = await db.execute(select(DeployRecord).where(DeployRecord.id == ctx.record_id))
+                rec_result = await db.execute(
+                    select(DeployRecord).where(
+                        DeployRecord.id == ctx.record_id,
+                        DeployRecord.deleted_at.is_(None),
+                    )
+                )
                 record = rec_result.scalar_one()
                 record.status = DeployStatus.failed
                 record.message = str(e)[:500]
                 record.finished_at = datetime.now(timezone.utc)
 
-                inst_result = await db.execute(select(Instance).where(Instance.id == ctx.instance_id))
+                inst_result = await db.execute(
+                    select(Instance).where(
+                        Instance.id == ctx.instance_id,
+                        Instance.deleted_at.is_(None),
+                    )
+                )
                 instance = inst_result.scalar_one()
 
                 instance.soft_delete()
