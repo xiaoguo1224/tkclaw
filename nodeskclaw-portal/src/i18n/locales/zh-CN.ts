@@ -713,6 +713,8 @@ const zhCN = {
     directPasswordPlaceholder: "输入登录密码（至少 6 位）",
     directAddSubmit: "创建并添加",
     directAddSuccess: "成员已创建并加入组织",
+    directAddSuccessWithAi: "成员与默认 AI 员工已创建",
+    directAddSuccessAiFailed: "成员已创建，但默认 AI 员工创建失败",
     directAddFailed: "直接添加成员失败",
     allDepartments: "全部部门",
     noDepartment: "未分配部门",

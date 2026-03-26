@@ -226,7 +226,7 @@ async function handleDirectCreate() {
   if (!directName.value.trim() || !directEmail.value.trim() || !directPassword.value.trim()) return
   directLoading.value = true
   try {
-    await api.post(`/orgs/${orgStore.currentOrgId}/members/direct`, {
+    const res = await api.post(`/orgs/${orgStore.currentOrgId}/members/direct`, {
       name: directName.value.trim(),
       email: directEmail.value.trim().toLowerCase(),
       password: directPassword.value,
@@ -235,7 +235,17 @@ async function handleDirectCreate() {
       secondary_department_ids: directSecondaryDepartmentIds.value.filter(id => id !== directPrimaryDepartmentId.value),
     })
     await orgStore.fetchMembers()
-    toast.success(t('orgMembers.directAddSuccess'))
+    const aiProvision = res.data?.data?.ai_provision
+    if (aiProvision?.status === 'success') {
+      toast.success(t('orgMembers.directAddSuccessWithAi'))
+    } else if (aiProvision?.status === 'failed') {
+      toast.warning(t('orgMembers.directAddSuccessAiFailed'))
+      if (aiProvision?.message) {
+        toast.error(aiProvision.message)
+      }
+    } else {
+      toast.success(t('orgMembers.directAddSuccess'))
+    }
     closeInviteDialog()
   } catch (e) {
     toast.error(resolveApiErrorMessage(e, t('orgMembers.directAddFailed')))

@@ -34,6 +34,12 @@ export interface MemberInfo {
   secondary_department_ids: string[]
   secondary_departments: string[]
   is_department_manager: boolean
+  ai_provision?: {
+    status: 'success' | 'failed'
+    instance_id?: string | null
+    message_key?: string | null
+    message?: string | null
+  } | null
   created_at: string
 }
 

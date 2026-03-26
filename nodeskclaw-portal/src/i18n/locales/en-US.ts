@@ -713,6 +713,8 @@ const enUS = {
     directPasswordPlaceholder: "Enter login password (at least 6 characters)",
     directAddSubmit: "Create & Add",
     directAddSuccess: "Member created and added to the organization",
+    directAddSuccessWithAi: "Member and default AI employee created",
+    directAddSuccessAiFailed: "Member created, but default AI employee creation failed",
     directAddFailed: "Failed to create member directly",
     allDepartments: "All Departments",
     noDepartment: "Unassigned",

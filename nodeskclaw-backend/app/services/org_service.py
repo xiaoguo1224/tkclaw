@@ -1,7 +1,9 @@
 """Organization CRUD + membership management service."""
 
+import asyncio
 import logging
 import re
+import secrets
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,13 +15,25 @@ from app.models.oauth_connection import UserOAuthConnection
 from app.models.org_membership import OrgMembership, OrgRole
 from app.models.org_oauth_binding import OrgOAuthBinding
 from app.models.organization import Organization
+from app.models.instance import Instance
+from app.models.user_llm_config import UserLlmConfig
+from app.models.user_llm_key import UserLlmKey
 from app.models.user import User, UserRole
-from app.schemas.organization import MemberInfo, OAuthOrgSetupRequest, OrgCreate, OrgInfo, OrgUpdate
-from app.services import department_service
+from app.schemas.deploy import DeployRequest
+from app.schemas.llm import LlmConfigItem
+from app.schemas.organization import AiProvisionInfo, MemberInfo, OAuthOrgSetupRequest, OrgCreate, OrgInfo, OrgUpdate
+from app.services import department_service, deploy_service
+from app.services.registry_service import list_image_tags
 
 logger = logging.getLogger(__name__)
 
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9\-]{1,62}[a-z0-9]$")
+_DEFAULT_RUNTIME = "openclaw"
+_DEFAULT_MODEL_PROVIDER = "taoke"
+_DEFAULT_MODEL_BASE_URL = "http://10.0.14.20:11434/v1"
+_DEFAULT_MODEL_API_KEY = "taoke"
+_DEFAULT_MODEL_API_TYPE = "openai-completions"
+_DEFAULT_MODEL_ID = "Qwen3.5-122B-A10B-4bit"
 
 
 async def list_orgs(db: AsyncSession) -> list[OrgInfo]:
@@ -312,6 +326,156 @@ async def list_members(
     return members
 
 
+def _build_ai_employee_name(member_name: str | None) -> str:
+    raw_name = (member_name or "").strip() or "member"
+    final_name = f"{raw_name}-bot"
+    return final_name[:128]
+
+
+def _slugify(raw: str) -> str:
+    slug = re.sub(r"[^a-z0-9-]", "-", raw.lower()).strip("-")
+    slug = re.sub(r"-{2,}", "-", slug)
+    return slug or "member-bot"
+
+
+async def _build_unique_instance_slug(org_id: str, base_slug: str, db: AsyncSession) -> str:
+    candidate = base_slug
+    for _ in range(10):
+        exists = await db.execute(
+            select(Instance.id).where(
+                Instance.org_id == org_id,
+                Instance.slug == candidate,
+                not_deleted(Instance),
+            )
+        )
+        if exists.scalar_one_or_none() is None:
+            return candidate
+        candidate = f"{base_slug}-{secrets.token_hex(2)}"
+    return f"{base_slug}-{secrets.token_hex(4)}"
+
+
+async def _upsert_local_model_personal_config(user_id: str, org_id: str, db: AsyncSession) -> None:
+    key_result = await db.execute(
+        select(UserLlmKey).where(
+            UserLlmKey.user_id == user_id,
+            UserLlmKey.provider == _DEFAULT_MODEL_PROVIDER,
+            not_deleted(UserLlmKey),
+        )
+    )
+    key = key_result.scalar_one_or_none()
+    if key is None:
+        db.add(UserLlmKey(
+            user_id=user_id,
+            provider=_DEFAULT_MODEL_PROVIDER,
+            api_key=_DEFAULT_MODEL_API_KEY,
+            base_url=_DEFAULT_MODEL_BASE_URL,
+            api_type=_DEFAULT_MODEL_API_TYPE,
+            is_active=True,
+        ))
+    else:
+        key.api_key = _DEFAULT_MODEL_API_KEY
+        key.base_url = _DEFAULT_MODEL_BASE_URL
+        key.api_type = _DEFAULT_MODEL_API_TYPE
+        key.is_active = True
+
+    config_result = await db.execute(
+        select(UserLlmConfig).where(
+            UserLlmConfig.user_id == user_id,
+            UserLlmConfig.org_id == org_id,
+            UserLlmConfig.provider == _DEFAULT_MODEL_PROVIDER,
+            not_deleted(UserLlmConfig),
+        )
+    )
+    config = config_result.scalar_one_or_none()
+    selected_models = [{"id": _DEFAULT_MODEL_ID, "name": _DEFAULT_MODEL_ID}]
+    if config is None:
+        db.add(UserLlmConfig(
+            user_id=user_id,
+            org_id=org_id,
+            provider=_DEFAULT_MODEL_PROVIDER,
+            key_source="personal",
+            selected_models=selected_models,
+        ))
+    else:
+        config.key_source = "personal"
+        config.selected_models = selected_models
+
+    await db.commit()
+
+
+async def provision_default_ai_employee_for_member(
+    org_id: str,
+    member_user: User,
+    db: AsyncSession,
+) -> AiProvisionInfo:
+    org = await get_org(org_id, db)
+    if not org.cluster_id:
+        return AiProvisionInfo(
+            status="failed",
+            message_key="errors.org.default_cluster_required",
+            message="组织未配置默认集群，无法自动创建 AI 员工",
+        )
+
+    try:
+        await _upsert_local_model_personal_config(member_user.id, org_id, db)
+
+        image_tags = await list_image_tags(db, runtime=_DEFAULT_RUNTIME)
+        if not image_tags:
+            return AiProvisionInfo(
+                status="failed",
+                message_key="errors.member.ai_provision_failed",
+                message="未找到可用镜像版本，无法自动创建 AI 员工",
+            )
+        image_version = image_tags[0].get("tag")
+        if not image_version:
+            return AiProvisionInfo(
+                status="failed",
+                message_key="errors.member.ai_provision_failed",
+                message="镜像版本为空，无法自动创建 AI 员工",
+            )
+
+        ai_name = _build_ai_employee_name(member_user.name)
+        base_slug = _slugify(ai_name)
+        unique_slug = await _build_unique_instance_slug(org_id, base_slug, db)
+
+        req = DeployRequest(
+            cluster_id=org.cluster_id,
+            name=ai_name,
+            slug=unique_slug,
+            image_version=image_version,
+            replicas=1,
+            cpu_request="1000m",
+            cpu_limit="2000m",
+            mem_request="2Gi",
+            mem_limit="4Gi",
+            quota_cpu="2",
+            quota_mem="4Gi",
+            storage_size="20Gi",
+            runtime=_DEFAULT_RUNTIME,
+            llm_configs=[LlmConfigItem(
+                provider=_DEFAULT_MODEL_PROVIDER,
+                key_source="personal",
+                selected_models=[{"id": _DEFAULT_MODEL_ID, "name": _DEFAULT_MODEL_ID}],
+            )],
+        )
+        deploy_id, ctx = await deploy_service.deploy_instance(
+            req=req, user=member_user, db=db, org_id=org_id,
+        )
+        task = asyncio.create_task(
+            deploy_service.execute_deploy_pipeline(ctx),
+            name=f"auto-provision-ai-{deploy_id}",
+        )
+        deploy_service.register_deploy_task(deploy_id, task)
+        return AiProvisionInfo(status="success", instance_id=ctx.instance_id)
+    except Exception as exc:
+        logger.exception("新成员自动创建 AI 员工失败: org=%s user=%s err=%s", org_id, member_user.id, exc)
+        return AiProvisionInfo(
+            status="failed",
+            message_key="errors.member.ai_provision_failed",
+            message=f"自动创建 AI 员工失败: {exc}",
+        )
+
+
 async def add_member(
     org_id: str,
     user_id: str,
@@ -358,6 +522,7 @@ async def add_member(
 
     await db.commit()
     await db.refresh(membership)
+    ai_provision = await provision_default_ai_employee_for_member(org_id, user, db)
 
     department_memberships = await department_service.list_user_department_memberships(org_id, [user.id], db)
     primary_id, primary_name, secondary_department_ids, secondary_departments, is_department_manager = (
@@ -378,6 +543,7 @@ async def add_member(
         secondary_department_ids=secondary_department_ids,
         secondary_departments=secondary_departments,
         is_department_manager=is_department_manager,
+        ai_provision=ai_provision,
         created_at=membership.created_at,
     )
 
@@ -431,6 +597,7 @@ async def create_member_direct(
     )
     await db.commit()
     await db.refresh(membership)
+    ai_provision = await provision_default_ai_employee_for_member(org_id, user, db)
 
     department_memberships = await department_service.list_user_department_memberships(org_id, [user.id], db)
     primary_id, primary_name, secondary_department_ids, secondary_departments, is_department_manager = (
@@ -451,6 +618,7 @@ async def create_member_direct(
         secondary_department_ids=secondary_department_ids,
         secondary_departments=secondary_departments,
         is_department_manager=is_department_manager,
+        ai_provision=ai_provision,
         created_at=membership.created_at,
     )
 

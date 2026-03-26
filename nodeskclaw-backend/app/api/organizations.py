@@ -260,6 +260,26 @@ async def add_member(
         secondary_department_ids=body.secondary_department_ids,
     )
     await hooks.emit("operation_audit", action="org.member_added", target_type="org_membership", target_id=data.id, actor_id=_org_ctx[0].id, org_id=org_id)
+    if data.ai_provision and data.ai_provision.status == "success" and data.ai_provision.instance_id:
+        await hooks.emit(
+            "operation_audit",
+            action="org.member_ai_employee_provisioned",
+            target_type="instance",
+            target_id=data.ai_provision.instance_id,
+            actor_id=_org_ctx[0].id,
+            org_id=org_id,
+            details={"member_user_id": data.user_id},
+        )
+    elif data.ai_provision and data.ai_provision.status == "failed":
+        await hooks.emit(
+            "operation_audit",
+            action="org.member_ai_employee_provision_failed",
+            target_type="org_membership",
+            target_id=data.id,
+            actor_id=_org_ctx[0].id,
+            org_id=org_id,
+            details={"member_user_id": data.user_id, "message": data.ai_provision.message},
+        )
     return ApiResponse(data=data)
 
 
@@ -282,6 +302,26 @@ async def create_member_direct(
         secondary_department_ids=body.secondary_department_ids,
     )
     await hooks.emit("operation_audit", action="org.member_created_direct", target_type="org_membership", target_id=data.id, actor_id=_org_ctx[0].id, org_id=org_id)
+    if data.ai_provision and data.ai_provision.status == "success" and data.ai_provision.instance_id:
+        await hooks.emit(
+            "operation_audit",
+            action="org.member_ai_employee_provisioned",
+            target_type="instance",
+            target_id=data.ai_provision.instance_id,
+            actor_id=_org_ctx[0].id,
+            org_id=org_id,
+            details={"member_user_id": data.user_id},
+        )
+    elif data.ai_provision and data.ai_provision.status == "failed":
+        await hooks.emit(
+            "operation_audit",
+            action="org.member_ai_employee_provision_failed",
+            target_type="org_membership",
+            target_id=data.id,
+            actor_id=_org_ctx[0].id,
+            org_id=org_id,
+            details={"member_user_id": data.user_id, "message": data.ai_provision.message},
+        )
     return ApiResponse(data=data)
 
 
