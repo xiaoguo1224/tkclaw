@@ -1300,6 +1300,11 @@ const zhCN = {
     manualInputModel: "手动输入模型 ID",
     manualInputPlaceholder: "输入模型 ID，如 deepseek-chat",
     modelIdEmpty: "模型 ID 不能为空",
+    codexCliHint: "使用服务端 Codex CLI 登录态，不需要填写 API Key",
+    codexCliRuntimeHint: "保存后将通过 llm-proxy 调用当前服务端已登录的 codex CLI，请先确保运行环境已完成 codex login。",
+    codexCliCurrentAuth: "当前认证",
+    codexCliLabel: "Codex CLI",
+    providerAccessHint: "DeskClaw 需要至少一个可用的大模型访问方式才能正常使用",
   },
   engine: {
     title: "工作引擎",

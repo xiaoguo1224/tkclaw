@@ -7,9 +7,17 @@ from urllib.parse import urlencode, urlparse, urlunparse, parse_qs
 
 import httpx
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from sqlalchemy import func, select
 
+from app.codex_cli import (
+    CODEX_PROVIDER,
+    CodexExecutionError,
+    build_chat_completion_response,
+    build_chat_completion_stream_events,
+    list_codex_models,
+    run_codex_chat_completion,
+)
 from app.config import settings
 from app.database import get_session
 from app.models import Instance, LlmUsageLog, OrgLlmKey, UserLlmConfig, UserLlmKey, not_deleted
@@ -19,6 +27,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 PROVIDER_DEFAULTS: dict[str, dict] = {
+    "codex": {"base_url": "", "auth_type": "bearer"},
     "openai": {"base_url": "https://api.openai.com", "auth_type": "bearer"},
     "anthropic": {"base_url": "https://api.anthropic.com", "auth_type": "x-api-key"},
     "gemini": {"base_url": "https://generativelanguage.googleapis.com", "auth_type": "query_param"},
@@ -164,6 +173,131 @@ def _strip_content_from_response(body: bytes) -> str | None:
         return None
 
 
+def _is_codex_path(path: str, *candidates: str) -> bool:
+    normalized = path.strip("/")
+    return normalized in candidates
+
+
+async def _handle_codex_proxy(
+    request: Request,
+    path: str,
+    ctx: "_RequestContext",
+    *,
+    api_key: str | None,
+) -> JSONResponse | StreamingResponse | Response:
+    normalized_path = path.strip("/")
+
+    if request.method == "GET" and _is_codex_path(normalized_path, "v1/models", "models"):
+        models = list_codex_models()
+        return JSONResponse(status_code=200, content={"object": "list", "data": models})
+
+    if request.method != "POST" or not _is_codex_path(normalized_path, "v1/chat/completions", "chat/completions"):
+        return JSONResponse(
+            status_code=404,
+            content={"error": f"Codex 暂不支持路径 /{normalized_path or path}"},
+        )
+
+    start = time.monotonic()
+    raw_body = await request.body()
+    try:
+        payload = json.loads(raw_body or b"{}")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        await _record_usage(
+            ctx,
+            usage={},
+            status_code=400,
+            latency_ms=int((time.monotonic() - start) * 1000),
+            error_message="请求体不是合法 JSON",
+        )
+        return JSONResponse(status_code=400, content={"error": "请求体不是合法 JSON"})
+
+    messages = payload.get("messages")
+    if not isinstance(messages, list) or not messages:
+        await _record_usage(
+            ctx,
+            usage={},
+            status_code=400,
+            latency_ms=int((time.monotonic() - start) * 1000),
+            error_message="Codex 请求缺少 messages",
+        )
+        return JSONResponse(status_code=400, content={"error": "Codex 请求缺少 messages"})
+
+    request_model = payload.get("model")
+    is_stream = bool(payload.get("stream"))
+
+    try:
+        result = await run_codex_chat_completion(
+            messages=messages,
+            model=request_model if isinstance(request_model, str) else None,
+            api_key=api_key,
+        )
+    except CodexExecutionError as exc:
+        latency_ms = int((time.monotonic() - start) * 1000)
+        error_message = str(exc)
+        logger.error("Codex request failed: %s", error_message)
+        await _record_usage(
+            ctx,
+            usage={},
+            status_code=503,
+            latency_ms=latency_ms,
+            error_message=error_message[:512],
+        )
+        return JSONResponse(status_code=503, content={"error": error_message})
+
+    latency_ms = int((time.monotonic() - start) * 1000)
+    usage = {
+        "prompt_tokens": result.prompt_tokens,
+        "completion_tokens": result.completion_tokens,
+        "total_tokens": result.total_tokens,
+        "model": request_model if isinstance(request_model, str) and request_model else result.model,
+    }
+
+    if is_stream:
+        events = build_chat_completion_stream_events(
+            result=result,
+            request_model=request_model if isinstance(request_model, str) else None,
+        )
+
+        async def stream_generator():
+            try:
+                for event in events:
+                    yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+                yield "data: [DONE]\n\n"
+            finally:
+                response_meta = json.dumps(usage, ensure_ascii=False)
+                await _record_usage(
+                    ctx,
+                    usage=usage,
+                    status_code=200,
+                    latency_ms=latency_ms,
+                    response_body=response_meta,
+                )
+
+        return StreamingResponse(
+            stream_generator(),
+            status_code=200,
+            headers={
+                "cache-control": "no-transform",
+                "x-accel-buffering": "no",
+            },
+            media_type="text/event-stream",
+        )
+
+    response_data = build_chat_completion_response(
+        result=result,
+        request_model=request_model if isinstance(request_model, str) else None,
+    )
+    response_meta = _strip_content_from_response(json.dumps(response_data, ensure_ascii=False).encode("utf-8"))
+    await _record_usage(
+        ctx,
+        usage=usage,
+        status_code=200,
+        latency_ms=latency_ms,
+        response_body=response_meta,
+    )
+    return JSONResponse(status_code=200, content=response_data)
+
+
 @router.api_route(
     "/{provider}/{path:path}",
     methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"],
@@ -249,9 +383,6 @@ async def llm_proxy(provider: str, path: str, request: Request):
             real_key = user_key.api_key
             base_url = user_key.base_url
 
-    target_url = _build_target_url(provider, path, base_url, real_key)
-    req_headers = _build_auth_headers(provider, real_key, dict(request.headers))
-
     raw_body = await request.body()
     body = _maybe_inject_stream_options(raw_body, provider)
 
@@ -271,6 +402,14 @@ async def llm_proxy(provider: str, path: str, request: Request):
         is_stream=is_stream,
         raw_body=raw_body,
     )
+
+    if provider == CODEX_PROVIDER:
+        if config.key_source != "personal":
+            return JSONResponse(status_code=400, content={"error": "Codex 仅支持个人配置"})
+        return await _handle_codex_proxy(request, path, ctx, api_key=real_key)
+
+    target_url = _build_target_url(provider, path, base_url, real_key)
+    req_headers = _build_auth_headers(provider, real_key, dict(request.headers))
 
     client = _get_http_client()
 
@@ -337,7 +476,6 @@ async def _handle_non_stream(
         try:
             parsed = json.loads(resp_body)
         except (json.JSONDecodeError, UnicodeDecodeError):
-            from fastapi.responses import Response
             return Response(
                 status_code=resp.status_code,
                 content=resp_body,

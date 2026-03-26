@@ -1300,6 +1300,11 @@ const enUS = {
     manualInputModel: "Enter model ID manually",
     manualInputPlaceholder: "Enter model ID, e.g. deepseek-chat",
     modelIdEmpty: "Model ID cannot be empty",
+    codexCliHint: "Uses the server-side Codex CLI login state and does not require an API key.",
+    codexCliRuntimeHint: "After saving, requests will go through llm-proxy to the Codex CLI logged in on the server. Make sure the runtime environment has completed `codex login`.",
+    codexCliCurrentAuth: "Current auth",
+    codexCliLabel: "Codex CLI",
+    providerAccessHint: "DeskClaw needs at least one available LLM access method to work normally.",
   },
   engine: {
     title: "Work Engine",

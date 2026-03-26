@@ -39,6 +39,7 @@ from app.services.k8s.resource_builder import (
     build_resource_quota,
     build_service,
 )
+from app.services.codex_provider import normalize_selected_models
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +115,6 @@ def _schedule_pv_cleanup(k8s: K8sClient, namespace: str) -> None:
     task = asyncio.create_task(_run())
     _bg_tasks.add(task)
     task.add_done_callback(_bg_tasks.discard)
-
 
 async def cancel_deploy(deploy_id: str) -> str:
     """立即取消部署：清理 K8s namespace + 更新 DB + 杀掉后台协程。
@@ -476,17 +476,18 @@ async def deploy_instance(
         existing_map = {c.provider: c for c in existing_result.scalars().all()}
 
         for item in req.llm_configs:
+            selected_models = normalize_selected_models(item.provider, item.selected_models)
             existing = existing_map.get(item.provider)
             if existing:
                 existing.key_source = item.key_source
-                existing.selected_models = item.selected_models
+                existing.selected_models = selected_models
             else:
                 db.add(UserLlmConfig(
                     user_id=user.id,
                     org_id=org_id,
                     provider=item.provider,
                     key_source=item.key_source,
-                    selected_models=item.selected_models,
+                    selected_models=selected_models,
                 ))
         await db.commit()
         logger.info(
