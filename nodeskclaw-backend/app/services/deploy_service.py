@@ -63,6 +63,45 @@ _K8S_NAME_MAX = 63
 _DEPLOY_NAME_MAX = 35
 
 
+def _track_background_task(task: asyncio.Task) -> None:
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
+
+
+def _schedule_wecom_plugin_install(instance_id: str, runtime: str, record_id: str) -> None:
+    if runtime != "openclaw":
+        return
+
+    async def _install() -> None:
+        from app.core.deps import async_session_factory
+        from app.models.base import not_deleted
+        from app.services.channel_config_service import ensure_official_wecom_plugin_installed
+
+        try:
+            async with async_session_factory() as db:
+                result = await db.execute(
+                    select(Instance).where(Instance.id == instance_id, not_deleted(Instance))
+                )
+                instance = result.scalar_one_or_none()
+                if instance is None:
+                    return
+                await ensure_official_wecom_plugin_installed(instance, db)
+        except Exception:
+            logger.warning(
+                "企业微信官方插件自动安装失败 [deploy_id=%s, instance_id=%s]",
+                record_id,
+                instance_id,
+                exc_info=True,
+            )
+
+    _track_background_task(
+        asyncio.create_task(
+            _install(),
+            name=f"wecom-plugin-install-{instance_id}",
+        )
+    )
+
+
 def _truncate_slug_preserve_suffix(slug: str, max_len: int) -> str:
     """截断 slug 使其不超过 max_len，保留末尾随机后缀段，只截断前面的拼音部分。
 
@@ -695,6 +734,7 @@ async def _execute_via_compute_provider(ctx: _DeployContext) -> None:
             message="部署成功", percent=100,
         ).model_dump(),
     )
+    _schedule_wecom_plugin_install(ctx.instance_id, ctx.runtime, ctx.record_id)
 
 
 async def _mark_deploy_failed(ctx: _DeployContext, message: str) -> None:
@@ -1060,6 +1100,7 @@ async def _execute_deploy_inner(ctx, async_session_factory, get_config, total, s
                 success_msg = f"部署成功{llm_sync_warning}{gene_install_warning}"
                 _publish(total, "完成", status="success", message=success_msg)
                 logger.info("部署成功: %s (namespace=%s)", ctx.name, ctx.namespace)
+                _schedule_wecom_plugin_install(ctx.instance_id, ctx.runtime, ctx.record_id)
             else:
                 # 超时未就绪 —— 标记失败，附带 Deployment 状态详情
                 conditions = dep_status.get("conditions", [])

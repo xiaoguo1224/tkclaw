@@ -23,8 +23,16 @@ export interface WorkspaceListItem {
   color: string
   icon: string
   agent_count: number
+  member_count: number
+  department_names: string[]
   agents: AgentBrief[]
   created_at: string
+}
+
+export interface WorkspaceFilterDepartmentOption {
+  id: string
+  name: string
+  depth: number
 }
 
 export interface WorkspaceInfo {
@@ -236,6 +244,7 @@ export const PERMISSION_PRESETS: Record<string, { is_admin: boolean; permissions
 
 export const useWorkspaceStore = defineStore('workspace', () => {
   const workspaces = ref<WorkspaceListItem[]>([])
+  const filterDepartments = ref<WorkspaceFilterDepartmentOption[]>([])
   const currentWorkspace = ref<WorkspaceInfo | null>(null)
   const blackboard = ref<BlackboardInfo | null>(null)
   const schedules = ref<ScheduleInfo[]>([])
@@ -267,6 +276,16 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       console.error('fetchWorkspaces error:', e)
     } finally {
       loading.value = false
+    }
+  }
+
+  async function fetchWorkspaceFilterDepartments() {
+    try {
+      const res = await api.get('/workspaces/filter-departments')
+      filterDepartments.value = res.data.data || []
+    } catch (e) {
+      console.error('fetchWorkspaceFilterDepartments error:', e)
+      filterDepartments.value = []
     }
   }
 
@@ -318,7 +337,18 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   async function createWorkspace(data: { name: string; description?: string; color?: string; icon?: string; template_id?: string }) {
     const res = await api.post('/workspaces', data)
     const ws = res.data.data
-    workspaces.value.unshift(ws)
+    workspaces.value.unshift({
+      id: ws.id,
+      name: ws.name,
+      description: ws.description,
+      color: ws.color,
+      icon: ws.icon,
+      agent_count: ws.agent_count ?? 0,
+      member_count: 1,
+      department_names: [],
+      agents: ws.agents || [],
+      created_at: ws.created_at,
+    })
     return ws as WorkspaceInfo
   }
 
@@ -1243,6 +1273,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   return {
     workspaces,
+    filterDepartments,
     currentWorkspace,
     blackboard,
     schedules,
@@ -1273,6 +1304,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     uploadFile,
     getFileUrl,
     fetchWorkspaces,
+    fetchWorkspaceFilterDepartments,
     fetchWorkspace,
     createWorkspace,
     fetchWorkspaceTemplates,

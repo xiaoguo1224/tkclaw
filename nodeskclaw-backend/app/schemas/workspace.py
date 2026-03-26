@@ -64,8 +64,16 @@ class WorkspaceListItem(BaseModel):
     color: str
     icon: str
     agent_count: int = 0
+    member_count: int = 0
+    department_names: list[str] = []
     agents: list[AgentBrief] = []
     created_at: datetime
+
+
+class WorkspaceFilterDepartmentOption(BaseModel):
+    id: str
+    name: str
+    depth: int = 0
 
 
 # ── Tasks & Objectives ───────────────────────────────
