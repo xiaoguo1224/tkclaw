@@ -17,6 +17,7 @@ from app.models.org_membership import OrgMembership, OrgRole
 from app.models.org_oauth_binding import OrgOAuthBinding
 from app.models.organization import Organization
 from app.models.instance import Instance
+from app.models.instance_member import InstanceMember, InstanceRole
 from app.models.workspace import Workspace
 from app.models.workspace_member import WorkspaceMember
 from app.models.user_llm_config import UserLlmConfig
@@ -468,6 +469,29 @@ async def _grant_manage_agents_permission_for_member(
         await db.commit()
 
 
+async def _grant_instance_admin_for_member(
+    instance_id: str, user_id: str, db: AsyncSession,
+) -> None:
+    existing = (await db.execute(
+        select(InstanceMember).where(
+            InstanceMember.instance_id == instance_id,
+            InstanceMember.user_id == user_id,
+            not_deleted(InstanceMember),
+        )
+    )).scalar_one_or_none()
+    if existing is not None:
+        if existing.role != InstanceRole.admin:
+            existing.role = InstanceRole.admin
+            await db.commit()
+        return
+    db.add(InstanceMember(
+        instance_id=instance_id,
+        user_id=user_id,
+        role=InstanceRole.admin,
+    ))
+    await db.commit()
+
+
 async def provision_default_ai_employee_for_member(
     org_id: str,
     member_user: User,
@@ -866,6 +890,7 @@ async def update_member_default_ai(
     await db.commit()
     if instance_id is not None:
         await _grant_manage_agents_permission_for_member(org_id, membership.user_id, db)
+        await _grant_instance_admin_for_member(instance_id, membership.user_id, db)
 
     default_map = await _load_active_default_instance_map(
         org_id,
