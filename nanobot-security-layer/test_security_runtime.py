@@ -132,7 +132,7 @@ async def test_monkey_patch() -> None:
 
 
 async def main() -> None:
-    endpoint = os.environ.get("SECURITY_WS_ENDPOINT", "ws://localhost:8000")
+    endpoint = os.environ.get("SECURITY_WS_ENDPOINT", "ws://localhost:4510")
     enabled = os.environ.get("SECURITY_LAYER_ENABLED", "true")
     logger.info("Security WS endpoint: %s", endpoint)
     logger.info("Security layer enabled: %s", enabled)

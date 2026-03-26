@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime, timezone
 
 from app.services.nfs_mount import RemoteFS
+from app.utils.jsonc import parse_config_json
 
 logger = logging.getLogger(__name__)
 
@@ -166,9 +167,10 @@ async def ensure_skills_discovery(fs: RemoteFS) -> None:
     existing: dict = {}
     if raw is not None:
         try:
-            existing = json.loads(raw)
-        except json.JSONDecodeError:
-            existing = {}
+            existing = parse_config_json(raw)
+        except ValueError:
+            logger.warning("ensure_skills_discovery: openclaw.json 解析失败，跳过写入以避免覆盖")
+            return
 
     skills = existing.setdefault("skills", {})
     load = skills.setdefault("load", {})

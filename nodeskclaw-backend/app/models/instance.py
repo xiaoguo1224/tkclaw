@@ -72,7 +72,7 @@ class Instance(BaseModel):
     quota_max_pods: Mapped[int] = mapped_column(Integer, default=20, nullable=False)
 
     # Storage
-    storage_class: Mapped[str] = mapped_column(String(64), default="nas-subpath", nullable=False)
+    storage_class: Mapped[str | None] = mapped_column(String(64), nullable=True)
     storage_size: Mapped[str] = mapped_column(String(16), default="80Gi", nullable=False)
 
     # Advanced config (JSON)

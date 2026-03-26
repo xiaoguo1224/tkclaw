@@ -17,7 +17,7 @@ NoDeskClaw 是 DeskClaw 实例可视化管理系统，通过 Web 界面管理 K8
 ```bash
 cd nodeskclaw-backend
 uv sync
-uv run uvicorn app.main:app --reload --port 8000
+uv run uvicorn app.main:app --reload --port 4510
 uv run pytest                              # 运行全部测试
 uv run pytest tests/test_xxx.py            # 运行指定文件
 uv run pytest tests/test_xxx.py::test_func # 运行指定函数

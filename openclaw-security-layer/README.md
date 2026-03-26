@@ -33,7 +33,7 @@ openclaw-security-layer/
 |------|------|--------|
 | `SECURITY_LAYER_ENABLED` | 总开关，设为 `false` 关闭安全层 | `true` |
 | `SECURITY_WS_ENDPOINT` | 后端 WebSocket 地址 | 取 `NODESKCLAW_BACKEND_URL` 替换协议头 |
-| `NODESKCLAW_BACKEND_URL` | 后端地址（备选） | `ws://localhost:8000` |
+| `NODESKCLAW_BACKEND_URL` | 后端地址（备选） | `ws://localhost:4510` |
 | `NODESKCLAW_API_TOKEN` | 认证 Token | 空 |
 | `AGENT_INSTANCE_ID` | 实例 ID，传入 context | 空 |
 | `WORKSPACE_ID` | 工作区 ID，传入 context | 空 |

@@ -62,8 +62,17 @@ async def run_async_migrations() -> None:
         connect_args=connect_args,
     )
 
-    async with connectable.connect() as connection:
-        await connection.run_sync(do_run_migrations)
+    try:
+        async with connectable.connect() as connection:
+            await connection.run_sync(do_run_migrations)
+    except Exception as exc:
+        safe_url = settings.DATABASE_URL.split("@")[-1] if "@" in settings.DATABASE_URL else settings.DATABASE_URL
+        print(
+            f"\n[ERROR] Database migration failed — cannot connect to '{safe_url}': {exc}\n"
+            "Please check DATABASE_URL in your .env or docker-compose environment.\n",
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from exc
 
     await connectable.dispose()
 

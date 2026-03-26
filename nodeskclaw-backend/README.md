@@ -199,10 +199,19 @@ API 路由同时挂载在两个前缀下：
 | `image_registry_zeroclaw` | ZeroClaw | ZeroClaw 独立仓库 |
 | `image_registry_nanobot` | Nanobot | Nanobot 独立仓库 |
 
+- **启动时自动内置默认值**：`seed.py` 中 `_seed_default_registry_configs()` 在每次启动时幂等写入上述三个 key 的默认公共仓库地址（仅在 key 不存在时写入，不覆盖管理员修改）
 - 部署和配置更新时通过 `resolve_image_registry(db, runtime)` 自动解析
 - 未配置引擎专属仓库时回退到全局 `image_registry`
 - `GET /registry/tags?runtime=zeroclaw` 按引擎查询对应仓库的 Tag 列表
 - Settings API 动态支持 `image_registry_{runtime_id}` 键，新增引擎自动生效
+
+### StorageClass 配置
+
+实例部署时的 PVC StorageClass 选择：
+
+- `Instance.storage_class` 字段为 nullable，默认 `None`（使用 K8s 集群标记为 default 的 StorageClass）
+- 前端创建实例页面会从 `GET /storage-classes?scope=all` 获取集群可用 SC 列表，用户可手动选择
+- Docker Compose 集群无 PVC，不涉及 StorageClass
 
 ### RBAC 双表职责分离
 
@@ -223,7 +232,7 @@ API 路由同时挂载在两个前缀下：
 
 Admin 后台权限**严格依赖 `AdminMembership`**，`is_super_admin` 不再自动放行。CE Portal 超管和 EE Admin 平台管理员是**独立的账号体系**，由不同的种子函数分别初始化。
 
-启动后访问 `http://localhost:8000/docs` 查看完整 API 文档（Swagger UI）。
+启动后访问 `http://localhost:4510/docs` 查看完整 API 文档（Swagger UI）。
 
 ## 错误响应契约（i18n 对齐）
 

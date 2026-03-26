@@ -20,18 +20,11 @@ from app.schemas.llm import OpenClawConfigResponse, OpenClawProviderEntry
 from app.services.k8s.client_manager import k8s_manager
 from app.services.k8s.k8s_client import K8sClient
 from app.services.nfs_mount import RemoteFS, remote_fs
+from app.utils.jsonc import strip_jsonc
 
 logger = logging.getLogger(__name__)
 
 OPENCLAW_CONFIG_REL = Path(".openclaw") / "openclaw.json"
-
-
-def _strip_jsonc(text: str) -> str:
-    """Strip JS-style comments (// and /* */) and trailing commas from JSON text."""
-    text = re.sub(r'//[^\n]*', '', text)
-    text = re.sub(r'/\*.*?\*/', '', text, flags=re.DOTALL)
-    text = re.sub(r',\s*([}\]])', r'\1', text)
-    return text
 
 PROVIDER_BASE_URLS: dict[str, str] = {
     "openai": "https://api.openai.com/v1",
@@ -239,7 +232,7 @@ async def _read_config_file(fs: RemoteFS) -> dict | None:
         pass
 
     try:
-        return json.loads(_strip_jsonc(raw))
+        return json.loads(strip_jsonc(raw))
     except json.JSONDecodeError as e:
         raise ValueError(
             f"openclaw.json 格式无法解析（已尝试去除注释）: {e}"
@@ -562,6 +555,14 @@ async def ensure_openclaw_gateway_config(instance: Instance, db: AsyncSession) -
 
 
 CHANNEL_PLUGIN_DIR = "openclaw-channel-nodeskclaw"
+NODESKCLAW_CHANNEL_TOOLS = (
+    "nodeskclaw_blackboard",
+    "nodeskclaw_topology",
+    "nodeskclaw_performance",
+    "nodeskclaw_proposals",
+    "nodeskclaw_gene_discovery",
+    "nodeskclaw_shared_files",
+)
 PLUGIN_FILES = [
     "index.ts",
     "package.json",
@@ -668,13 +669,7 @@ def _inject_channel_config(
 
     tools_cfg = config.setdefault("tools", {})
     allow = tools_cfg.setdefault("allow", [])
-    for tool_name in (
-        "nodeskclaw_blackboard",
-        "nodeskclaw_topology",
-        "nodeskclaw_performance",
-        "nodeskclaw_proposals",
-        "nodeskclaw_gene_discovery",
-    ):
+    for tool_name in NODESKCLAW_CHANNEL_TOOLS:
         if tool_name not in allow:
             allow.append(tool_name)
 
@@ -740,11 +735,7 @@ async def add_workspace_channel_account(
 
         tools_cfg = existing.setdefault("tools", {})
         allow = tools_cfg.setdefault("allow", [])
-        for tool_name in (
-            "nodeskclaw_blackboard", "nodeskclaw_topology",
-            "nodeskclaw_performance", "nodeskclaw_proposals",
-            "nodeskclaw_gene_discovery",
-        ):
+        for tool_name in NODESKCLAW_CHANNEL_TOOLS:
             if tool_name not in allow:
                 allow.append(tool_name)
 
@@ -1172,11 +1163,7 @@ async def repair_channel_account_urls(db: AsyncSession) -> dict:
 
                 tools_cfg = config.setdefault("tools", {})
                 allow = tools_cfg.setdefault("allow", [])
-                for tool_name in (
-                    "nodeskclaw_blackboard", "nodeskclaw_topology",
-                    "nodeskclaw_performance", "nodeskclaw_proposals",
-                    "nodeskclaw_gene_discovery",
-                ):
+                for tool_name in NODESKCLAW_CHANNEL_TOOLS:
                     if tool_name not in allow:
                         allow.append(tool_name)
                         changed = True

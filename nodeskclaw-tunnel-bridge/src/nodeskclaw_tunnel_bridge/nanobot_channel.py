@@ -30,6 +30,7 @@ class NoDeskClawChannel(BaseChannel):  # type: ignore[misc]
         self._no_reply_ids: set[str] = set()
         self._pending_requests: dict[str, tuple[str, str]] = {}
         self._tunnel_task: asyncio.Task | None = None
+        self._workspace_id: str = ""
 
     async def start(self) -> None:
         if hasattr(self, "_client") and self._client:
@@ -74,6 +75,14 @@ class NoDeskClawChannel(BaseChannel):  # type: ignore[misc]
             await self._client.send_response_chunk(reply_to, trace_id, content)
         await self._client.send_response_done(reply_to, trace_id)
 
+    async def send_collaboration(self, target: str, text: str) -> None:
+        await self._client.send_collaboration(
+            self._workspace_id, self._client.instance_id, target, text,
+        )
+
+    async def list_peers(self) -> list[dict]:
+        return await self._client.list_peers(self._workspace_id)
+
     async def _handle_chat_request(
         self,
         request_id: str,
@@ -82,6 +91,8 @@ class NoDeskClawChannel(BaseChannel):  # type: ignore[misc]
         workspace_id: str,
         no_reply: bool,
     ) -> None:
+        if workspace_id:
+            self._workspace_id = workspace_id
         user_content = _extract_full_content(messages)
         session_key = f"nodeskclaw:{workspace_id}" if workspace_id else None
 

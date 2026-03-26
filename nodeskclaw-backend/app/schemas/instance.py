@@ -27,7 +27,7 @@ class InstanceInfo(BaseModel):
     compute_provider: str = "k8s"
     runtime: str = "openclaw"
     endpoint_url: str | None = None
-    storage_class: str = "nas-subpath"
+    storage_class: str | None = None
     storage_size: str = "80Gi"
     advanced_config: str | None = None
     pending_config: str | None = None

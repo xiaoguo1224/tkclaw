@@ -25,7 +25,7 @@ class InstanceComputeConfig:
     cpu_limit: str = "2000m"
     mem_request: str = "2Gi"
     mem_limit: str = "2Gi"
-    storage_class: str = "nas-subpath"
+    storage_class: str | None = None
     storage_size: str = "80Gi"
     env_vars: dict = field(default_factory=dict)
     advanced_config: dict = field(default_factory=dict)

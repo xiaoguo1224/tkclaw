@@ -6,6 +6,7 @@ from app.core.security import get_current_user
 from app.models.user import User
 from app.schemas.common import ApiResponse
 from app.services.runtime.registries.runtime_registry import RUNTIME_REGISTRY
+from app.startup.seed import DEFAULT_REGISTRY_CONFIGS
 
 router = APIRouter()
 
@@ -22,6 +23,7 @@ async def list_engines(_user: User = Depends(get_current_user)):
             "display_powered_by": spec.display_powered_by,
             "order": spec.order,
             "image_registry_key": spec.image_registry_key,
+            "default_registry_url": DEFAULT_REGISTRY_CONFIGS.get(spec.image_registry_key, ""),
         })
     engines.sort(key=lambda r: r["order"])
     return ApiResponse(data=engines)

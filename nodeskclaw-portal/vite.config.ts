@@ -5,7 +5,7 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
 
-const apiTarget = process.env.API_PROXY_TARGET || 'http://localhost:8000'
+const apiTarget = process.env.API_PROXY_TARGET || 'http://localhost:4510'
 
 const projectRoot = path.resolve(__dirname, '..')
 const eePortalDir = path.resolve(projectRoot, 'ee/frontend/portal')
@@ -13,6 +13,9 @@ const hasEE = fs.existsSync(eePortalDir)
 
 export default defineConfig({
   plugins: [vue(), tailwindcss()],
+  define: {
+    __APP_VERSION__: JSON.stringify(process.env.VITE_APP_VERSION || 'dev'),
+  },
   resolve: {
     alias: [
       ...(hasEE

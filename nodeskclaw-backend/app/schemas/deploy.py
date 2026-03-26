@@ -22,7 +22,7 @@ class DeployRequest(BaseModel):
     env_vars: dict[str, str] = {}
     quota_cpu: str = "4"
     quota_mem: str = "8Gi"
-    storage_class: str = "nas-subpath"
+    storage_class: str | None = None
     storage_size: str = "80Gi"
     advanced_config: dict | None = None  # Volume/Sidecar/Init/Network
     llm_configs: list[LlmConfigItem] | None = None

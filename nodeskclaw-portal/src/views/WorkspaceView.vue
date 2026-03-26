@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ArrowLeft, Settings, Maximize2, Minimize2, ZoomIn, ZoomOut, RotateCcw, MessageSquare, Plus, Keyboard, ChevronDown, X, Bot, ListChecks, AlertTriangle, Wifi, User, Users, MapPin, Focus, Minimize, Paintbrush } from 'lucide-vue-next'
+import { ArrowLeft, Settings, Maximize2, Minimize2, ZoomIn, ZoomOut, RotateCcw, MessageSquare, Plus, Keyboard, ChevronDown, X, Bot, ListChecks, AlertTriangle, Wifi, User, Users, MapPin, Focus, Minimize } from 'lucide-vue-next'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useAuthStore } from '@/stores/auth'
 import { useViewTransition } from '@/composables/useViewTransition'
@@ -16,10 +16,7 @@ import HexActionDrawer from '@/components/workspace/HexActionDrawer.vue'
 import AgentCollaborationPanel from '@/components/workspace/AgentCollaborationPanel.vue'
 import AgentDetailDialog from '@/components/workspace/AgentDetailDialog.vue'
 import CollaborationTimeline from '@/components/workspace/CollaborationTimeline.vue'
-import DecorationPanel from '@/components/workspace/DecorationPanel.vue'
 import AddAgentDialog from '@/components/workspace/AddAgentDialog.vue'
-import { findFloorAssetById, findAssetById } from '@/config/decorationAssets'
-import type { HexDecoration } from '@/stores/workspace'
 import { useToast } from '@/composables/useToast'
 import { axialToWorld } from '@/composables/useHexLayout'
 import { getCurrentLocale, setCurrentLocale } from '@/i18n'
@@ -39,91 +36,6 @@ function onLocaleChange(value: string) {
 const workspaceId = computed(() => route.params.id as string)
 const ws = computed(() => store.currentWorkspace)
 const agents = computed(() => ws.value?.agents || [])
-
-const decorationOpen = ref(false)
-const decorationSaving = ref(false)
-const decorationMode = ref(false)
-const decoratingHexKey = ref<string | null>(null)
-const localHexOverrides = ref<Record<string, HexDecoration>>({})
-
-const occupiedHexKeys = computed(() => {
-  const keys = new Set<string>()
-  keys.add('0,0')
-  for (const a of agents.value) keys.add(`${a.hex_q},${a.hex_r}`)
-  for (const n of store.topologyNodes) {
-    if (n.node_type === 'corridor' || n.node_type === 'human') {
-      keys.add(`${n.hex_q},${n.hex_r}`)
-    }
-  }
-  return keys
-})
-
-const effectiveHexDecorations = computed<Record<string, HexDecoration>>(() => {
-  const base = store.decoration?.hexes || {}
-  const overrides = localHexOverrides.value
-  const merged: Record<string, HexDecoration> = {}
-  for (const key of new Set([...Object.keys(base), ...Object.keys(overrides)])) {
-    merged[key] = overrides[key] ?? base[key]
-  }
-  return merged
-})
-
-const computedHexDecorations = computed(() => {
-  const result: Record<string, { floorUrl?: string; furnitureUrls?: string[] }> = {}
-  for (const [key, deco] of Object.entries(effectiveHexDecorations.value)) {
-    const floorAsset = deco.floor_asset_id ? findFloorAssetById(deco.floor_asset_id) : undefined
-    const furnitureUrls = deco.furniture
-      .map(id => findAssetById(id)?.url || `/assets/hex2d/furniture/${id}.svg`)
-    result[key] = { floorUrl: floorAsset?.url, furnitureUrls }
-  }
-  return result
-})
-
-const currentHexDecoration = computed<HexDecoration | null>(() => {
-  if (!decoratingHexKey.value) return null
-  return effectiveHexDecorations.value[decoratingHexKey.value] ?? null
-})
-
-function onHexDecorationUpdate(deco: HexDecoration) {
-  if (!decoratingHexKey.value) return
-  localHexOverrides.value = { ...localHexOverrides.value, [decoratingHexKey.value]: deco }
-}
-
-async function saveDecoration() {
-  decorationSaving.value = true
-  try {
-    await store.saveDecoration(workspaceId.value, effectiveHexDecorations.value)
-    localHexOverrides.value = {}
-  } catch {
-    console.error('saveDecoration failed')
-  } finally {
-    decorationSaving.value = false
-  }
-}
-
-function onDecorationHexClick(payload: { q: number; r: number }) {
-  const key = `${payload.q},${payload.r}`
-  if (!occupiedHexKeys.value.has(key)) return
-  decoratingHexKey.value = key
-}
-
-function toggleDecorationPanel() {
-  decorationOpen.value = !decorationOpen.value
-  if (!decorationOpen.value) {
-    decorationMode.value = false
-    decoratingHexKey.value = null
-    localHexOverrides.value = {}
-  } else {
-    decorationMode.value = true
-  }
-}
-
-function closeDecorationPanel() {
-  decorationOpen.value = false
-  decorationMode.value = false
-  decoratingHexKey.value = null
-  localHexOverrides.value = {}
-}
 
 const bbTaskCount = computed(() => 0)
 const bbBlockedCount = computed(() => 0)
@@ -292,7 +204,6 @@ async function refreshWorkspaceData(wsId: string) {
     store.fetchWorkspace(wsId),
     store.fetchTopology(wsId),
     store.fetchBlackboard(wsId),
-    store.fetchDecoration(wsId),
     loadPerfSummary(wsId),
   ])
 }
@@ -314,7 +225,6 @@ async function bootstrapWorkspaceCritical(wsId: string): Promise<number | null> 
 async function bootstrapWorkspaceDeferred(wsId: string, generation: number) {
   await Promise.allSettled([
     store.fetchMembers(wsId),
-    store.fetchDecoration(wsId),
     loadPerfSummary(wsId),
     loadHumanSeatCandidates(),
   ])
@@ -1044,16 +954,6 @@ function handleKeydown(e: KeyboardEvent) {
 
         <div class="w-px h-5 bg-border" />
 
-        <button
-          v-if="activeMode === '2d'"
-          class="p-1.5 rounded-lg hover:bg-muted transition-colors"
-          :class="{ 'bg-purple-500/20 text-purple-400': decorationOpen }"
-          :title="t('decoration.panel_title')"
-          @click="toggleDecorationPanel"
-        >
-          <Paintbrush class="w-4 h-4" />
-        </button>
-
         <ModeToggle :mode="activeMode" @toggle="toggleMode" />
         <LocaleSelect :model-value="locale" @update:model-value="onLocaleChange" />
         <button class="p-1.5 rounded-lg hover:bg-muted transition-colors" @click="toggleFullscreen">
@@ -1167,14 +1067,10 @@ function handleKeydown(e: KeyboardEvent) {
             :message-flow-stats="store.messageFlowStats"
             :is-moving-hex="highlightEmptyHexes"
             :moving-hex-source="movingHexSource"
-            :hex-decorations="computedHexDecorations"
-            :decorating-hex-key="decoratingHexKey"
-            :is-decoration-mode="decorationMode"
             :perf-summary="perfSummary"
             :perf-loading="perfLoading"
             @hex-click="onHexClick"
             @agent-dblclick="onAgentDblClick"
-            @decoration-hex-click="onDecorationHexClick"
           />
         </div>
 
@@ -1235,19 +1131,6 @@ function handleKeydown(e: KeyboardEvent) {
           </div>
         </div>
       </div>
-
-      <!-- Decoration Panel -->
-      <Transition name="chat-slide">
-        <DecorationPanel
-          v-if="decorationOpen && activeMode === '2d'"
-          :selected-hex-key="decoratingHexKey"
-          :hex-decoration="currentHexDecoration"
-          :saving="decorationSaving"
-          @update:hex-decoration="onHexDecorationUpdate"
-          @save="saveDecoration"
-          @close="closeDecorationPanel"
-        />
-      </Transition>
 
       <!-- Chat Sidebar -->
       <Transition name="chat-slide">

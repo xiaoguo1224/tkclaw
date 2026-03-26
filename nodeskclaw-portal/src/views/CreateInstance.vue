@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, ArrowRight, Loader2, Rocket, Database, ChevronDown, RefreshCw, AlertCircle, Check, Brain, Key, Trash2, Plus, Link, Star, X, Cpu } from 'lucide-vue-next'
+import { ArrowLeft, ArrowRight, Loader2, Rocket, Database, ChevronDown, RefreshCw, AlertCircle, Check, Brain, Key, Trash2, Plus, Link, Star, X, Cpu, HardDrive } from 'lucide-vue-next'
 import ModelSelect from '@/components/shared/ModelSelect.vue'
 import type { ModelItem } from '@/components/shared/ModelSelect.vue'
 import { pinyin } from 'pinyin-pro'
@@ -10,6 +10,7 @@ import { resolveApiErrorMessage } from '@/i18n/error'
 import { useAuthStore } from '@/stores/auth'
 import { useOrgStore } from '@/stores/org'
 import { useI18n } from 'vue-i18n'
+import { useEdition } from '@/composables/useFeature'
 import { getRuntimeCaps } from '@/utils/runtimeCapabilities'
 
 const { t } = useI18n()
@@ -17,6 +18,7 @@ const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const orgStore = useOrgStore()
+const { isEE } = useEdition()
 
 const K8S_NAME_MAX = 63
 const NS_PREFIX_BASE = 'nodeskclaw-'.length + 1
@@ -226,10 +228,25 @@ const storageAnchors = [20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140,
 const storageLabels = [20, 60, 100, 150, 200]
 
 const imageTags = ref<string[]>([])
-const clusters = ref<{ id: string; name: string }[]>([])
+const clusters = ref<{ id: string; name: string; compute_provider: string }[]>([])
 const loadingInit = ref(true)
 const loadingTags = ref(false)
 const imageDropdownOpen = ref(false)
+
+interface StorageClassItem {
+  name: string
+  provisioner: string
+  is_default: boolean
+}
+const storageClasses = ref<StorageClassItem[]>([])
+const selectedStorageClass = ref<string | null>(null)
+const scDropdownOpen = ref(false)
+
+const isK8sCluster = computed(() => {
+  const first = clusters.value[0]
+  return first && first.compute_provider === 'k8s'
+})
+const showStorageClassSelector = computed(() => isK8sCluster.value && storageClasses.value.length > 0)
 
 const specs = [
   { key: 'small', label: '轻量', desc: '写周报、查资料、日常问答', cpu: '2 核', mem: '4 GB' },
@@ -370,6 +387,17 @@ onMounted(async () => {
       selectedRuntime.value = engines.value[0].runtime_id
     }
     clusters.value = (clustersRes.data.data ?? []).filter((c: any) => c.status === 'connected')
+    if (isK8sCluster.value) {
+      try {
+        const scRes = await api.get('/storage-classes?scope=all')
+        const items = (scRes.data.data ?? []) as StorageClassItem[]
+        storageClasses.value = items
+        const def = items.find(sc => sc.is_default)
+        selectedStorageClass.value = def ? def.name : (items[0]?.name ?? null)
+      } catch {
+        // StorageClass 列表获取失败不阻塞创建流程
+      }
+    }
     await fetchImageTags()
   } catch {
     // ignore init errors
@@ -411,15 +439,15 @@ const canDeploy = computed(() =>
 
 async function handleDeploy() {
   if (!name.value.trim()) {
-    error.value = '请输入AI 员工名称'
+    error.value = t('createInstance.nameRequired')
     return
   }
   if (!selectedImage.value) {
-    error.value = '请选择镜像版本'
+    error.value = t('createInstance.imageRequired')
     return
   }
   if (clusters.value.length === 0) {
-    error.value = '没有可用的集群，请联系管理员'
+    error.value = t('createInstance.noClusterError')
     return
   }
 
@@ -458,6 +486,7 @@ async function handleDeploy() {
       mem_limit: res_spec.mem_lim,
       quota_cpu: res_spec.quota_cpu,
       quota_mem: res_spec.quota_mem,
+      storage_class: selectedStorageClass.value || undefined,
       storage_size: `${storageGi.value}Gi`,
       runtime: selectedRuntime.value,
       description: description.value || undefined,
@@ -491,9 +520,30 @@ async function handleDeploy() {
         <ArrowLeft class="w-5 h-5" />
       </button>
       <div>
-        <h1 class="text-xl font-bold">创建AI 员工</h1>
-        <p class="text-sm text-muted-foreground mt-0.5">只需几步即可部署你的 AI 员工</p>
+        <h1 class="text-xl font-bold">{{ t('createInstance.pageTitle') }}</h1>
+        <p class="text-sm text-muted-foreground mt-0.5">{{ t('createInstance.pageSubtitle') }}</p>
       </div>
+    </div>
+
+    <!-- 无集群警告 -->
+    <div
+      v-if="!loadingInit && clusters.length === 0"
+      class="flex items-center gap-3 p-4 rounded-lg border border-amber-500/30 bg-amber-500/5 mb-6"
+    >
+      <AlertCircle class="w-5 h-5 text-amber-500 shrink-0" />
+      <div class="flex-1 text-sm">
+        <span class="font-medium">{{ t('createInstance.noClusterTitle') }}</span>
+        <span class="text-muted-foreground ml-1">
+          {{ isEE ? t('createInstance.noClusterDescEE') : t('createInstance.noClusterDesc') }}
+        </span>
+      </div>
+      <button
+        v-if="!isEE"
+        class="shrink-0 px-3 py-1.5 rounded-md bg-amber-500/10 text-amber-500 text-xs font-medium hover:bg-amber-500/20 transition-colors"
+        @click="router.push('/org-settings/clusters')"
+      >
+        {{ t('createInstance.goSetupCluster') }}
+      </button>
     </div>
 
     <!-- 步骤指示器 -->
@@ -630,14 +680,14 @@ async function handleDeploy() {
 
               <div v-if="selectedRuntime === eng.runtime_id" class="border-t border-border mt-3 pt-3" @click.stop>
                 <div class="flex items-center justify-between mb-1.5">
-                  <span class="text-xs font-medium text-muted-foreground">镜像版本</span>
+                  <span class="text-xs font-medium text-muted-foreground">{{ t('engine.imageVersion') }}</span>
                   <button
                     class="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
                     :disabled="loadingTags"
                     @click="fetchImageTags"
                   >
                     <RefreshCw class="w-3 h-3" :class="loadingTags ? 'animate-spin' : ''" />
-                    刷新
+                    {{ t('engine.refresh') }}
                   </button>
                 </div>
                 <div v-if="imageTags.length > 0" class="relative">
@@ -645,7 +695,7 @@ async function handleDeploy() {
                     class="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-card border border-border text-sm hover:border-primary/50 transition-colors text-left"
                     @click="imageDropdownOpen = !imageDropdownOpen"
                   >
-                    <span class="font-mono text-xs">{{ selectedImage || '选择版本' }}</span>
+                    <span class="font-mono text-xs">{{ selectedImage || t('engine.selectVersion') }}</span>
                     <ChevronDown class="w-3.5 h-3.5 text-muted-foreground transition-transform" :class="imageDropdownOpen ? 'rotate-180' : ''" />
                   </button>
                   <div
@@ -660,7 +710,7 @@ async function handleDeploy() {
                       @click="selectImage(tag)"
                     >
                       {{ tag }}
-                      <span v-if="tag === imageTags[0]" class="ml-2 text-[10px] font-sans text-muted-foreground">(最新)</span>
+                      <span v-if="tag === imageTags[0]" class="ml-2 text-[10px] font-sans text-muted-foreground">({{ t('engine.latestTag') }})</span>
                     </button>
                   </div>
                 </div>
@@ -668,10 +718,17 @@ async function handleDeploy() {
                   <input
                     v-model="selectedImage"
                     type="text"
-                    :placeholder="loadingTags ? '加载中...' : '手动输入版本号'"
+                    :placeholder="loadingTags ? t('engine.manualInputLoading') : t('engine.manualInputPlaceholder')"
                     class="w-full px-3 py-2 rounded-lg bg-card border border-border text-xs font-mono focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-colors"
                   />
-                  <p class="text-[10px] text-muted-foreground mt-1">未获取到镜像仓库 Tag，请手动输入</p>
+                  <p class="text-[10px] text-muted-foreground mt-1">
+                    {{ t('engine.noTagsHint') }}
+                    <button
+                      v-if="authStore.systemInfo?.edition !== 'ee'"
+                      class="text-primary hover:underline ml-1"
+                      @click="router.push({ name: 'OrgSettingsRegistry' })"
+                    >{{ t('engine.goToRegistrySettings') }}</button>
+                  </p>
                 </div>
               </div>
             </div>
@@ -712,6 +769,41 @@ async function handleDeploy() {
             </label>
             <span class="text-sm text-muted-foreground">当前：<span class="font-medium text-foreground">{{ storageGi }}Gi</span></span>
           </div>
+
+          <!-- StorageClass 选择器（仅 K8s 集群且有可用 SC 时显示） -->
+          <div v-if="showStorageClassSelector" class="relative">
+            <div class="flex items-center gap-2">
+              <HardDrive class="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+              <span class="text-xs text-muted-foreground">StorageClass:</span>
+              <button
+                class="flex items-center gap-1 px-2 py-1 rounded-md border border-border bg-card text-xs font-mono hover:border-primary/40 transition-colors"
+                @click.stop="scDropdownOpen = !scDropdownOpen"
+              >
+                <span>{{ selectedStorageClass }}</span>
+                <span v-if="storageClasses.find(sc => sc.name === selectedStorageClass)?.is_default" class="text-muted-foreground">{{ t('engine.storageClassDefault') }}</span>
+                <ChevronDown class="w-3 h-3 text-muted-foreground" />
+              </button>
+            </div>
+            <div
+              v-if="scDropdownOpen"
+              class="absolute left-0 top-full mt-1 z-20 w-72 max-h-48 overflow-y-auto rounded-lg border border-border bg-popover shadow-lg"
+            >
+              <button
+                v-for="sc in storageClasses"
+                :key="sc.name"
+                class="w-full text-left px-3 py-2 text-xs hover:bg-accent transition-colors flex items-center justify-between"
+                :class="sc.name === selectedStorageClass ? 'bg-accent/50' : ''"
+                @click="selectedStorageClass = sc.name; scDropdownOpen = false"
+              >
+                <span class="flex flex-col">
+                  <span class="font-mono">{{ sc.name }}<span v-if="sc.is_default" class="ml-1 text-muted-foreground">{{ t('engine.storageClassDefault') }}</span></span>
+                  <span class="text-muted-foreground text-[10px]">{{ sc.provisioner }}</span>
+                </span>
+                <Check v-if="sc.name === selectedStorageClass" class="w-3.5 h-3.5 text-primary shrink-0" />
+              </button>
+            </div>
+          </div>
+
           <div class="space-y-2">
             <input
               type="range"
@@ -759,7 +851,7 @@ async function handleDeploy() {
           >
             <Loader2 v-if="deploying" class="w-4 h-4 animate-spin" />
             <Rocket v-else class="w-4 h-4" />
-            {{ deploying ? '部署中...' : '创建AI 员工' }}
+            {{ deploying ? t('createInstance.deploying') : t('createInstance.deployButton') }}
           </button>
         </div>
       </div>
@@ -1034,6 +1126,6 @@ async function handleDeploy() {
 
   <!-- 点击外部关闭下拉框 -->
   <Teleport to="body">
-    <div v-if="imageDropdownOpen" class="fixed inset-0 z-40" @click="imageDropdownOpen = false" />
+    <div v-if="imageDropdownOpen || scDropdownOpen" class="fixed inset-0 z-40" @click="imageDropdownOpen = false; scDropdownOpen = false" />
   </Teleport>
 </template>

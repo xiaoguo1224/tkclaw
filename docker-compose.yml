@@ -10,6 +10,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-nodeskclaw}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nodeskclaw}
       POSTGRES_DB: ${POSTGRES_DB:-nodeskclaw}
+      TZ: ${TZ:-Asia/Shanghai}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nodeskclaw}"]
       interval: 5s
@@ -25,21 +26,23 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-        required: false
-    env_file:
-      - ./nodeskclaw-backend/.env
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${DOCKER_DATA_DIR}:${DOCKER_DATA_DIR}
+      - ${NODESKCLAW_DATA_DIR:-$HOME/.nodeskclaw/docker-instances}:${NODESKCLAW_DATA_DIR:-$HOME/.nodeskclaw/docker-instances}
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://nodeskclaw:nodeskclaw@postgres:5432/nodeskclaw}
       DATABASE_NAME_SUFFIX: ""
       LLM_PROXY_URL: http://llm-proxy:8080
       LLM_PROXY_INTERNAL_URL: http://llm-proxy:8080
       NODESKCLAW_EDITION: ce
-      DOCKER_DATA_DIR: ${DOCKER_DATA_DIR}
+      DOCKER_DATA_DIR: ${NODESKCLAW_DATA_DIR:-$HOME/.nodeskclaw/docker-instances}
+      DEBUG: ${DEBUG:-true}
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-change-me-32-bytes-base64-key__=}
+      INIT_ADMIN_ACCOUNT: ${INIT_ADMIN_ACCOUNT:-admin}
+      TZ: ${TZ:-Asia/Shanghai}
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - "${BACKEND_PORT:-4510}:8000"
     restart: unless-stopped
 
   llm-proxy:
@@ -49,14 +52,11 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-        required: false
-    env_file:
-      - ./nodeskclaw-llm-proxy/.env
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://nodeskclaw:nodeskclaw@postgres:5432/nodeskclaw}
-      # LLM_LOG_CONTENT: "true"
+      TZ: ${TZ:-Asia/Shanghai}
     ports:
-      - "${LLM_PROXY_PORT:-8080}:8080"
+      - "${LLM_PROXY_PORT:-4511}:8080"
     restart: unless-stopped
 
   portal:
@@ -65,6 +65,8 @@ services:
       context: nodeskclaw-portal
     depends_on:
       - nodeskclaw-backend
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
     ports:
       - "${PORTAL_PORT:-80}:80"
     restart: unless-stopped

@@ -11,6 +11,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
+import httpx
 import websockets
 from websockets.asyncio.client import ClientConnection
 
@@ -57,6 +58,7 @@ class TunnelClient:
         tunnel_url = os.environ.get("NODESKCLAW_TUNNEL_URL", "")
 
         self._url = url or tunnel_url or (_derive_tunnel_url(api_url) if api_url else "")
+        self._api_url = api_url.rstrip("/") if api_url else ""
         self._instance_id = instance_id or os.environ.get("NODESKCLAW_INSTANCE_ID", "")
         self._token = token or os.environ.get("NODESKCLAW_TOKEN", "")
         self.on_chat_request = on_chat_request
@@ -67,6 +69,10 @@ class TunnelClient:
         self._reconnect_attempt = 0
         self._last_pong = time.monotonic()
         self._ping_task: asyncio.Task | None = None
+
+    @property
+    def instance_id(self) -> str:
+        return self._instance_id
 
     @property
     def connected(self) -> bool:
@@ -203,6 +209,42 @@ class TunnelClient:
             "traceId": trace_id,
             "payload": {"error": error},
         })
+
+    async def send_collaboration(
+        self,
+        workspace_id: str,
+        source_instance_id: str,
+        target: str,
+        text: str,
+        *,
+        depth: int = 0,
+    ) -> None:
+        await self._send({
+            "type": "collaboration.message",
+            "payload": {
+                "workspace_id": workspace_id,
+                "source_instance_id": source_instance_id,
+                "target": target,
+                "text": text,
+                "depth": depth,
+            },
+        })
+
+    async def list_peers(self, workspace_id: str) -> list[dict]:
+        if not self._api_url or not workspace_id or not self._instance_id:
+            return []
+        url = f"{self._api_url}/workspaces/{workspace_id}/topology/reachable?instance_id={self._instance_id}"
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                resp = await client.get(
+                    url, headers={"Authorization": f"Bearer {self._token}"},
+                )
+            if resp.status_code != 200:
+                return []
+            data = resp.json()
+            return data.get("data", {}).get("reachable", [])
+        except Exception:
+            return []
 
     async def _send(self, msg: dict[str, Any]) -> None:
         if not self._ws:

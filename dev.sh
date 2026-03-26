@@ -21,6 +21,10 @@ FRESH=false
 DOCKER_PG=false
 DOCKER_PG_CONTAINER="nodeskclaw-pg"
 DOCKER_PG_VOLUME="nodeskclaw_pg_dev"
+IS_MSYS=false
+if [ -n "${MSYSTEM:-}" ] || [ -n "${MINGW_PREFIX:-}" ]; then
+  IS_MSYS=true
+fi
 
 usage() {
   cat <<EOF
@@ -37,8 +41,8 @@ usage() {
   --help       显示本帮助
 
 服务端口:
-  backend    http://localhost:8000
-  llm-proxy  http://localhost:8080
+  backend    http://localhost:4510
+  llm-proxy  http://localhost:4511
   portal     http://localhost:4517
   admin(EE)  http://localhost:4518
 EOF
@@ -47,6 +51,26 @@ EOF
 
 log() { echo "${CYAN}[dev]${RESET} $*"; }
 err() { echo "${RED}[dev] ERROR:${RESET} $*" >&2; }
+
+_find_pids_on_port() {
+  local port="$1"
+  if command -v lsof &>/dev/null; then
+    lsof -ti :"$port" 2>/dev/null || true
+  elif command -v ss &>/dev/null; then
+    ss -tlnp 2>/dev/null | grep ":${port} " | sed -n 's/.*pid=\([0-9]*\).*/\1/p' || true
+  fi
+}
+
+_show_port_usage() {
+  local port="$1"
+  if command -v lsof &>/dev/null; then
+    lsof -i :"$port" -P -n 2>/dev/null | head -5 >&2
+  elif command -v ss &>/dev/null; then
+    ss -tlnp 2>/dev/null | grep ":${port} " >&2
+  else
+    echo "  (lsof/ss 均不可用，无法显示占用详情)" >&2
+  fi
+}
 
 cleanup() {
   echo ""
@@ -58,6 +82,14 @@ cleanup() {
   done
   for pid in "${PIDS[@]}"; do
     wait "$pid" 2>/dev/null || true
+  done
+  for port in 4510 4511; do
+    local remaining
+    remaining=$(_find_pids_on_port "$port")
+    if [ -n "$remaining" ]; then
+      log "清理端口 $port 上的残留进程..."
+      echo "$remaining" | xargs kill -9 2>/dev/null || true
+    fi
   done
   if [ "$DOCKER_PG" = true ]; then
     log "停止 Docker PostgreSQL ($DOCKER_PG_CONTAINER)..."
@@ -94,6 +126,12 @@ fi
 if [ "$MODE" = "ee" ] && [ ! -d "$EE_DIR" ]; then
   err "EE 模式需要 ee/ 目录，请先运行 scripts/setup-ee.sh"
   exit 1
+fi
+
+if [ "$IS_MSYS" = true ]; then
+  log "${YELLOW}检测到 MSYS/Git Bash 环境（Windows）${RESET}"
+  log "${YELLOW}  - 如遇端口检测跳过，属正常行为（lsof 不可用）${RESET}"
+  log "${YELLOW}  - 如遇 \\r 报错，请执行: git config core.autocrlf false && git checkout -- dev.sh${RESET}"
 fi
 
 # ── Docker PostgreSQL（可选）──────────────────────────────
@@ -210,12 +248,27 @@ prefix_output() {
 log "执行数据库迁移 (alembic upgrade head)..."
 (cd "$BACKEND_DIR" && uv run alembic upgrade head)
 
+# ── 端口检查 ──────────────────────────────────────────────
+require_port_free() {
+  local port="$1" label="$2"
+  local pids
+  pids=$(_find_pids_on_port "$port")
+  if [ -n "$pids" ]; then
+    err "端口 $port ($label) 已被占用:"
+    _show_port_usage "$port"
+    exit 1
+  fi
+}
+
+require_port_free 4510 "backend"
+require_port_free 4511 "llm-proxy"
+
 # ── 启动服务 ──────────────────────────────────────────────
 log "启动服务..."
 
 export NODESKCLAW_EDITION="$MODE"
-export LLM_PROXY_URL="http://localhost:8080"
-export LLM_PROXY_INTERNAL_URL="http://localhost:8080"
+export LLM_PROXY_URL="http://localhost:4511"
+export LLM_PROXY_INTERNAL_URL="http://localhost:4511"
 
 if [ -z "${DATABASE_URL:-}" ]; then
   DATABASE_URL=$(grep '^DATABASE_URL=' "$BACKEND_DIR/.env" | head -1 | cut -d= -f2-)
@@ -224,11 +277,11 @@ fi
 
 _LLM_PROXY_DB_URL=$(cd "$BACKEND_DIR" && uv run python3 -c "from app.core.config import settings; print(settings.DATABASE_URL)" 2>/dev/null)
 
-(cd "$LLM_PROXY_DIR" && DATABASE_URL="${_LLM_PROXY_DB_URL:-$DATABASE_URL}" uv run uvicorn app.main:app --host 0.0.0.0 --port 8080 --timeout-graceful-shutdown 3) \
+(cd "$LLM_PROXY_DIR" && DATABASE_URL="${_LLM_PROXY_DB_URL:-$DATABASE_URL}" uv run uvicorn app.main:app --host 0.0.0.0 --port 4511 --timeout-graceful-shutdown 3) \
   2>&1 | prefix_output "$CYAN" "llm-prx" &
 PIDS+=($!)
 
-(cd "$BACKEND_DIR" && uv run uvicorn app.main:app --reload --port 8000 --timeout-graceful-shutdown 3) \
+(cd "$BACKEND_DIR" && uv run uvicorn app.main:app --reload --port 4510 --timeout-graceful-shutdown 3) \
   2>&1 | prefix_output "$BLUE" "backend" &
 PIDS+=($!)
 
@@ -252,8 +305,8 @@ MODE_UPPER=$(echo "$MODE" | tr '[:lower:]' '[:upper:]')
 echo "${BOLD}========================================${RESET}"
 echo "${BOLD} NoDeskClaw 本地开发环境 (${MODE_UPPER})${RESET}"
 echo "${BOLD}========================================${RESET}"
-echo "  ${BLUE}Backend${RESET}  http://localhost:8000"
-echo "  ${CYAN}LLM Prx${RESET}  http://localhost:8080"
+echo "  ${BLUE}Backend${RESET}  http://localhost:4510"
+echo "  ${CYAN}LLM Prx${RESET}  http://localhost:4511"
 echo "  ${GREEN}Portal${RESET}   http://localhost:4517"
 if [ "$MODE" = "ee" ]; then
   echo "  ${YELLOW}Admin${RESET}    http://localhost:4518"

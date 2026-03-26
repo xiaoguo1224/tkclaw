@@ -171,6 +171,8 @@ COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
 COPY --from=ee frontend/portal/ /ee/frontend/portal/
+ARG VITE_APP_VERSION=dev
+ENV VITE_APP_VERSION=\$VITE_APP_VERSION
 RUN npm run build
 
 FROM nginx:1.27-alpine
@@ -188,6 +190,12 @@ EODF
     warn "[$component] ee/ 目录不存在（CE 版本），跳过 admin 构建"
     return 0
   fi
+
+  case "$component" in
+    portal|admin)
+      extra_args="$extra_args --build-arg VITE_APP_VERSION=${TAG}"
+      ;;
+  esac
 
   log "[$component] 构建镜像: $image"
   if ! docker build --platform linux/amd64 \
@@ -270,7 +278,7 @@ cmd_deploy() {
     targets=("$TARGET")
   fi
 
-  log "镜像标签: $TAG"
+  log "镜像标签: ${TAG}"
   log "目标组件: ${targets[*]}"
   log "Namespace: $NAMESPACE"
   [[ -n "$KUBE_CONTEXT" ]] && log "K8s 上下文: $KUBE_CONTEXT"
@@ -295,7 +303,7 @@ cmd_deploy() {
   done
 
   echo ""
-  ok "全部完成（标签: $TAG${NAMESPACE:+, Namespace: $NAMESPACE}）"
+  ok "全部完成（标签: ${TAG}${NAMESPACE:+, Namespace: ${NAMESPACE}}）"
 }
 
 # ── cmd: release ─────────────────────────────────────────
@@ -355,7 +363,7 @@ cmd_release() {
 
   confirm "即将构建镜像（${targets[*]}）、创建 git tag ${VERSION} 并发布 GitHub Pre-release"
 
-  log "构建并推送镜像（标签: $TAG）..."
+  log "构建并推送镜像（标签: ${TAG}）..."
   for t in "${targets[@]}"; do
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     if ! build_and_push "$t"; then

@@ -11,6 +11,8 @@ services:
       context: ee/nodeskclaw-frontend
     depends_on:
       - nodeskclaw-backend
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
     ports:
       - "${ADMIN_PORT:-8001}:80"
     restart: unless-stopped

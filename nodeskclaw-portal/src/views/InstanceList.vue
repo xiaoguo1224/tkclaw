@@ -7,6 +7,7 @@ import api from '@/services/api'
 import { resolveApiErrorMessage } from '@/i18n/error'
 import { useGeneStore } from '@/stores/gene'
 import { useClusterStore } from '@/stores/cluster'
+import { useEdition } from '@/composables/useFeature'
 import BaseTooltip from '@/components/shared/BaseTooltip.vue'
 import type { TemplateInfo } from '@/stores/gene'
 
@@ -46,6 +47,7 @@ const router = useRouter()
 const { t, locale } = useI18n()
 const geneStore = useGeneStore()
 const clusterStore = useClusterStore()
+const { isEE } = useEdition()
 
 const hasCluster = computed(() => clusterStore.clusters.length > 0)
 const loading = ref(true)
@@ -236,7 +238,34 @@ onMounted(() => {
       </button>
     </div>
 
-    <!-- Empty state -->
+    <!-- Empty state: no cluster + no instances -->
+    <div
+      v-else-if="instances.length === 0 && !hasCluster"
+      class="text-center py-20 space-y-4"
+    >
+      <div class="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto">
+        <Server class="w-8 h-8 text-primary" />
+      </div>
+      <h3 class="text-lg font-semibold">{{ t('instanceList.noClusterTitle') }}</h3>
+      <p class="text-sm text-muted-foreground max-w-sm mx-auto">
+        {{ isEE ? t('instanceList.noClusterDescEE') : t('instanceList.noClusterDesc') }}
+      </p>
+      <button
+        v-if="!isEE"
+        class="mt-4 px-6 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+        @click="router.push('/org-settings/clusters')"
+      >
+        {{ t('instanceList.goSetupCluster') }}
+      </button>
+      <p class="text-xs text-muted-foreground pt-2">
+        {{ t('instanceList.alreadySetup') }}
+        <button class="text-primary hover:underline ml-1" @click="clusterStore.fetchClusters()">
+          {{ t('instanceList.refresh') }}
+        </button>
+      </p>
+    </div>
+
+    <!-- Empty state: has cluster + no instances -->
     <div
       v-else-if="instances.length === 0"
       class="text-center py-20 space-y-4"
@@ -248,15 +277,12 @@ onMounted(() => {
       <p class="text-sm text-muted-foreground max-w-sm mx-auto">
         {{ t('instanceList.emptyDescription') }}
       </p>
-      <BaseTooltip :text="!hasCluster ? t('instanceList.noClusterHint') : ''">
-        <button
-          class="mt-4 px-6 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
-          :disabled="!hasCluster"
-          @click="router.push('/instances/create')"
-        >
-          {{ t('instanceList.createFirst') }}
-        </button>
-      </BaseTooltip>
+      <button
+        class="mt-4 px-6 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+        @click="router.push('/instances/create')"
+      >
+        {{ t('instanceList.createFirst') }}
+      </button>
     </div>
 
     <!-- Instance table -->

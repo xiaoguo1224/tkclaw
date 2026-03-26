@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
+
+from app.utils.jsonc import strip_jsonc
 
 if TYPE_CHECKING:
     from app.models.instance import Instance
@@ -14,13 +15,6 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
-
-
-def _strip_jsonc(text: str) -> str:
-    text = re.sub(r"//[^\n]*", "", text)
-    text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
-    text = re.sub(r",\s*([}\]])", r"\1", text)
-    return text
 
 
 class RuntimeConfigAdapter(ABC):
@@ -78,7 +72,7 @@ class OpenClawConfigAdapter(RuntimeConfigAdapter):
         except json.JSONDecodeError:
             pass
         try:
-            return json.loads(_strip_jsonc(raw))
+            return json.loads(strip_jsonc(raw))
         except json.JSONDecodeError as e:
             raise ValueError(f"openclaw.json 格式无法解析: {e}") from e
 

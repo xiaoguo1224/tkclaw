@@ -64,7 +64,7 @@ async function listNoDeskClawPeers(params: {
   try {
     const url = `${effectiveUrl}/workspaces/${account.workspaceId}/topology/reachable?instance_id=${account.instanceId}`;
     const resp = await fetch(url, {
-      headers: { "X-Proxy-Token": account.apiToken },
+      headers: { Authorization: `Bearer ${account.apiToken}` },
     });
     if (!resp.ok) return [];
     const body = await resp.json();

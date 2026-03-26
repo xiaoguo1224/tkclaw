@@ -93,7 +93,7 @@ impl SecurityWsClient {
     fn endpoint() -> String {
         let base = std::env::var("SECURITY_WS_ENDPOINT")
             .or_else(|_| std::env::var("NODESKCLAW_BACKEND_URL"))
-            .unwrap_or_else(|_| "ws://localhost:8000".into());
+            .unwrap_or_else(|_| "ws://localhost:4510".into());
         let url = base.replace("http://", "ws://").replace("https://", "wss://");
         let token = std::env::var("NODESKCLAW_API_TOKEN").unwrap_or_default();
         format!("{}/api/v1/security/ws?token={}", url, token)

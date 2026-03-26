@@ -2,6 +2,8 @@
 
 import asyncio
 import logging
+import os
+import sys
 
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -176,6 +178,24 @@ async def update_kubeconfig(cluster_id: str, kubeconfig: str, db: AsyncSession) 
     return ClusterInfo.model_validate(cluster)
 
 
+def _docker_env_hint() -> str:
+    """Return a platform-specific hint for Docker connectivity issues."""
+    if sys.platform == "win32":
+        return "请确认 Docker Desktop 已启动且正在运行"
+    if os.path.exists("/.dockerenv") or os.environ.get("DOCKER_DATA_DIR"):
+        return "请确认 Docker socket 已挂载到容器（/var/run/docker.sock）"
+    return "请确认 Docker daemon 正在运行"
+
+
+def _docker_cli_hint() -> str:
+    """Return a platform-specific hint for missing Docker CLI."""
+    if sys.platform == "win32":
+        return "Docker CLI 未安装，请安装 Docker Desktop"
+    if os.path.exists("/.dockerenv") or os.environ.get("DOCKER_DATA_DIR"):
+        return "Docker CLI 未安装，请在 Dockerfile 中安装 docker-ce-cli"
+    return "Docker CLI 未安装，请先安装 Docker"
+
+
 async def _create_docker_cluster(
     name: str, user: User, org_id: str | None, db: AsyncSession,
 ) -> ClusterInfo:
@@ -189,9 +209,14 @@ async def _create_docker_cluster(
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
         if proc.returncode != 0:
             err_text = stderr.decode().strip()
+            logger.warning(
+                "docker compose version failed: rc=%d, platform=%s, stdout=%s, stderr=%s",
+                proc.returncode, sys.platform,
+                stdout.decode().strip()[:200], err_text[:500],
+            )
             if "permission denied" in err_text.lower() or "connect" in err_text.lower():
                 raise BadRequestError(
-                    message="无法连接 Docker daemon，请确认 Docker socket 已挂载到容器（/var/run/docker.sock）",
+                    message=f"无法连接 Docker daemon，{_docker_env_hint()}",
                     message_key="errors.cluster.docker_socket_unavailable",
                 )
             raise BadRequestError(
@@ -201,13 +226,15 @@ async def _create_docker_cluster(
     except BadRequestError:
         raise
     except FileNotFoundError:
+        logger.warning("docker CLI not found: platform=%s", sys.platform)
         raise BadRequestError(
-            message="Docker CLI 未安装，容器化部署需在 Dockerfile 中安装 docker-ce-cli",
+            message=_docker_cli_hint(),
             message_key="errors.cluster.docker_cli_not_found",
         )
     except asyncio.TimeoutError:
+        logger.warning("docker compose version timed out: platform=%s", sys.platform)
         raise BadRequestError(
-            message="Docker 环境检查超时，请确认 Docker daemon 正在运行",
+            message=f"Docker 环境检查超时，{_docker_env_hint()}",
             message_key="errors.cluster.docker_check_timeout",
         )
 
@@ -279,8 +306,13 @@ async def _test_docker_connection(
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
         if proc.returncode != 0:
             err_text = stderr.decode().strip()
+            logger.warning(
+                "docker compose version failed (test): rc=%d, platform=%s, stdout=%s, stderr=%s",
+                proc.returncode, sys.platform,
+                stdout.decode().strip()[:200], err_text[:500],
+            )
             if "permission denied" in err_text.lower() or "connect" in err_text.lower():
-                err_text = "无法连接 Docker daemon，请确认 Docker socket 已挂载（/var/run/docker.sock）"
+                err_text = f"无法连接 Docker daemon，{_docker_env_hint()}"
             cluster.status = ClusterStatus.disconnected
             cluster.health_status = "unhealthy"
             await db.commit()
@@ -295,12 +327,12 @@ async def _test_docker_connection(
         cluster.status = ClusterStatus.disconnected
         cluster.health_status = "unhealthy"
         await db.commit()
-        return ConnectionTestResult(ok=False, message="Docker CLI 未安装")
+        return ConnectionTestResult(ok=False, message=_docker_cli_hint())
     except asyncio.TimeoutError:
         cluster.status = ClusterStatus.disconnected
         cluster.health_status = "unhealthy"
         await db.commit()
-        return ConnectionTestResult(ok=False, message="Docker 环境检查超时")
+        return ConnectionTestResult(ok=False, message=f"Docker 环境检查超时，{_docker_env_hint()}")
     except Exception as e:
         cluster.status = ClusterStatus.disconnected
         cluster.health_status = "unhealthy"

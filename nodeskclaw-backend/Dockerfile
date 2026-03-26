@@ -21,6 +21,7 @@ RUN uv sync --frozen --no-dev
 
 COPY nodeskclaw-backend/ .
 COPY openclaw-channel-nodeskclaw/ ./openclaw-channel-nodeskclaw/
+COPY openclaw-channel-dingtalk/ ./openclaw-channel-dingtalk/
 COPY features.yaml ./features.yaml
 
 RUN mkdir -p /app/data

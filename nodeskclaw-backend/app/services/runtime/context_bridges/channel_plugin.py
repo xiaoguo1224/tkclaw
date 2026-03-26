@@ -32,12 +32,8 @@ class ChannelPluginBridge:
 
                 result = await db.execute(select(Instance).where(Instance.id == instance_id))
                 inst = result.scalar_one_or_none()
-                if inst and inst.cluster_id:
-                    await deploy_nodeskclaw_channel_plugin(
-                        instance_id=instance_id,
-                        cluster_id=inst.cluster_id,
-                        db=db,
-                    )
+                if inst:
+                    await deploy_nodeskclaw_channel_plugin(inst, db, workspace_id)
                     logger.info(
                         "ChannelPlugin deployed for instance %s in workspace %s",
                         instance_id, workspace_id,

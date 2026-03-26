@@ -55,6 +55,18 @@ def _parse_mem(mem_str: str) -> str:
     raise ValueError(f"Unsupported memory unit: {mem_str!r}")
 
 
+def _extract_docker_error(stderr_text: str) -> str:
+    """Extract the meaningful error from docker compose stderr, stripping progress noise."""
+    marker = "Error response from daemon:"
+    idx = stderr_text.find(marker)
+    if idx != -1:
+        return stderr_text[idx:].strip()[:500]
+    idx2 = stderr_text.rfind("Error")
+    if idx2 != -1:
+        return stderr_text[idx2:].strip()[:500]
+    return stderr_text.strip()[:500]
+
+
 def _build_compose_yaml(config: InstanceComputeConfig) -> dict:
     """Generate a docker-compose service definition with full resource config."""
     env = {
@@ -72,7 +84,7 @@ def _build_compose_yaml(config: InstanceComputeConfig) -> dict:
         "container_name": config.slug,
         "environment": env,
         "ports": [f"{host_port}:{config.gateway_port}"],
-        "volumes": [f"{DOCKER_DATA_DIR / config.slug / 'data'}:{container_data_dir}"],
+        "volumes": [f"{(DOCKER_DATA_DIR / config.slug / 'data').as_posix()}:{container_data_dir}"],
         "restart": "unless-stopped",
         "platform": "linux/amd64",
         "networks": [f"{config.slug}-net"],
@@ -83,7 +95,15 @@ def _build_compose_yaml(config: InstanceComputeConfig) -> dict:
         main_service["mem_limit"] = _parse_mem(config.mem_limit)
     if config.cpu_limit:
         try:
-            main_service["cpus"] = _parse_cpu(config.cpu_limit)
+            parsed = _parse_cpu(config.cpu_limit)
+            available = os.cpu_count() or 1
+            if parsed <= available:
+                main_service["cpus"] = parsed
+            else:
+                logger.warning(
+                    "requested cpus %.2f exceeds available %d, skipping cpu limit",
+                    parsed, available,
+                )
         except (ValueError, TypeError):
             pass
 
@@ -144,9 +164,9 @@ class DockerComputeProvider:
             )
             _, stderr = await proc.communicate()
             if proc.returncode != 0:
-                error_msg = stderr.decode()[:500]
-                logger.error("docker compose up failed: %s", error_msg)
-                raise RuntimeError(f"docker compose up 失败: {error_msg}")
+                raw = stderr.decode()
+                logger.error("docker compose up failed: %s", raw)
+                raise RuntimeError(f"docker compose up 失败: {_extract_docker_error(raw)}")
         except FileNotFoundError:
             raise RuntimeError("docker compose 未安装")
 
@@ -225,7 +245,7 @@ class DockerComputeProvider:
             )
             _, stderr = await proc.communicate()
             if proc.returncode != 0:
-                raise RuntimeError(f"docker compose restart 失败: {stderr.decode()[:300]}")
+                raise RuntimeError(f"docker compose restart 失败: {_extract_docker_error(stderr.decode())}")
         else:
             slug = handle.extra.get("slug", handle.instance_id)
             proc = await asyncio.create_subprocess_exec(
@@ -235,7 +255,7 @@ class DockerComputeProvider:
             )
             _, stderr = await proc.communicate()
             if proc.returncode != 0:
-                raise RuntimeError(f"docker restart 失败: {stderr.decode()[:300]}")
+                raise RuntimeError(f"docker restart 失败: {_extract_docker_error(stderr.decode())}")
 
     async def scale_instance(self, handle: ComputeHandle, replicas: int) -> ComputeHandle:
         compose_path = handle.extra.get("compose_path", "")
@@ -248,7 +268,7 @@ class DockerComputeProvider:
             )
             _, stderr = await proc.communicate()
             if proc.returncode != 0:
-                raise RuntimeError(f"docker compose scale 失败: {stderr.decode()[:300]}")
+                raise RuntimeError(f"docker compose scale 失败: {_extract_docker_error(stderr.decode())}")
         handle.extra["replicas"] = replicas
         return handle
 
@@ -269,4 +289,9 @@ class DockerComputeProvider:
             return {"healthy": True, "detail": "container running (no http probe)"}
 
         from app.services.runtime.compute.base import http_probe
-        return await http_probe(handle.endpoint, path=probe_path)
+        endpoint = handle.endpoint
+        if endpoint:
+            host = _docker_endpoint_host()
+            if host != "localhost":
+                endpoint = endpoint.replace("localhost", host).replace("127.0.0.1", host)
+        return await http_probe(endpoint, path=probe_path)

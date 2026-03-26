@@ -315,7 +315,7 @@ class _DeployContext:
     cpu_limit: str
     mem_request: str
     mem_limit: str
-    storage_class: str
+    storage_class: str | None
     storage_size: str
     quota_cpu: str
     quota_mem: str

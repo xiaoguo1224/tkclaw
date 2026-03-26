@@ -106,21 +106,21 @@ Full-stack internationalization covering Portal, Admin, and Backend.
 Deploy the full platform with a built-in PostgreSQL -- no external database required.
 
 ```bash
-cp nodeskclaw-backend/.env.example nodeskclaw-backend/.env
-# Edit .env -- at least set JWT_SECRET
-
 # CE
 docker compose up -d
 
 # EE (with Admin console)
 docker compose -f docker-compose.yml -f docker-compose.ee.yml up -d
+
+# Optional: customise timezone, secrets, etc.
+# cp .env.example .env && vi .env
 ```
 
 | Service | URL |
 |---|---|
 | Portal | http://localhost |
-| Backend API | http://localhost:8000 |
-| LLM Proxy | http://localhost:8080 |
+| Backend API | http://localhost:4510 |
+| LLM Proxy | http://localhost:4511 |
 | Admin (EE) | http://localhost:8001 |
 
 **Initial credentials** -- on first startup the backend creates an admin account with a random password and prints it to the log:
@@ -175,8 +175,8 @@ The script handles dependency installation, starts all services with colored log
 
 | Mode | Services | Ports |
 |------|----------|-------|
-| CE | backend + llm-proxy + portal | 8000, 8080, 4517 |
-| EE | backend + llm-proxy + portal + admin | 8000, 8080, 4517, 4518 |
+| CE | backend + llm-proxy + portal | 4510, 4511, 4517 |
+| EE | backend + llm-proxy + portal + admin | 4510, 4511, 4517, 4518 |
 
 <details>
 <summary>Manual Start (alternative)</summary>
@@ -186,10 +186,10 @@ The script handles dependency installation, starts all services with colored log
 ```bash
 cd nodeskclaw-backend
 uv sync
-uv run uvicorn app.main:app --reload --port 8000
+uv run uvicorn app.main:app --reload --port 4510
 ```
 
-API at `http://localhost:8000` | Swagger at `http://localhost:8000/docs` | Auto-migration on first boot.
+API at `http://localhost:4510` | Swagger at `http://localhost:4510/docs` | Auto-migration on first boot.
 
 **Frontend (Portal):**
 
@@ -225,6 +225,59 @@ On first startup the backend prints the initial admin credentials directly in th
 ```
 
 Open `http://localhost:4517` (Portal) or `http://localhost:4518` (Admin, EE) and sign in with the printed credentials. You will be prompted to change the password on first login.
+
+## Upgrade
+
+### Docker Compose
+
+All business services are built locally, so upgrading means pulling the latest code and rebuilding.
+
+```bash
+# 1. Back up the database
+docker compose exec postgres pg_dump -U nodeskclaw nodeskclaw > backup_$(date +%Y%m%d).sql
+
+# 2. Pull the target version
+git pull origin main          # latest
+# git checkout v0.9.0         # or a specific release tag
+
+# 3. Rebuild and restart
+docker compose build
+docker compose up -d
+
+# EE
+docker compose -f docker-compose.yml -f docker-compose.ee.yml build
+docker compose -f docker-compose.yml -f docker-compose.ee.yml up -d
+```
+
+Database migrations run automatically on backend startup (Alembic `upgrade head`). Verify with:
+
+```bash
+docker compose logs nodeskclaw-backend | grep -i "alembic\|migration\|upgrade"
+```
+
+### Kubernetes (via deploy/cli.sh)
+
+K8s deployments are managed by `deploy/cli.sh`. The typical workflow is **deploy to staging first, then promote to production**.
+
+**Staging** -- build images, push to registry, and rolling-update the staging namespace:
+
+```bash
+./deploy/cli.sh deploy --tag v0.9.0
+```
+
+**Production** -- reuse the already-pushed images and update the production namespace (no rebuild):
+
+```bash
+./deploy/cli.sh promote v0.9.0
+```
+
+Database migrations run automatically when the new backend pod starts. See [deploy/README.md](deploy/README.md) for full CLI usage and options.
+
+### Upgrade Notes
+
+- **Back up your database** before any major version upgrade.
+- Check [GitHub Releases](https://github.com/patchwork-body/nodeskclaw/releases) for release notes and breaking changes.
+- If your database was not previously managed by Alembic, you may need to run `alembic stamp head` once before upgrading. See [Backend README](nodeskclaw-backend/README.md) for details.
 
 ## Documentation
 

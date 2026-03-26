@@ -12,7 +12,7 @@ const RECONNECT_DELAY_MS = 3000;
 function getEndpoint(): string {
   const base = process.env.SECURITY_WS_ENDPOINT
     ?? process.env.NODESKCLAW_BACKEND_URL
-    ?? "ws://localhost:8000";
+    ?? "ws://localhost:4510";
   const url = base.replace(/^http/, "ws");
   const token = process.env.NODESKCLAW_API_TOKEN ?? "";
   return `${url}/api/v1/security/ws?token=${encodeURIComponent(token)}`;

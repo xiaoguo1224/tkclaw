@@ -18,12 +18,47 @@ async def run_seed(
 ) -> dict[str, dict[str, str] | None]:
     """Run all seed tasks. Returns dict with 'ce_admin' and 'ee_admin' credentials."""
     await _seed_default_org_and_templates(session_factory, is_ee=is_ee)
+    await _seed_default_registry_configs(session_factory)
     ce_creds = await _seed_initial_admin(session_factory)
     ee_creds = None
     if is_ee:
         ee_creds = await _seed_ee_platform_admin(session_factory)
     await _ensure_workspace_schedules(session_factory)
     return {"ce_admin": ce_creds, "ee_admin": ee_creds}
+
+
+DEFAULT_REGISTRY_CONFIGS: dict[str, str] = {
+    "image_registry": "nodesk-center-cn-beijing.cr.volces.com/public/deskclaw-openclaw",
+    "image_registry_zeroclaw": "nodesk-center-cn-beijing.cr.volces.com/public/deskclaw-zeroclaw",
+    "image_registry_nanobot": "nodesk-center-cn-beijing.cr.volces.com/public/deskclaw-nanobot",
+}
+
+
+async def _seed_default_registry_configs(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """Seed default image registry URLs so tag listing works out-of-the-box.
+
+    Only inserts when a key does NOT exist at all.  If the admin deliberately
+    cleared a value (row exists, value=None), we leave it untouched.
+    """
+    from app.models.system_config import SystemConfig
+
+    async with session_factory() as db:
+        seeded = 0
+        for key, default_value in DEFAULT_REGISTRY_CONFIGS.items():
+            row = (await db.execute(
+                select(SystemConfig).where(
+                    SystemConfig.key == key,
+                    SystemConfig.deleted_at.is_(None),
+                )
+            )).scalar_one_or_none()
+            if row is None:
+                db.add(SystemConfig(key=key, value=default_value))
+                seeded += 1
+        if seeded:
+            await db.commit()
+            logger.info("种子数据：已内置 %d 条默认镜像仓库配置", seeded)
 
 
 async def _seed_initial_admin(

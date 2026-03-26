@@ -101,6 +101,7 @@ async def list_image_tags(
 
     registry = (registry_url or "").strip().rstrip("/")
     if not registry:
+        logger.warning("镜像仓库地址未配置 (runtime=%s)", runtime)
         return []
 
     if "://" in registry:

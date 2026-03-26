@@ -23,7 +23,7 @@ RECONNECT_DELAY = 3.0
 
 
 def _endpoint() -> str:
-    base = os.environ.get("SECURITY_WS_ENDPOINT") or os.environ.get("NODESKCLAW_BACKEND_URL") or "ws://localhost:8000"
+    base = os.environ.get("SECURITY_WS_ENDPOINT") or os.environ.get("NODESKCLAW_BACKEND_URL") or "ws://localhost:4510"
     url = base.replace("http://", "ws://").replace("https://", "wss://")
     token = os.environ.get("NODESKCLAW_API_TOKEN", "")
     return f"{url}/api/v1/security/ws?token={token}"

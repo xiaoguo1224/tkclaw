@@ -15,6 +15,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from app.services.runtime.gene_install_adapter import GeneInstallAdapter
+from app.utils.jsonc import parse_config_json
 
 if TYPE_CHECKING:
     from app.services.nfs_mount import RemoteFS
@@ -51,7 +52,11 @@ class OpenClawGeneInstallAdapter(GeneInstallAdapter):
     async def allow_tools(self, fs: RemoteFS, tool_names: list[str]) -> None:
         if not tool_names:
             return
-        config = await self._read_config(fs)
+        try:
+            config = await self._read_config(fs)
+        except ValueError:
+            logger.warning("allow_tools: openclaw.json 解析失败，跳过 tool_allow 写入")
+            return
         tools = config.setdefault("tools", {})
         allow = tools.get("allow", [])
         if not isinstance(allow, list):
@@ -74,7 +79,11 @@ class OpenClawGeneInstallAdapter(GeneInstallAdapter):
     async def apply_config(self, fs: RemoteFS, config_patch: dict) -> None:
         if not config_patch:
             return
-        config = await self._read_config(fs)
+        try:
+            config = await self._read_config(fs)
+        except ValueError:
+            logger.warning("apply_config: openclaw.json 解析失败，跳过配置合并写入")
+            return
         for key, val in config_patch.items():
             if isinstance(val, dict) and isinstance(config.get(key), dict):
                 config[key].update(val)
@@ -104,7 +113,11 @@ class OpenClawGeneInstallAdapter(GeneInstallAdapter):
         await inject_evolution_notification(fs, skill_name, "uninstalled")
 
     async def _ensure_skills_discovery(self, fs: RemoteFS) -> None:
-        config = await self._read_config(fs)
+        try:
+            config = await self._read_config(fs)
+        except ValueError:
+            logger.warning("_ensure_skills_discovery: openclaw.json 解析失败，跳过写入")
+            return
         skills = config.setdefault("skills", {})
         load = skills.setdefault("load", {})
         extra_dirs = load.setdefault("extraDirs", [])
@@ -113,13 +126,14 @@ class OpenClawGeneInstallAdapter(GeneInstallAdapter):
             await self._write_config(fs, config)
 
     async def _read_config(self, fs: RemoteFS) -> dict:
+        """Read and parse openclaw.json with JSONC fallback.
+
+        Raises ValueError if the file is truly corrupt (not just JSONC).
+        """
         raw = await fs.read_text(self._config_path)
         if raw is None:
             return {}
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            return {}
+        return parse_config_json(raw)
 
     async def _write_config(self, fs: RemoteFS, config: dict) -> None:
         await fs.write_text(

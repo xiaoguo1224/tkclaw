@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useToast } from '@/composables/useToast'
 import { resolveApiErrorMessage } from '@/i18n/error'
 import api from '@/services/api'
-import { Loader2, Save, Plug, Eye, EyeOff, Container, RefreshCw } from 'lucide-vue-next'
+import { Loader2, Save, Plug, Eye, EyeOff, Container, RefreshCw, AlertCircle } from 'lucide-vue-next'
 
 const { t } = useI18n()
 const toast = useToast()
@@ -21,6 +21,7 @@ interface EngineItem {
   runtime_id: string
   display_name: string
   image_registry_key: string
+  default_registry_url: string
 }
 
 const engines = ref<EngineItem[]>([])
@@ -101,6 +102,21 @@ async function handleTestEngine(engineId: string) {
   }
 }
 
+const hasCredentials = computed(() =>
+  registryUsername.value.trim() !== '' || registryPassword.value !== '' || hasPassword.value
+)
+
+const isUsingDefaultPublicRegistry = computed(() =>
+  engines.value.some(eng => {
+    const current = engineRegistryUrls.value[eng.runtime_id]?.trim()
+    return current && eng.default_registry_url && current === eng.default_registry_url
+  })
+)
+
+const showPublicRegistryWarning = computed(() =>
+  hasCredentials.value && isUsingDefaultPublicRegistry.value
+)
+
 onMounted(() => {
   loadSettings()
 })
@@ -152,6 +168,12 @@ onMounted(() => {
         </div>
 
         <div class="border-t border-border pt-5 space-y-4">
+          <div v-if="showPublicRegistryWarning"
+            class="flex items-start gap-3 p-4 rounded-lg border border-amber-500/30 bg-amber-500/5">
+            <AlertCircle class="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+            <p class="text-sm">{{ t('orgSettings.registryPublicWarning') }}</p>
+          </div>
+
           <p class="text-xs text-muted-foreground">{{ t('orgSettings.registryCredentialsHint') }}</p>
 
           <div class="space-y-1.5">

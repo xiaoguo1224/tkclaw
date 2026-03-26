@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from typing import Any
 
 import httpx
+from aiohttp import web
 
 from .client import TunnelCallbacks, TunnelClient
 
 logger = logging.getLogger("nodeskclaw_tunnel_bridge.zeroclaw")
 
-DEFAULT_GATEWAY_URL = "http://localhost:8080"
+DEFAULT_GATEWAY_URL = "http://localhost:4511"
+DEFAULT_SIDECAR_PORT = 18791
 
 
 class ZeroClawBridge:
@@ -29,13 +32,48 @@ class ZeroClawBridge:
         )
         self._client = TunnelClient(on_chat_request=self._handle_chat_request, callbacks=callbacks)
         self._http: httpx.AsyncClient | None = None
+        self._workspace_id: str = ""
 
     async def run(self) -> None:
         self._http = httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0))
+        await self._start_sidecar()
         try:
             await self._client.run_forever()
         finally:
             await self._http.aclose()
+
+    # ── Collaboration sidecar ────────────────────────────────
+
+    async def _start_sidecar(self) -> None:
+        app = web.Application()
+        app.router.add_post("/collaboration/send", self._handle_collab_send)
+        app.router.add_get("/peers", self._handle_list_peers)
+        runner = web.AppRunner(app)
+        await runner.setup()
+        port = int(os.environ.get("NODESKCLAW_SIDECAR_PORT", str(DEFAULT_SIDECAR_PORT)))
+        site = web.TCPSite(runner, "localhost", port)
+        await site.start()
+        logger.info("ZeroClaw bridge: collaboration sidecar listening on localhost:%d", port)
+
+    async def _handle_collab_send(self, request: web.Request) -> web.Response:
+        try:
+            body = await request.json()
+        except (json.JSONDecodeError, Exception):
+            return web.json_response({"error": "invalid JSON"}, status=400)
+        target = body.get("target", "")
+        text = body.get("text", "")
+        if not target or not text:
+            return web.json_response({"error": "target and text required"}, status=400)
+        await self._client.send_collaboration(
+            self._workspace_id, self._client.instance_id, target, text,
+        )
+        return web.json_response({"ok": True})
+
+    async def _handle_list_peers(self, request: web.Request) -> web.Response:
+        peers = await self._client.list_peers(self._workspace_id)
+        return web.json_response({"peers": peers})
+
+    # ── Chat request handler ─────────────────────────────────
 
     async def _handle_chat_request(
         self,
@@ -45,6 +83,8 @@ class ZeroClawBridge:
         workspace_id: str,
         no_reply: bool,
     ) -> None:
+        if workspace_id:
+            self._workspace_id = workspace_id
         prompt = _messages_to_prompt(messages)
         headers: dict[str, str] = {"Content-Type": "application/json"}
         if self._bearer_token:

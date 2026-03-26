@@ -19,6 +19,7 @@ const isSetupPage = computed(() => route.path === '/setup-org')
 const showUserMenu = ref(false)
 const userMenuRef = ref<HTMLElement>()
 const locale = ref(getCurrentLocale())
+const appVersion = __APP_VERSION__
 
 function onDocumentClick(e: MouseEvent) {
   if (showUserMenu.value && userMenuRef.value && !userMenuRef.value.contains(e.target as Node)) {
@@ -72,7 +73,7 @@ function onLocaleChange(value: string) {
           <div class="flex items-center gap-2 shrink-0 cursor-pointer" @click="router.push('/')">
             <img src="/logo.png" alt="DeskClaw" class="w-5 h-5" />
             <span class="font-bold text-base">DeskClaw</span>
-            <span class="px-1.5 py-0.5 text-[10px] font-semibold leading-none rounded bg-primary/15 text-primary">Beta</span>
+            <span class="px-1.5 py-0.5 text-[10px] font-semibold leading-none rounded bg-primary/15 text-primary">{{ appVersion }}</span>
           </div>
           <nav v-if="!isSetupPage" class="flex items-center gap-1 overflow-x-auto min-w-0">
             <button
