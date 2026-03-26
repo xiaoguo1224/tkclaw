@@ -132,7 +132,7 @@ class TunnelAdapter:
             try:
                 await ws.close(code=4001, reason="auth_timeout")
             except Exception:
-                pass
+                logger.warning("Tunnel: failed to close ws after auth timeout", exc_info=True)
             return
 
         auth_msg = TunnelMessage.from_dict(raw)
@@ -170,7 +170,7 @@ class TunnelAdapter:
             try:
                 await old_conn.ws.close(code=4010, reason="replaced")
             except Exception:
-                pass
+                logger.warning("Tunnel: failed to close old ws for %s", instance_id, exc_info=True)
             self._cleanup_instance(instance_id)
 
         conn = _InstanceConnection(ws, instance_id)
@@ -741,7 +741,7 @@ class TunnelAdapter:
                     try:
                         await conn.ws.close(code=4020, reason="ping_timeout")
                     except Exception:
-                        pass
+                        logger.warning("Tunnel: failed to close ws on ping timeout for %s", instance_id, exc_info=True)
                     break
                 try:
                     await self._send(conn.ws, TunnelMessage(type=TunnelMessageType.PING))

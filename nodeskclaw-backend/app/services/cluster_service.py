@@ -213,6 +213,7 @@ async def update_kubeconfig(cluster_id: str, kubeconfig: str, db: AsyncSession) 
         cluster.set_provider_value("k8s_version", info.git_version)
         cluster.health_status = "healthy"
     except Exception:
+        logger.warning("KubeConfig connectivity test failed for cluster %s", cluster_id, exc_info=True)
         cluster.status = ClusterStatus.disconnected
         cluster.health_status = "unhealthy"
 

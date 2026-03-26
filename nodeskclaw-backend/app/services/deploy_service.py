@@ -983,7 +983,7 @@ async def _execute_deploy_inner(ctx, async_session_factory, get_config, total, s
                             sc = pvc.spec.storage_class_name or "(默认)"
                             diag_lines.append(f"PVC {pvc.metadata.name}: {pvc_phase} (StorageClass: {sc})")
                     except Exception:
-                        pass
+                        logger.warning("Failed to list PVCs for deploy diag in %s", ctx.namespace, exc_info=True)
 
                     # ── K8s Events（最近 5 条） ──
                     try:
@@ -992,7 +992,7 @@ async def _execute_deploy_inner(ctx, async_session_factory, get_config, total, s
                         for ev in recent:
                             diag_lines.append(f"Event: {ev.reason} — {(ev.message or '')[:200]}")
                     except Exception:
-                        pass
+                        logger.warning("Failed to list Events for deploy diag in %s", ctx.namespace, exc_info=True)
 
                     # ── Deployment conditions ──
                     for cond in dep_status.get("conditions", []):
@@ -1100,7 +1100,7 @@ async def _execute_deploy_inner(ctx, async_session_factory, get_config, total, s
                             from app.services.instance_template_service import increment_use_count
                             await increment_use_count(db, ctx.template_id)
                         except Exception:
-                            pass
+                            logger.warning("Failed to increment template use count for %s", ctx.template_id, exc_info=True)
 
                 success_msg = f"部署成功{llm_sync_warning}{gene_install_warning}"
                 _publish(total, "完成", status="success", message=success_msg)

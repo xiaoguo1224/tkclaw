@@ -1270,7 +1270,7 @@ async def workspace_events(
                     await sse_registry.unregister_connection(cleanup_db, conn_id)
                     await cleanup_db.commit()
             except Exception:
-                pass
+                logger.warning("SSE cleanup failed for conn %s", conn_id, exc_info=True)
 
     return StreamingResponse(stream(), media_type="text/event-stream")
 

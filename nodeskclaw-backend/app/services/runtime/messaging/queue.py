@@ -52,9 +52,9 @@ async def enqueue(
 
     try:
         payload = json.dumps({"target_node_id": target_node_id})
-        await db.execute(text(f"SELECT pg_notify('message_enqueued', :payload)"), {"payload": payload})
+        await db.execute(text("SELECT pg_notify('message_enqueued', :payload)"), {"payload": payload})
     except Exception:
-        pass
+        logger.warning("pg_notify for message_enqueued failed (node=%s)", target_node_id, exc_info=True)
 
     return item
 

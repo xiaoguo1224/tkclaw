@@ -1,6 +1,10 @@
 """Organization management endpoints."""
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
+
+logger = logging.getLogger(__name__)
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -266,7 +270,7 @@ async def remove_member(
         try:
             await get_member_hook().on_member_removed(org_id, removed_user_id)
         except Exception:
-            pass
+            logger.exception("on_member_removed hook failed for org=%s user=%s", org_id, removed_user_id)
     return ApiResponse(message="成员已移除")
 
 

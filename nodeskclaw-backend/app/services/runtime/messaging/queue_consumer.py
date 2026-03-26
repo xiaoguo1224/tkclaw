@@ -108,7 +108,7 @@ async def _consume_loop(session_factory) -> None:
                         try:
                             await nack(db, str(item.id), str(e))
                         except Exception:
-                            pass
+                            logger.warning("QueueConsumer: nack also failed for item %s", item.id, exc_info=True)
 
                 await db.commit()
 

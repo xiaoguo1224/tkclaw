@@ -292,7 +292,7 @@ class DockerComputeProvider:
                 status_map = {"running": "running", "exited": "stopped", "paused": "stopped"}
                 return status_map.get(status, status)
         except Exception:
-            pass
+            logger.warning("docker inspect failed for slug=%s", slug, exc_info=True)
         return "unknown"
 
     async def get_endpoint(self, handle: ComputeHandle) -> str:

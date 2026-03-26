@@ -722,14 +722,14 @@ async def lifespan(app: FastAPI):
             try:
                 await _pg_notify_service.stop_listening(_asyncpg_conn, _pg_notify_channels)
             except Exception:
-                pass
+                logger.warning("Failed to stop PG NOTIFY listeners", exc_info=True)
         try:
             async with async_session_factory() as _shutdown_db:
                 from app.services.runtime import sse_registry
                 await sse_registry.cleanup_backend_connections(_shutdown_db)
                 await _shutdown_db.commit()
         except Exception:
-            pass
+            logger.warning("Failed to cleanup SSE backend connections", exc_info=True)
         from app.services.runtime.failure_recovery import shutdown_cleanup
         await shutdown_cleanup(async_session_factory)
         logger.info("Runtime v2: 已清理")
