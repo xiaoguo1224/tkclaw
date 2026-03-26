@@ -63,7 +63,12 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function oauthLogin(provider: string, code: string) {
     const redirect_uri = window.location.origin + `/login/callback/${provider}`
-    const client_id = import.meta.env.VITE_FEISHU_APP_ID || undefined
+    let client_id: string | undefined
+    if (provider === 'feishu') {
+      client_id = import.meta.env.VITE_FEISHU_APP_ID || undefined
+    } else if (provider === 'wecom') {
+      client_id = import.meta.env.VITE_WECOM_AGENT_ID || undefined
+    }
     const res = await api.post('/auth/oauth/callback', { provider, code, redirect_uri, client_id })
     const data = res.data.data
     setTokens(data.access_token, data.refresh_token)

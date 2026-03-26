@@ -124,6 +124,7 @@ async def lifespan(app: FastAPI):
     from app.models.cluster import Cluster, ClusterStatus
     from app.services.k8s.client_manager import k8s_manager
     from app.utils.oauth_providers.feishu import FeishuProvider
+    from app.utils.oauth_providers.wecom import WecomProvider
     from app.utils.oauth_providers.registry import register_provider
 
     logger = logging.getLogger(__name__)
@@ -142,6 +143,7 @@ async def lifespan(app: FastAPI):
 
     # ── Startup ──────────────────────────────────────
     register_provider(FeishuProvider())
+    register_provider(WecomProvider())
 
     # ── 自动创建开发数据库（仅 DATABASE_NAME_SUFFIX 非空时触发）──
     if settings.DATABASE_NAME_SUFFIX:

@@ -89,6 +89,12 @@ class Settings(BaseSettings):
     FEISHU_APP_ID_PORTAL: str = ""
     FEISHU_APP_SECRET_PORTAL: str = ""
 
+    # ── 企业微信 SSO（Portal 应用） ───────────────────────
+    WECOM_CORP_ID: str = ""
+    WECOM_AGENT_ID: str = ""
+    WECOM_APP_SECRET: str = ""
+    WECOM_REDIRECT_URI: str = ""
+
     # ── Portal ────────────────────────────────────────────
     PORTAL_BASE_URL: str = ""  # 用户门户基础 URL，如 https://portal.example.com
 

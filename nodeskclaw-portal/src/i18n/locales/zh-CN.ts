@@ -66,6 +66,8 @@ const zhCN = {
       bannerAction: '填写表单，抢先体验',
     },
     feishuLogin: "飞书登录",
+    wecomLogin: "企业微信登录",
+    wecomConfigMissing: "企业微信登录配置缺失，请联系管理员",
     orContinueWith: "或通过以下方式继续",
     callbackMissingParams: "回调参数缺失，请重新登录",
     backToLogin: "返回登录页",

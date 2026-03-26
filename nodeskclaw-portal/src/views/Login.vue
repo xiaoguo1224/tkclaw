@@ -120,6 +120,8 @@ async function handleCodeSubmit() {
 }
 
 const WAITLIST_URL = 'https://nodeskai.feishu.cn/share/base/form/shrcnKfwXbiUOenm73jlpElu1hg'
+const WECOM_CORP_ID = import.meta.env.VITE_WECOM_CORP_ID || ''
+const WECOM_AGENT_ID = import.meta.env.VITE_WECOM_AGENT_ID || ''
 
 function isNonWhitelistedEmail(input: string): boolean {
   if (!input.includes('@')) return false
@@ -141,6 +143,26 @@ async function showWaitlistDialog() {
 
 function onLocaleChange(value: string) {
   locale.value = setCurrentLocale(value)
+}
+
+async function handleWecomLogin() {
+  if (loading.value) return
+  if (!WECOM_CORP_ID || !WECOM_AGENT_ID) {
+    error.value = t('auth.wecomConfigMissing')
+    return
+  }
+  const redirectUri = `${window.location.origin}/login/callback/wecom`
+  const state = 'nodeskclaw_portal'
+  const url =
+    'https://open.weixin.qq.com/connect/oauth2/authorize' +
+    `?appid=${encodeURIComponent(WECOM_CORP_ID)}` +
+    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+    '&response_type=code' +
+    '&scope=snsapi_base' +
+    `&agentid=${encodeURIComponent(WECOM_AGENT_ID)}` +
+    `&state=${encodeURIComponent(state)}` +
+    '#wechat_redirect'
+  window.location.href = url
 }
 
 watch(activeTab, () => { error.value = '' })
@@ -377,6 +399,22 @@ watch(activeTab, () => { error.value = '' })
               {{ error }}
             </p>
           </Transition>
+
+          <div class="relative py-1">
+            <div class="h-px bg-border/60" />
+            <span class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 px-2 text-xs text-muted-foreground bg-background">
+              {{ t('auth.orContinueWith') }}
+            </span>
+          </div>
+
+          <button
+            type="button"
+            class="w-full h-10 rounded-lg border border-input bg-background text-foreground font-medium text-sm hover:bg-accent transition-colors flex items-center justify-center gap-2"
+            @click="handleWecomLogin"
+          >
+            <ExternalLink class="w-4 h-4" />
+            {{ t('auth.wecomLogin') }}
+          </button>
 
         <!-- Waitlist 入口 (EE-only) -->
         <a

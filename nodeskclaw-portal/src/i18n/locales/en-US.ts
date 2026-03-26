@@ -66,6 +66,8 @@ const enUS = {
       bannerAction: 'Fill the form for early access',
     },
     feishuLogin: "Sign in with Feishu",
+    wecomLogin: "Sign in with WeCom",
+    wecomConfigMissing: "WeCom sign-in is not configured. Please contact the administrator.",
     orContinueWith: "or continue with",
     callbackMissingParams: "Callback parameters missing, please try again",
     backToLogin: "Back to login",
