@@ -77,10 +77,7 @@ async function handleAccept() {
 
     const data = res.data.data
     if (data.access_token) {
-      localStorage.setItem('token', data.access_token)
-      if (data.refresh_token) {
-        localStorage.setItem('refreshToken', data.refresh_token)
-      }
+      authStore.setTokens(data.access_token, data.refresh_token || '')
       await authStore.fetchUser()
       router.push('/')
     }

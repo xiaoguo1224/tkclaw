@@ -198,6 +198,10 @@ function subscribeSSE() {
     },
   }).catch((e) => {
     if (e instanceof DOMException && e.name === 'AbortError') return
+    if (finalStatus.value === 'in_progress') {
+      finalStatus.value = 'failed'
+      finalMessage.value = 'SSE 连接异常，请刷新页面或在AI 员工列表查看部署状态'
+    }
   })
 }
 

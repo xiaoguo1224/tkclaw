@@ -586,6 +586,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       await api.post(`/workspaces/${workspaceId}/chat`, body)
     } catch (e) {
       console.error('sendWorkspaceMessage error:', e)
+      throw e
     } finally {
       chatLoading.value = false
     }
@@ -596,6 +597,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       await api.post(`/workspaces/${workspaceId}/system-message`, { content })
     } catch (e) {
       console.error('sendSystemMessage error:', e)
+      throw e
     }
   }
 
