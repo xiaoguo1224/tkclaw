@@ -6,7 +6,7 @@ import logging
 import tarfile
 import zipfile
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +22,7 @@ from app.schemas.channel import (
     DeployRepoChannelRequest,
     InstallNpmChannelRequest,
     WecomBindCancelRequest,
+    WecomManualSaveRequest,
 )
 from app.services import wecom_bind_service
 from app.services.channel_config_service import (
@@ -213,28 +214,42 @@ async def upload_channel(
     return _ok(result)
 
 
-@router.post("/{instance_id}/channels/wecom/bind/start")
-async def start_wecom_bind(
+@router.post("/{instance_id}/channels/wecom/install")
+async def install_wecom_plugin(
     instance_id: str,
-    request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     await instance_member_service.check_instance_access(
         instance_id, current_user, InstanceRole.editor, db
     )
-    base_url = str(request.base_url).rstrip("/")
-    data = await wecom_bind_service.start_bind_session(
+    data = await wecom_bind_service.install_official_plugin(
         instance_id=instance_id,
         current_user=current_user,
         db=db,
-        base_url=base_url,
     )
     return _ok(data)
 
 
-@router.get("/{instance_id}/channels/wecom/bind/{session_id}")
-async def get_wecom_bind_status(
+@router.post("/{instance_id}/channels/wecom/qr/start")
+async def start_wecom_qr(
+    instance_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    await instance_member_service.check_instance_access(
+        instance_id, current_user, InstanceRole.editor, db
+    )
+    data = await wecom_bind_service.start_qr_session(
+        instance_id=instance_id,
+        current_user=current_user,
+        db=db,
+    )
+    return _ok(data)
+
+
+@router.get("/{instance_id}/channels/wecom/qr/{session_id}")
+async def get_wecom_qr_status(
     instance_id: str,
     session_id: str,
     db: AsyncSession = Depends(get_db),
@@ -243,7 +258,7 @@ async def get_wecom_bind_status(
     await instance_member_service.check_instance_access(
         instance_id, current_user, InstanceRole.viewer, db
     )
-    data = await wecom_bind_service.get_bind_status(
+    data = await wecom_bind_service.get_qr_status(
         instance_id=instance_id,
         session_id=session_id,
         current_user=current_user,
@@ -252,8 +267,8 @@ async def get_wecom_bind_status(
     return _ok(data)
 
 
-@router.post("/{instance_id}/channels/wecom/bind/cancel")
-async def cancel_wecom_bind(
+@router.post("/{instance_id}/channels/wecom/qr/cancel")
+async def cancel_wecom_qr(
     instance_id: str,
     body: WecomBindCancelRequest,
     db: AsyncSession = Depends(get_db),
@@ -262,11 +277,31 @@ async def cancel_wecom_bind(
     await instance_member_service.check_instance_access(
         instance_id, current_user, InstanceRole.editor, db
     )
-    data = await wecom_bind_service.cancel_bind_session(
+    data = await wecom_bind_service.cancel_qr_session(
         instance_id=instance_id,
         current_user=current_user,
         db=db,
         session_id=body.session_id,
+    )
+    return _ok(data)
+
+
+@router.post("/{instance_id}/channels/wecom/manual-save")
+async def save_wecom_manual_config(
+    instance_id: str,
+    body: WecomManualSaveRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    await instance_member_service.check_instance_access(
+        instance_id, current_user, InstanceRole.editor, db
+    )
+    data = await wecom_bind_service.save_manual_config(
+        instance_id=instance_id,
+        current_user=current_user,
+        db=db,
+        bot_id=body.bot_id,
+        secret=body.secret,
     )
     return _ok(data)
 

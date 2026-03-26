@@ -53,6 +53,7 @@ class ChannelWriteResult(BaseModel):
 class WecomBindStartResponse(BaseModel):
     session_id: str
     status: str
+    scode: str
     qr_url: str
     expires_at: datetime
 
@@ -60,12 +61,18 @@ class WecomBindStartResponse(BaseModel):
 class WecomBindStatusResponse(BaseModel):
     session_id: str
     status: str
+    scode: str
     qr_url: str
     expires_at: datetime
-    bound_user_id: str | None = None
+    bot_id: str | None = None
     message_key: str | None = None
     message: str | None = None
 
 
 class WecomBindCancelRequest(BaseModel):
     session_id: str | None = None
+
+
+class WecomManualSaveRequest(BaseModel):
+    bot_id: str = Field(..., min_length=1, max_length=128)
+    secret: str = Field(..., min_length=1, max_length=256)

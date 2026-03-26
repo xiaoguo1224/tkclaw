@@ -38,10 +38,13 @@ interface AvailableChannel {
 interface WecomBindSession {
   session_id: string
   status: 'pending' | 'bound' | 'failed' | 'expired' | 'cancelled'
+  scode: string
   qr_url: string
   expires_at: string
-  bound_user_id?: string | null
+  bot_id?: string | null
 }
+
+type WecomConnectMode = 'official_qr' | 'manual'
 
 const supportsPluginInstall = computed(() => instanceRuntime.value === 'openclaw')
 
@@ -97,13 +100,20 @@ const deployingRepo = ref(false)
 const wecomBindOpen = ref(false)
 const wecomBinding = ref(false)
 const wecomCancelling = ref(false)
+const wecomInstalling = ref(false)
+const wecomManualSaving = ref(false)
 const wecomBindSession = ref<WecomBindSession | null>(null)
+const wecomMode = ref<WecomConnectMode>('official_qr')
+const wecomManualForm = ref({
+  botId: '',
+  secret: '',
+})
 let wecomPollTimer: number | null = null
 
 const SENSITIVE_KEYS = new Set([
   'appSecret', 'botToken', 'appToken', 'token', 'appPassword',
   'accessToken', 'encryptKey', 'verificationToken', 'apiKey',
-  'serviceAccountKeyFile', 'clientSecret',
+  'serviceAccountKeyFile', 'clientSecret', 'secret',
 ])
 
 const configuredChannels = computed(() =>
@@ -188,7 +198,7 @@ function updateJsonEditor(channelId: string, value: string) {
     editingConfigs.value[channelId] = parsed
     markDirty()
   } catch {
-    jsonEditorErrors.value[channelId] = 'JSON 格式错误'
+    jsonEditorErrors.value[channelId] = t('channel.jsonInvalid')
   }
 }
 
@@ -325,6 +335,15 @@ async function handleUpload(event: Event) {
   }
 }
 
+async function ensureWecomPluginInstalled() {
+  wecomInstalling.value = true
+  try {
+    await api.post(`/instances/${instanceId.value}/channels/wecom/install`, {}, { timeout: 120000 })
+  } finally {
+    wecomInstalling.value = false
+  }
+}
+
 function stopWecomPolling() {
   if (wecomPollTimer !== null) {
     window.clearInterval(wecomPollTimer)
@@ -336,7 +355,7 @@ async function fetchWecomBindStatus() {
   const sessionId = wecomBindSession.value?.session_id
   if (!sessionId) return
   try {
-    const res = await api.get(`/instances/${instanceId.value}/channels/wecom/bind/${sessionId}`)
+    const res = await api.get(`/instances/${instanceId.value}/channels/wecom/qr/${sessionId}`)
     const data = res.data?.data as WecomBindSession
     if (!data) return
     wecomBindSession.value = data
@@ -370,7 +389,8 @@ async function handleWecomBindStart() {
   wecomBinding.value = true
   error.value = ''
   try {
-    const res = await api.post(`/instances/${instanceId.value}/channels/wecom/bind/start`)
+    await ensureWecomPluginInstalled()
+    const res = await api.post(`/instances/${instanceId.value}/channels/wecom/qr/start`)
     const data = res.data?.data as WecomBindSession
     wecomBindSession.value = data
     startWecomPolling()
@@ -383,7 +403,9 @@ async function handleWecomBindStart() {
 
 function openWecomBindDialog() {
   wecomBindOpen.value = true
+  wecomMode.value = 'official_qr'
   wecomBindSession.value = null
+  wecomManualForm.value = { botId: '', secret: '' }
   handleWecomBindStart()
 }
 
@@ -400,7 +422,7 @@ async function handleWecomCancel() {
   }
   wecomCancelling.value = true
   try {
-    await api.post(`/instances/${instanceId.value}/channels/wecom/bind/cancel`, { session_id: sessionId })
+    await api.post(`/instances/${instanceId.value}/channels/wecom/qr/cancel`, { session_id: sessionId })
     successMsg.value = t('channel.wecomBindCancelled')
     stopWecomPolling()
     wecomBindSession.value = {
@@ -411,6 +433,39 @@ async function handleWecomCancel() {
     error.value = e?.response?.data?.message || t('channel.wecomCancelFailed')
   } finally {
     wecomCancelling.value = false
+  }
+}
+
+function switchWecomMode(mode: WecomConnectMode) {
+  wecomMode.value = mode
+  error.value = ''
+  successMsg.value = ''
+  if (mode === 'official_qr') {
+    handleWecomBindStart()
+    return
+  }
+  stopWecomPolling()
+}
+
+async function handleWecomManualSave() {
+  if (!wecomManualForm.value.botId.trim() || !wecomManualForm.value.secret.trim()) {
+    error.value = t('channel.wecomManualRequired')
+    return
+  }
+  wecomManualSaving.value = true
+  error.value = ''
+  try {
+    await api.post(`/instances/${instanceId.value}/channels/wecom/manual-save`, {
+      bot_id: wecomManualForm.value.botId.trim(),
+      secret: wecomManualForm.value.secret.trim(),
+    }, { timeout: 120000 })
+    successMsg.value = t('channel.wecomManualSaveSuccess')
+    closeWecomBindDialog()
+    await loadAll()
+  } catch (e: any) {
+    error.value = e?.response?.data?.message || t('channel.wecomManualSaveFailed')
+  } finally {
+    wecomManualSaving.value = false
   }
 }
 
@@ -626,7 +681,7 @@ watch(() => instanceId.value, (val) => {
               v-if="ch.id === 'wecom' && isChannelSupportedByRuntime(ch)"
               class="text-[10px] text-emerald-400 mt-1"
             >
-              {{ t('channel.wecomBindAction') }}
+              {{ t('channel.wecomConnectAction') }}
             </div>
           </button>
         </div>
@@ -723,46 +778,109 @@ watch(() => instanceId.value, (val) => {
         </div>
 
         <p class="text-xs text-muted-foreground">
-          {{ t('channel.wecomBindHint') }}
+          {{ t(wecomMode === 'official_qr' ? 'channel.wecomBindHint' : 'channel.wecomManualHint') }}
         </p>
 
-        <div class="rounded-lg border border-border bg-background p-3 flex items-center justify-center min-h-[240px]">
+        <div class="grid grid-cols-2 gap-2">
+          <button
+            class="px-3 py-2 rounded-md border text-xs transition-colors"
+            :class="wecomMode === 'official_qr' ? 'border-primary bg-primary/10 text-foreground' : 'border-border text-muted-foreground hover:text-foreground'"
+            @click="switchWecomMode('official_qr')"
+          >
+            {{ t('channel.wecomOfficialQrMode') }}
+          </button>
+          <button
+            class="px-3 py-2 rounded-md border text-xs transition-colors"
+            :class="wecomMode === 'manual' ? 'border-primary bg-primary/10 text-foreground' : 'border-border text-muted-foreground hover:text-foreground'"
+            @click="switchWecomMode('manual')"
+          >
+            {{ t('channel.wecomManualMode') }}
+          </button>
+        </div>
+
+        <div
+          v-if="wecomMode === 'official_qr'"
+          class="rounded-lg border border-border bg-background p-3 flex items-center justify-center min-h-[240px]"
+        >
           <Loader2
-            v-if="wecomBinding || !wecomBindSession?.qr_url"
+            v-if="wecomBinding || wecomInstalling || !wecomBindSession?.qr_url"
             class="w-6 h-6 animate-spin text-muted-foreground"
           />
-          <img
+          <iframe
             v-else
             :src="wecomBindSession.qr_url"
-            :alt="t('channel.wecomQrAlt')"
-            class="w-56 h-56 object-contain"
+            :title="t('channel.wecomQrAlt')"
+            class="w-full h-[320px] rounded border-0 bg-white"
           />
         </div>
 
-        <div class="text-xs text-muted-foreground space-y-1">
+        <div v-else class="space-y-3">
+          <div class="space-y-1">
+            <label class="text-xs text-muted-foreground">{{ t('channel.wecomBotIdLabel') }}</label>
+            <input
+              v-model="wecomManualForm.botId"
+              type="text"
+              class="w-full px-3 py-2 rounded-md bg-background border border-border text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
+              :placeholder="t('channel.wecomBotIdPlaceholder')"
+            />
+          </div>
+          <div class="space-y-1">
+            <label class="text-xs text-muted-foreground">{{ t('channel.wecomSecretLabel') }}</label>
+            <input
+              v-model="wecomManualForm.secret"
+              type="password"
+              class="w-full px-3 py-2 rounded-md bg-background border border-border text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
+              :placeholder="t('channel.wecomSecretPlaceholder')"
+            />
+          </div>
+        </div>
+
+        <div v-if="wecomMode === 'official_qr'" class="text-xs text-muted-foreground space-y-1">
           <p>
             {{ t('channel.wecomBindStatus') }}:
             <span class="text-foreground">{{ t(`channel.wecomStatus_${wecomBindSession?.status || 'pending'}`) }}</span>
           </p>
+          <p v-if="wecomBindSession?.bot_id">
+            {{ t('channel.wecomBotIdLabel') }}: {{ wecomBindSession.bot_id }}
+          </p>
           <p v-if="wecomBindSession?.expires_at">
             {{ t('channel.wecomQrExpiresAt') }}: {{ new Date(wecomBindSession.expires_at).toLocaleString() }}
           </p>
+          <a
+            v-if="wecomBindSession?.qr_url"
+            :href="wecomBindSession.qr_url"
+            target="_blank"
+            rel="noreferrer"
+            class="text-primary hover:underline"
+          >
+            {{ t('channel.wecomOpenQrPage') }}
+          </a>
         </div>
 
         <div class="flex items-center justify-end gap-2">
+          <template v-if="wecomMode === 'official_qr'">
+            <button
+              class="px-3 py-1.5 rounded-md border border-border text-xs hover:bg-muted/50"
+              :disabled="wecomBinding || wecomInstalling"
+              @click="handleWecomBindStart"
+            >
+              {{ t('channel.wecomRefreshQr') }}
+            </button>
+            <button
+              class="px-3 py-1.5 rounded-md border border-border text-xs hover:bg-muted/50"
+              :disabled="wecomCancelling"
+              @click="handleWecomCancel"
+            >
+              {{ wecomCancelling ? t('channel.saving') : t('channel.wecomCancel') }}
+            </button>
+          </template>
           <button
-            class="px-3 py-1.5 rounded-md border border-border text-xs hover:bg-muted/50"
-            :disabled="wecomBinding"
-            @click="handleWecomBindStart"
+            v-else
+            class="px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs hover:bg-primary/90 disabled:opacity-60"
+            :disabled="wecomManualSaving || wecomInstalling"
+            @click="handleWecomManualSave"
           >
-            {{ t('channel.wecomRefreshQr') }}
-          </button>
-          <button
-            class="px-3 py-1.5 rounded-md border border-border text-xs hover:bg-muted/50"
-            :disabled="wecomCancelling"
-            @click="handleWecomCancel"
-          >
-            {{ wecomCancelling ? t('channel.saving') : t('channel.wecomCancel') }}
+            {{ wecomManualSaving ? t('channel.saving') : t('channel.wecomManualSave') }}
           </button>
         </div>
       </div>
