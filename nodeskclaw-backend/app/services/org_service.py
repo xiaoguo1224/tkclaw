@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import BadRequestError, ConflictError, ForbiddenError, NotFoundError
 from app.models.admin_membership import AdminMembership
 from app.models.base import not_deleted
+from app.models.cluster import Cluster
 from app.models.oauth_connection import UserOAuthConnection
 from app.models.org_membership import OrgMembership, OrgRole
 from app.models.org_oauth_binding import OrgOAuthBinding
@@ -21,7 +22,15 @@ from app.models.user_llm_key import UserLlmKey
 from app.models.user import User, UserRole
 from app.schemas.deploy import DeployRequest
 from app.schemas.llm import LlmConfigItem
-from app.schemas.organization import AiProvisionInfo, MemberInfo, OAuthOrgSetupRequest, OrgCreate, OrgInfo, OrgUpdate
+from app.schemas.organization import (
+    AiProvisionInfo,
+    MemberDefaultAiCandidateInfo,
+    MemberInfo,
+    OAuthOrgSetupRequest,
+    OrgCreate,
+    OrgInfo,
+    OrgUpdate,
+)
 from app.services import department_service, deploy_service
 from app.services.registry_service import list_image_tags
 
@@ -274,6 +283,21 @@ async def delete_org(org_id: str, db: AsyncSession) -> None:
 
 # ── 成员管理 ─────────────────────────────────────────────
 
+
+async def _load_active_default_instance_map(
+    org_id: str, default_instance_ids: list[str], db: AsyncSession,
+) -> dict[str, Instance]:
+    if not default_instance_ids:
+        return {}
+    result = await db.execute(
+        select(Instance).where(
+            Instance.id.in_(default_instance_ids),
+            Instance.org_id == org_id,
+            not_deleted(Instance),
+        )
+    )
+    return {inst.id: inst for inst in result.scalars().all()}
+
 async def list_members(
     org_id: str, db: AsyncSession, *, current_user_id: str | None = None,
 ) -> list[MemberInfo]:
@@ -302,8 +326,19 @@ async def list_members(
     department_memberships = await department_service.list_user_department_memberships(
         org_id, [user.id for _membership, user in rows], db,
     )
+    default_instance_ids = [
+        membership.default_instance_id
+        for membership, _user in rows
+        if membership.default_instance_id
+    ]
+    default_instance_map = await _load_active_default_instance_map(org_id, default_instance_ids, db)
     members = []
     for membership, user in rows:
+        default_instance = (
+            default_instance_map.get(membership.default_instance_id)
+            if membership.default_instance_id
+            else None
+        )
         primary_department_id, primary_department_name, secondary_department_ids, secondary_departments, is_department_manager = (
             department_service.summarize_user_departments(department_memberships.get(user.id, []))
         )
@@ -321,6 +356,9 @@ async def list_members(
             secondary_department_ids=secondary_department_ids,
             secondary_departments=secondary_departments,
             is_department_manager=is_department_manager,
+            default_ai_instance_id=default_instance.id if default_instance else None,
+            default_ai_instance_name=default_instance.name if default_instance else None,
+            has_default_ai=bool(default_instance),
             created_at=membership.created_at,
         ))
     return members
@@ -523,6 +561,10 @@ async def add_member(
     await db.commit()
     await db.refresh(membership)
     ai_provision = await provision_default_ai_employee_for_member(org_id, user, db)
+    if ai_provision.status == "success" and ai_provision.instance_id:
+        membership.default_instance_id = ai_provision.instance_id
+        await db.commit()
+        await db.refresh(membership)
 
     department_memberships = await department_service.list_user_department_memberships(org_id, [user.id], db)
     primary_id, primary_name, secondary_department_ids, secondary_departments, is_department_manager = (
@@ -543,6 +585,9 @@ async def add_member(
         secondary_department_ids=secondary_department_ids,
         secondary_departments=secondary_departments,
         is_department_manager=is_department_manager,
+        default_ai_instance_id=membership.default_instance_id,
+        default_ai_instance_name=_build_ai_employee_name(user.name) if membership.default_instance_id else None,
+        has_default_ai=bool(membership.default_instance_id),
         ai_provision=ai_provision,
         created_at=membership.created_at,
     )
@@ -598,6 +643,10 @@ async def create_member_direct(
     await db.commit()
     await db.refresh(membership)
     ai_provision = await provision_default_ai_employee_for_member(org_id, user, db)
+    if ai_provision.status == "success" and ai_provision.instance_id:
+        membership.default_instance_id = ai_provision.instance_id
+        await db.commit()
+        await db.refresh(membership)
 
     department_memberships = await department_service.list_user_department_memberships(org_id, [user.id], db)
     primary_id, primary_name, secondary_department_ids, secondary_departments, is_department_manager = (
@@ -618,7 +667,130 @@ async def create_member_direct(
         secondary_department_ids=secondary_department_ids,
         secondary_departments=secondary_departments,
         is_department_manager=is_department_manager,
+        default_ai_instance_id=membership.default_instance_id,
+        default_ai_instance_name=_build_ai_employee_name(user.name) if membership.default_instance_id else None,
+        has_default_ai=bool(membership.default_instance_id),
         ai_provision=ai_provision,
+        created_at=membership.created_at,
+    )
+
+
+async def set_org_default_cluster(
+    org_id: str, cluster_id: str | None, db: AsyncSession,
+) -> OrgInfo:
+    org = await get_org(org_id, db)
+    if cluster_id is None:
+        org.cluster_id = None
+        await db.commit()
+        await db.refresh(org)
+        return OrgInfo.model_validate(org)
+
+    cluster = (await db.execute(
+        select(Cluster).where(Cluster.id == cluster_id, not_deleted(Cluster))
+    )).scalar_one_or_none()
+    if cluster is None:
+        raise NotFoundError("集群不存在")
+    if cluster.org_id not in (None, org_id):
+        raise ForbiddenError("该集群不在当前组织可用范围")
+    org.cluster_id = cluster.id
+    await db.commit()
+    await db.refresh(org)
+    return OrgInfo.model_validate(org)
+
+
+async def list_member_default_ai_candidates(
+    org_id: str, membership_id: str, db: AsyncSession,
+) -> list[MemberDefaultAiCandidateInfo]:
+    row = (await db.execute(
+        select(OrgMembership).where(
+            OrgMembership.id == membership_id,
+            OrgMembership.org_id == org_id,
+            not_deleted(OrgMembership),
+        )
+    )).scalar_one_or_none()
+    if row is None:
+        raise NotFoundError("成员记录不存在")
+
+    result = await db.execute(
+        select(Instance).where(
+            Instance.org_id == org_id,
+            Instance.created_by == row.user_id,
+            not_deleted(Instance),
+        ).order_by(Instance.created_at.desc())
+    )
+    return [
+        MemberDefaultAiCandidateInfo(id=inst.id, name=inst.name, status=inst.status)
+        for inst in result.scalars().all()
+    ]
+
+
+async def update_member_default_ai(
+    org_id: str,
+    membership_id: str,
+    instance_id: str | None,
+    db: AsyncSession,
+) -> MemberInfo:
+    row = await db.execute(
+        select(OrgMembership, User)
+        .join(User, OrgMembership.user_id == User.id)
+        .where(
+            OrgMembership.id == membership_id,
+            OrgMembership.org_id == org_id,
+            not_deleted(OrgMembership),
+            not_deleted(User),
+        )
+    )
+    pair = row.first()
+    if pair is None:
+        raise NotFoundError("成员记录不存在")
+    membership, user = pair
+
+    if instance_id is None:
+        membership.default_instance_id = None
+    else:
+        instance = (await db.execute(
+            select(Instance).where(
+                Instance.id == instance_id,
+                not_deleted(Instance),
+            )
+        )).scalar_one_or_none()
+        if instance is None:
+            raise NotFoundError("AI 员工不存在")
+        if instance.org_id != org_id:
+            raise ForbiddenError("不允许关联其他组织的 AI 员工")
+        if instance.created_by != membership.user_id:
+            raise ForbiddenError("仅可关联该成员创建的 AI 员工")
+        membership.default_instance_id = instance.id
+
+    await db.commit()
+
+    default_map = await _load_active_default_instance_map(
+        org_id,
+        [membership.default_instance_id] if membership.default_instance_id else [],
+        db,
+    )
+    default_instance = default_map.get(membership.default_instance_id) if membership.default_instance_id else None
+    department_memberships = await department_service.list_user_department_memberships(org_id, [user.id], db)
+    primary_id, primary_name, secondary_department_ids, secondary_departments, is_department_manager = (
+        department_service.summarize_user_departments(department_memberships.get(user.id, []))
+    )
+    return MemberInfo(
+        id=membership.id,
+        user_id=membership.user_id,
+        org_id=membership.org_id,
+        role=membership.role,
+        is_super_admin=user.is_super_admin,
+        user_name=user.name,
+        user_email=user.email,
+        user_avatar_url=user.avatar_url,
+        primary_department_id=primary_id,
+        primary_department_name=primary_name,
+        secondary_department_ids=secondary_department_ids,
+        secondary_departments=secondary_departments,
+        is_department_manager=is_department_manager,
+        default_ai_instance_id=default_instance.id if default_instance else None,
+        default_ai_instance_name=default_instance.name if default_instance else None,
+        has_default_ai=bool(default_instance),
         created_at=membership.created_at,
     )
 
@@ -641,6 +813,12 @@ async def update_member_role(org_id: str, membership_id: str, role: str, db: Asy
     membership, user = row
     membership.role = role
     await db.commit()
+    default_map = await _load_active_default_instance_map(
+        org_id,
+        [membership.default_instance_id] if membership.default_instance_id else [],
+        db,
+    )
+    default_instance = default_map.get(membership.default_instance_id) if membership.default_instance_id else None
     department_memberships = await department_service.list_user_department_memberships(org_id, [user.id], db)
     primary_id, primary_name, secondary_department_ids, secondary_departments, is_department_manager = (
         department_service.summarize_user_departments(department_memberships.get(user.id, []))
@@ -660,6 +838,9 @@ async def update_member_role(org_id: str, membership_id: str, role: str, db: Asy
         secondary_department_ids=secondary_department_ids,
         secondary_departments=secondary_departments,
         is_department_manager=is_department_manager,
+        default_ai_instance_id=default_instance.id if default_instance else None,
+        default_ai_instance_name=default_instance.name if default_instance else None,
+        has_default_ai=bool(default_instance),
         created_at=membership.created_at,
     )
 
@@ -693,6 +874,12 @@ async def update_member_departments(
         db=db,
     )
     await db.commit()
+    default_map = await _load_active_default_instance_map(
+        org_id,
+        [membership.default_instance_id] if membership.default_instance_id else [],
+        db,
+    )
+    default_instance = default_map.get(membership.default_instance_id) if membership.default_instance_id else None
     department_memberships = await department_service.list_user_department_memberships(org_id, [user.id], db)
     primary_id, primary_name, secondary_department_ids, secondary_departments, is_department_manager = (
         department_service.summarize_user_departments(department_memberships.get(user.id, []))
@@ -712,6 +899,9 @@ async def update_member_departments(
         secondary_department_ids=secondary_department_ids,
         secondary_departments=secondary_departments,
         is_department_manager=is_department_manager,
+        default_ai_instance_id=default_instance.id if default_instance else None,
+        default_ai_instance_name=default_instance.name if default_instance else None,
+        has_default_ai=bool(default_instance),
         created_at=membership.created_at,
     )
 

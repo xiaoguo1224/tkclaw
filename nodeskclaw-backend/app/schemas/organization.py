@@ -52,6 +52,10 @@ class OrgNameUpdate(BaseModel):
     name: str
 
 
+class OrgDefaultClusterUpdateRequest(BaseModel):
+    cluster_id: str | None = None
+
+
 class AiProvisionInfo(BaseModel):
     status: str
     instance_id: str | None = None
@@ -73,6 +77,9 @@ class MemberInfo(BaseModel):
     secondary_department_ids: list[str] = []
     secondary_departments: list[str] = []
     is_department_manager: bool = False
+    default_ai_instance_id: str | None = None
+    default_ai_instance_name: str | None = None
+    has_default_ai: bool = False
     ai_provision: AiProvisionInfo | None = None
     created_at: datetime
 
@@ -112,6 +119,16 @@ class UpdateMemberRoleRequest(BaseModel):
 class UpdateMemberDepartmentsRequest(BaseModel):
     primary_department_id: str | None = None
     secondary_department_ids: list[str] = []
+
+
+class UpdateMemberDefaultAiRequest(BaseModel):
+    instance_id: str | None = None
+
+
+class MemberDefaultAiCandidateInfo(BaseModel):
+    id: str
+    name: str
+    status: str
 
 
 class OAuthOrgSetupRequest(BaseModel):

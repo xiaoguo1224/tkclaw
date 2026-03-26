@@ -3,6 +3,7 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useClusterStore, type ClusterInfo } from '@/stores/cluster'
+import { useOrgStore } from '@/stores/org'
 import { useFeature } from '@/composables/useFeature'
 import { useToast } from '@/composables/useToast'
 import { useConfirm } from '@/composables/useConfirm'
@@ -12,6 +13,7 @@ import {
   Container,
   Plus,
   Loader2,
+  Check,
   Plug,
   Pencil,
   Trash2,
@@ -22,6 +24,7 @@ import {
 const { t } = useI18n()
 const router = useRouter()
 const clusterStore = useClusterStore()
+const orgStore = useOrgStore()
 const toast = useToast()
 const { confirm } = useConfirm()
 const { isEnabled: isMultiCluster } = useFeature('multi_cluster')
@@ -41,6 +44,7 @@ const renaming = ref(false)
 const showKubeconfigDialog = ref(false)
 const kubeconfigForm = ref({ id: '', kubeconfig: '' })
 const updatingKubeconfig = ref(false)
+const settingDefaultClusterId = ref<string | null>(null)
 
 type DisplayMode = 'setup' | 'single' | 'list'
 
@@ -54,6 +58,7 @@ const displayMode = computed<DisplayMode>(() => {
 const canAddCluster = computed(() => isMultiCluster.value || clusterStore.clusters.length === 0)
 
 const singleCluster = computed(() => clusterStore.clusters[0] ?? null)
+const defaultClusterId = computed(() => orgStore.currentOrg?.cluster_id ?? null)
 
 const addFormValid = computed(() => {
   if (!addForm.value.name.trim()) return false
@@ -95,9 +100,36 @@ function selectType(type: 'docker' | 'k8s') {
 }
 
 onMounted(async () => {
-  await clusterStore.fetchClusters()
+  await Promise.all([
+    clusterStore.fetchClusters(),
+    orgStore.fetchCurrentOrg(),
+  ])
   loading.value = false
 })
+
+async function handleSetDefaultCluster(cluster: ClusterInfo) {
+  settingDefaultClusterId.value = cluster.id
+  try {
+    await orgStore.updateCurrentOrgDefaultCluster(cluster.id)
+    toast.success(t('clusters.setDefaultSuccess'))
+  } catch (e) {
+    toast.error(resolveApiErrorMessage(e, t('clusters.setDefaultFailed')))
+  } finally {
+    settingDefaultClusterId.value = null
+  }
+}
+
+async function handleClearDefaultCluster() {
+  settingDefaultClusterId.value = '__clear__'
+  try {
+    await orgStore.updateCurrentOrgDefaultCluster(null)
+    toast.success(t('clusters.setDefaultSuccess'))
+  } catch (e) {
+    toast.error(resolveApiErrorMessage(e, t('clusters.setDefaultFailed')))
+  } finally {
+    settingDefaultClusterId.value = null
+  }
+}
 
 async function handleAdd() {
   if (!addFormValid.value) return
@@ -262,6 +294,12 @@ function statusDotClass(status: string) {
             <div>
               <div class="flex items-center gap-2">
                 <span class="font-semibold">{{ singleCluster.name }}</span>
+                <span
+                  v-if="defaultClusterId === singleCluster.id"
+                  class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium bg-primary/15 text-primary"
+                >
+                  {{ t('clusters.defaultBadge') }}
+                </span>
                 <span class="w-2 h-2 rounded-full" :class="statusDotClass(singleCluster.status)" />
                 <span class="text-xs text-muted-foreground">{{ t(`clusters.status.${singleCluster.status}`) }}</span>
               </div>
@@ -302,6 +340,24 @@ function statusDotClass(status: string) {
             <Trash2 class="w-3.5 h-3.5" />
             {{ t('common.delete') }}
           </button>
+          <button
+            v-if="defaultClusterId !== singleCluster.id"
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-sm hover:bg-accent transition-colors disabled:opacity-50"
+            :disabled="settingDefaultClusterId === singleCluster.id"
+            @click="handleSetDefaultCluster(singleCluster)"
+          >
+            <Loader2 v-if="settingDefaultClusterId === singleCluster.id" class="w-3.5 h-3.5 animate-spin" />
+            <span>{{ t('clusters.setDefault') }}</span>
+          </button>
+          <button
+            v-else
+            class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-sm hover:bg-accent transition-colors disabled:opacity-50"
+            :disabled="settingDefaultClusterId === '__clear__'"
+            @click="handleClearDefaultCluster"
+          >
+            <Loader2 v-if="settingDefaultClusterId === '__clear__'" class="w-3.5 h-3.5 animate-spin" />
+            <span>{{ t('clusters.clearDefault') }}</span>
+          </button>
           <div class="flex-1" />
           <button
             v-if="!isDockerCluster(singleCluster)"
@@ -337,6 +393,12 @@ function statusDotClass(status: string) {
             <div class="min-w-0">
               <div class="flex items-center gap-2">
                 <span class="font-medium text-sm truncate">{{ cluster.name }}</span>
+                <span
+                  v-if="defaultClusterId === cluster.id"
+                  class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-primary/15 text-primary"
+                >
+                  {{ t('clusters.defaultBadge') }}
+                </span>
                 <span class="w-2 h-2 rounded-full shrink-0" :class="statusDotClass(cluster.status)" />
               </div>
               <div class="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
@@ -353,6 +415,26 @@ function statusDotClass(status: string) {
           </div>
 
           <div class="flex items-center gap-1.5 shrink-0 ml-3" @click.stop>
+            <button
+              v-if="defaultClusterId !== cluster.id"
+              class="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-50"
+              :disabled="settingDefaultClusterId === cluster.id"
+              :title="t('clusters.setDefault')"
+              @click="handleSetDefaultCluster(cluster)"
+            >
+              <Loader2 v-if="settingDefaultClusterId === cluster.id" class="w-4 h-4 animate-spin" />
+              <Check v-else class="w-4 h-4" />
+            </button>
+            <button
+              v-else
+              class="p-1.5 rounded-md text-primary hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-50"
+              :disabled="settingDefaultClusterId === '__clear__'"
+              :title="t('clusters.clearDefault')"
+              @click="handleClearDefaultCluster"
+            >
+              <Loader2 v-if="settingDefaultClusterId === '__clear__'" class="w-4 h-4 animate-spin" />
+              <X v-else class="w-4 h-4" />
+            </button>
             <button
               class="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-50"
               :disabled="testingId === cluster.id"

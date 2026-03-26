@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useOrgStore, type MemberInfo } from '@/stores/org'
+import { useOrgStore, type MemberDefaultAiCandidateInfo, type MemberInfo } from '@/stores/org'
 import { useAuthStore } from '@/stores/auth'
 import {
   Users,
@@ -57,6 +57,12 @@ const directLoading = ref(false)
 const editingDepartmentsMemberId = ref<string | null>(null)
 const editingPrimaryDepartmentId = ref<string | null>(null)
 const editingSecondaryDepartmentIds = ref<string[]>([])
+const showDefaultAiDialog = ref(false)
+const defaultAiMember = ref<MemberInfo | null>(null)
+const defaultAiCandidates = ref<MemberDefaultAiCandidateInfo[]>([])
+const selectedDefaultAiInstanceId = ref<string | null>(null)
+const defaultAiLoading = ref(false)
+const defaultAiSaving = ref(false)
 
 // roles
 const roles = ref<Array<{ id: string; name_key: string }>>([])
@@ -251,6 +257,42 @@ async function handleDirectCreate() {
     toast.error(resolveApiErrorMessage(e, t('orgMembers.directAddFailed')))
   } finally {
     directLoading.value = false
+  }
+}
+
+async function openDefaultAiDialog(member: MemberInfo) {
+  defaultAiMember.value = member
+  selectedDefaultAiInstanceId.value = member.default_ai_instance_id
+  defaultAiCandidates.value = []
+  showDefaultAiDialog.value = true
+  defaultAiLoading.value = true
+  try {
+    defaultAiCandidates.value = await orgStore.listMemberDefaultAiCandidates(member.id)
+  } catch (e) {
+    toast.error(resolveApiErrorMessage(e, t('orgMembers.loadDefaultAiFailed')))
+  } finally {
+    defaultAiLoading.value = false
+  }
+}
+
+function closeDefaultAiDialog() {
+  showDefaultAiDialog.value = false
+  defaultAiMember.value = null
+  defaultAiCandidates.value = []
+  selectedDefaultAiInstanceId.value = null
+}
+
+async function saveDefaultAi() {
+  if (!defaultAiMember.value) return
+  defaultAiSaving.value = true
+  try {
+    await orgStore.updateMemberDefaultAi(defaultAiMember.value.id, selectedDefaultAiInstanceId.value)
+    toast.success(t('orgMembers.saveDefaultAiSuccess'))
+    closeDefaultAiDialog()
+  } catch (e) {
+    toast.error(resolveApiErrorMessage(e, t('orgMembers.saveDefaultAiFailed')))
+  } finally {
+    defaultAiSaving.value = false
   }
 }
 
@@ -484,6 +526,11 @@ async function copyPassword() {
                 <p class="text-xs text-muted-foreground mt-1">
                   {{ t('orgMembers.primaryDepartmentLabel') }}: {{ member.primary_department_name || t('orgMembers.noDepartment') }}
                 </p>
+                <p class="text-xs text-muted-foreground mt-0.5">
+                  {{ t('orgMembers.defaultAiLabel') }}:
+                  <span v-if="member.has_default_ai && member.default_ai_instance_name">{{ member.default_ai_instance_name }}</span>
+                  <span v-else>{{ t('orgMembers.defaultAiNone') }}</span>
+                </p>
                 <p v-if="member.secondary_departments.length > 0" class="text-xs text-muted-foreground mt-0.5">
                   {{ t('orgMembers.secondaryDepartmentsLabel') }}: {{ member.secondary_departments.join(' / ') }}
                 </p>
@@ -561,9 +608,14 @@ async function copyPassword() {
           </div>
           </div>
           <div v-else-if="isOrgAdmin && member.user_id !== authStore.user?.id" class="mt-3 pt-3 border-t border-border">
-            <button class="text-xs text-primary hover:underline" @click="openDepartmentEditor(member)">
-              {{ t('orgMembers.editDepartments') }}
-            </button>
+            <div class="flex items-center gap-3">
+              <button class="text-xs text-primary hover:underline" @click="openDepartmentEditor(member)">
+                {{ t('orgMembers.editDepartments') }}
+              </button>
+              <button class="text-xs text-primary hover:underline" @click="openDefaultAiDialog(member)">
+                {{ t('orgMembers.manageDefaultAi') }}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -841,6 +893,72 @@ async function copyPassword() {
               </button>
             </div>
           </template>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- Default AI Dialog -->
+    <Teleport to="body">
+      <div
+        v-if="showDefaultAiDialog"
+        class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+        @click.self="closeDefaultAiDialog"
+      >
+        <div class="bg-card rounded-2xl border border-border shadow-xl w-full max-w-lg p-6 space-y-4">
+          <div class="flex items-center justify-between">
+            <h3 class="font-semibold text-base">
+              {{ t('orgMembers.defaultAiDialogTitle', { name: defaultAiMember?.user_name || defaultAiMember?.user_email || '-' }) }}
+            </h3>
+            <button class="text-muted-foreground hover:text-foreground" @click="closeDefaultAiDialog">
+              <X class="w-4 h-4" />
+            </button>
+          </div>
+
+          <div v-if="defaultAiLoading" class="flex items-center justify-center py-10">
+            <Loader2 class="w-5 h-5 animate-spin text-muted-foreground" />
+          </div>
+          <div v-else class="space-y-2 max-h-[320px] overflow-y-auto">
+            <label class="flex items-center gap-2 text-sm p-2 rounded border border-border hover:bg-accent/40">
+              <input
+                v-model="selectedDefaultAiInstanceId"
+                type="radio"
+                :value="null"
+                class="accent-primary"
+              />
+              <span>{{ t('orgMembers.defaultAiOptionNone') }}</span>
+            </label>
+            <label
+              v-for="item in defaultAiCandidates"
+              :key="item.id"
+              class="flex items-center gap-2 text-sm p-2 rounded border border-border hover:bg-accent/40"
+            >
+              <input
+                v-model="selectedDefaultAiInstanceId"
+                type="radio"
+                :value="item.id"
+                class="accent-primary"
+              />
+              <span class="font-medium">{{ item.name }}</span>
+              <span class="text-xs text-muted-foreground">({{ t(`status.${item.status}`) }})</span>
+            </label>
+          </div>
+
+          <div class="flex justify-end gap-2 pt-1">
+            <button
+              class="px-4 py-2 rounded-lg border border-border text-sm hover:bg-accent transition-colors"
+              @click="closeDefaultAiDialog"
+            >
+              {{ t('common.cancel') }}
+            </button>
+            <button
+              class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50"
+              :disabled="defaultAiSaving"
+              @click="saveDefaultAi"
+            >
+              <Loader2 v-if="defaultAiSaving" class="w-4 h-4 animate-spin" />
+              {{ t('common.save') }}
+            </button>
+          </div>
         </div>
       </div>
     </Teleport>

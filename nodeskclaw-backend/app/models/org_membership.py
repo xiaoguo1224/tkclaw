@@ -32,6 +32,9 @@ class OrgMembership(BaseModel):
     org_id: Mapped[str] = mapped_column(String(36), ForeignKey("organizations.id"), nullable=False)
     role: Mapped[str] = mapped_column(String(16), default=OrgRole.member, nullable=False)
     job_title: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    default_instance_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("instances.id"), nullable=True, index=True
+    )
 
     # relationships
     user = relationship("User", back_populates="memberships")

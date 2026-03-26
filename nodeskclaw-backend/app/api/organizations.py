@@ -29,12 +29,15 @@ from app.schemas.organization import (
     DepartmentMemberUpdateRequest,
     DepartmentUpdate,
     MemberInfo,
+    MemberDefaultAiCandidateInfo,
     OAuthOrgSetupRequest,
     OrgCreate,
+    OrgDefaultClusterUpdateRequest,
     OrgInfo,
     OrgNameUpdate,
     OrgUpdate,
     ResetPasswordResponse,
+    UpdateMemberDefaultAiRequest,
     UpdateMemberDepartmentsRequest,
     UpdateMemberRoleRequest,
 )
@@ -132,6 +135,28 @@ async def update_current_org_name(
     await org_service.update_org(org.id, OrgUpdate(name=body.name), db)
     await db.refresh(org)
     data = await _enrich_org_info(org, db)
+    return ApiResponse(data=data)
+
+
+@router.put("/current/default-cluster", response_model=ApiResponse[OrgInfo])
+async def update_current_org_default_cluster(
+    body: OrgDefaultClusterUpdateRequest,
+    db: AsyncSession = Depends(get_db),
+    org_ctx: tuple = Depends(require_org_admin),
+):
+    user, org = org_ctx
+    await org_service.set_org_default_cluster(org.id, body.cluster_id, db)
+    await db.refresh(org)
+    data = await _enrich_org_info(org, db)
+    await hooks.emit(
+        "operation_audit",
+        action="org.default_cluster_updated",
+        target_type="organization",
+        target_id=org.id,
+        actor_id=user.id,
+        org_id=org.id,
+        details={"cluster_id": body.cluster_id},
+    )
     return ApiResponse(data=data)
 
 
@@ -336,6 +361,43 @@ async def update_member_role(
     """修改成员角色（组织管理员+）。"""
     data = await org_service.update_member_role(org_id, membership_id, body.role, db)
     await hooks.emit("operation_audit", action="org.member_role_updated", target_type="org_membership", target_id=membership_id, actor_id=_org_ctx[0].id, org_id=org_id)
+    return ApiResponse(data=data)
+
+
+@router.get("/{org_id}/members/{membership_id}/default-ai-candidates", response_model=ApiResponse[list[MemberDefaultAiCandidateInfo]])
+async def list_member_default_ai_candidates(
+    org_id: str,
+    membership_id: str,
+    db: AsyncSession = Depends(get_db),
+    _org_ctx: tuple = Depends(require_org_admin),
+):
+    data = await org_service.list_member_default_ai_candidates(org_id, membership_id, db)
+    return ApiResponse(data=data)
+
+
+@router.put("/{org_id}/members/{membership_id}/default-ai", response_model=ApiResponse[MemberInfo])
+async def update_member_default_ai(
+    org_id: str,
+    membership_id: str,
+    body: UpdateMemberDefaultAiRequest,
+    db: AsyncSession = Depends(get_db),
+    _org_ctx: tuple = Depends(require_org_admin),
+):
+    data = await org_service.update_member_default_ai(
+        org_id=org_id,
+        membership_id=membership_id,
+        instance_id=body.instance_id,
+        db=db,
+    )
+    await hooks.emit(
+        "operation_audit",
+        action="org.member_default_ai_updated",
+        target_type="org_membership",
+        target_id=membership_id,
+        actor_id=_org_ctx[0].id,
+        org_id=org_id,
+        details={"instance_id": body.instance_id},
+    )
     return ApiResponse(data=data)
 
 
