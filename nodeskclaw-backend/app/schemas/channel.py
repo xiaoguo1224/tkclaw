@@ -1,5 +1,7 @@
 """Pydantic schemas for Channel configuration APIs."""
 
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 
@@ -46,3 +48,24 @@ class DeployRepoChannelRequest(BaseModel):
 class ChannelWriteResult(BaseModel):
     status: str
     message: str = ""
+
+
+class WecomBindStartResponse(BaseModel):
+    session_id: str
+    status: str
+    qr_url: str
+    expires_at: datetime
+
+
+class WecomBindStatusResponse(BaseModel):
+    session_id: str
+    status: str
+    qr_url: str
+    expires_at: datetime
+    bound_user_id: str | None = None
+    message_key: str | None = None
+    message: str | None = None
+
+
+class WecomBindCancelRequest(BaseModel):
+    session_id: str | None = None

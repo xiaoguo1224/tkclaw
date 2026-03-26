@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, inject, type ComputedRef } from 'vue'
+import { ref, computed, watch, inject, onBeforeUnmount, type ComputedRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   Loader2, Radio, RefreshCw, Save, Trash2, Plus, ChevronDown, ChevronUp,
@@ -33,6 +33,14 @@ interface AvailableChannel {
   has_schema: boolean
   schema?: SchemaField[]
   supported?: boolean
+}
+
+interface WecomBindSession {
+  session_id: string
+  status: 'pending' | 'bound' | 'failed' | 'expired' | 'cancelled'
+  qr_url: string
+  expires_at: string
+  bound_user_id?: string | null
 }
 
 const supportsPluginInstall = computed(() => instanceRuntime.value === 'openclaw')
@@ -86,6 +94,11 @@ const npmPackageName = ref('')
 const npmInstalling = ref(false)
 const uploadingFile = ref(false)
 const deployingRepo = ref(false)
+const wecomBindOpen = ref(false)
+const wecomBinding = ref(false)
+const wecomCancelling = ref(false)
+const wecomBindSession = ref<WecomBindSession | null>(null)
+let wecomPollTimer: number | null = null
 
 const SENSITIVE_KEYS = new Set([
   'appSecret', 'botToken', 'appToken', 'token', 'appPassword',
@@ -121,6 +134,10 @@ function toggleSecretVisibility(fieldKey: string) {
 }
 
 function startConfiguring(channel: AvailableChannel) {
+  if (channel.id === 'wecom') {
+    openWecomBindDialog()
+    return
+  }
   if (!editingConfigs.value[channel.id]) {
     const defaults: Record<string, any> = {}
     if (channel.schema) {
@@ -307,6 +324,99 @@ async function handleUpload(event: Event) {
     input.value = ''
   }
 }
+
+function stopWecomPolling() {
+  if (wecomPollTimer !== null) {
+    window.clearInterval(wecomPollTimer)
+    wecomPollTimer = null
+  }
+}
+
+async function fetchWecomBindStatus() {
+  const sessionId = wecomBindSession.value?.session_id
+  if (!sessionId) return
+  try {
+    const res = await api.get(`/instances/${instanceId.value}/channels/wecom/bind/${sessionId}`)
+    const data = res.data?.data as WecomBindSession
+    if (!data) return
+    wecomBindSession.value = data
+    if (data.status === 'bound') {
+      successMsg.value = t('channel.wecomBindSuccess')
+      stopWecomPolling()
+      await loadAll()
+    } else if (data.status === 'failed') {
+      error.value = t('channel.wecomBindFailed')
+      stopWecomPolling()
+    } else if (data.status === 'expired') {
+      error.value = t('channel.wecomQrExpired')
+      stopWecomPolling()
+    } else if (data.status === 'cancelled') {
+      stopWecomPolling()
+    }
+  } catch (e: any) {
+    error.value = e?.response?.data?.message || t('channel.wecomBindStatusFailed')
+    stopWecomPolling()
+  }
+}
+
+function startWecomPolling() {
+  stopWecomPolling()
+  wecomPollTimer = window.setInterval(() => {
+    fetchWecomBindStatus()
+  }, 2500)
+}
+
+async function handleWecomBindStart() {
+  wecomBinding.value = true
+  error.value = ''
+  try {
+    const res = await api.post(`/instances/${instanceId.value}/channels/wecom/bind/start`)
+    const data = res.data?.data as WecomBindSession
+    wecomBindSession.value = data
+    startWecomPolling()
+  } catch (e: any) {
+    error.value = e?.response?.data?.message || t('channel.wecomBindStartFailed')
+  } finally {
+    wecomBinding.value = false
+  }
+}
+
+function openWecomBindDialog() {
+  wecomBindOpen.value = true
+  wecomBindSession.value = null
+  handleWecomBindStart()
+}
+
+function closeWecomBindDialog() {
+  wecomBindOpen.value = false
+  stopWecomPolling()
+}
+
+async function handleWecomCancel() {
+  const sessionId = wecomBindSession.value?.session_id
+  if (!sessionId) {
+    closeWecomBindDialog()
+    return
+  }
+  wecomCancelling.value = true
+  try {
+    await api.post(`/instances/${instanceId.value}/channels/wecom/bind/cancel`, { session_id: sessionId })
+    successMsg.value = t('channel.wecomBindCancelled')
+    stopWecomPolling()
+    wecomBindSession.value = {
+      ...wecomBindSession.value,
+      status: 'cancelled',
+    }
+  } catch (e: any) {
+    error.value = e?.response?.data?.message || t('channel.wecomCancelFailed')
+  } finally {
+    wecomCancelling.value = false
+  }
+}
+
+onBeforeUnmount(() => {
+  stopWecomPolling()
+})
 
 watch(() => instanceId.value, (val) => {
   if (val) loadAll()
@@ -512,6 +622,12 @@ watch(() => instanceId.value, (val) => {
             <span class="text-[10px] text-muted-foreground">
               {{ isChannelSupportedByRuntime(ch) ? ch.origin : t('channel.unsupported') }}
             </span>
+            <div
+              v-if="ch.id === 'wecom' && isChannelSupportedByRuntime(ch)"
+              class="text-[10px] text-emerald-400 mt-1"
+            >
+              {{ t('channel.wecomBindAction') }}
+            </div>
           </button>
         </div>
       </div>
@@ -587,6 +703,68 @@ watch(() => instanceId.value, (val) => {
       >
         <Radio class="w-8 h-8 text-muted-foreground/40" />
         <p class="text-sm text-muted-foreground">{{ t('channel.emptyHint') }}</p>
+      </div>
+    </div>
+
+    <div
+      v-if="wecomBindOpen"
+      class="fixed inset-0 z-50 bg-black/45 flex items-center justify-center p-4"
+      @click.self="closeWecomBindDialog"
+    >
+      <div class="w-full max-w-md rounded-xl border border-border bg-card p-5 space-y-4">
+        <div class="flex items-center justify-between">
+          <h3 class="text-sm font-semibold">{{ t('channel.wecomBindTitle') }}</h3>
+          <button
+            class="text-xs text-muted-foreground hover:text-foreground"
+            @click="closeWecomBindDialog"
+          >
+            {{ t('common.close') }}
+          </button>
+        </div>
+
+        <p class="text-xs text-muted-foreground">
+          {{ t('channel.wecomBindHint') }}
+        </p>
+
+        <div class="rounded-lg border border-border bg-background p-3 flex items-center justify-center min-h-[240px]">
+          <Loader2
+            v-if="wecomBinding || !wecomBindSession?.qr_url"
+            class="w-6 h-6 animate-spin text-muted-foreground"
+          />
+          <img
+            v-else
+            :src="wecomBindSession.qr_url"
+            :alt="t('channel.wecomQrAlt')"
+            class="w-56 h-56 object-contain"
+          />
+        </div>
+
+        <div class="text-xs text-muted-foreground space-y-1">
+          <p>
+            {{ t('channel.wecomBindStatus') }}:
+            <span class="text-foreground">{{ t(`channel.wecomStatus_${wecomBindSession?.status || 'pending'}`) }}</span>
+          </p>
+          <p v-if="wecomBindSession?.expires_at">
+            {{ t('channel.wecomQrExpiresAt') }}: {{ new Date(wecomBindSession.expires_at).toLocaleString() }}
+          </p>
+        </div>
+
+        <div class="flex items-center justify-end gap-2">
+          <button
+            class="px-3 py-1.5 rounded-md border border-border text-xs hover:bg-muted/50"
+            :disabled="wecomBinding"
+            @click="handleWecomBindStart"
+          >
+            {{ t('channel.wecomRefreshQr') }}
+          </button>
+          <button
+            class="px-3 py-1.5 rounded-md border border-border text-xs hover:bg-muted/50"
+            :disabled="wecomCancelling"
+            @click="handleWecomCancel"
+          >
+            {{ wecomCancelling ? t('channel.saving') : t('channel.wecomCancel') }}
+          </button>
+        </div>
       </div>
     </div>
   </div>

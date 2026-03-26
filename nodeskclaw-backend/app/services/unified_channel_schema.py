@@ -349,6 +349,49 @@ UNIFIED_CHANNEL_REGISTRY: dict[str, ChannelDefinition] = {
             ),
         ),
     ),
+
+    "wecom": ChannelDefinition(
+        label="WeCom / 企业微信",
+        supported_runtimes=("openclaw",),
+        order=37,
+        fields=(
+            FieldDef(
+                key="corpId", label="Corp ID（企业 ID）", type="string", required=True,
+                placeholder="wwxxxxxxxxxxxxxxxx",
+                runtime_key={"openclaw": "corpId"},
+            ),
+            FieldDef(
+                key="agentId", label="Agent ID（应用 ID）", type="string", required=True,
+                placeholder="1000002",
+                runtime_key={"openclaw": "agentId"},
+            ),
+            FieldDef(
+                key="agentSecret", label="Agent Secret（应用 Secret）", type="password", required=True,
+                placeholder="企业微信应用 Secret",
+                runtime_key={"openclaw": "agentSecret"},
+            ),
+            FieldDef(
+                key="callbackToken", label="Callback Token（回调 Token）", type="password", required=False,
+                runtime_key={"openclaw": "callbackToken"},
+            ),
+            FieldDef(
+                key="callbackAesKey", label="Callback AES Key（回调 AES Key）", type="password", required=False,
+                runtime_key={"openclaw": "callbackAesKey"},
+            ),
+            FieldDef(
+                key="callbackUrl", label="Callback URL（回调地址）", type="string", required=False,
+                runtime_key={"openclaw": "callbackUrl"},
+            ),
+            FieldDef(
+                key="bindUserId", label="Bind User ID（绑定用户）", type="string", required=False,
+                runtime_key={"openclaw": "bindUserId"},
+            ),
+            FieldDef(
+                key="enabled", label="Enabled（启用）", type="boolean", required=False, default=True,
+                runtime_key={"openclaw": "enabled"},
+            ),
+        ),
+    ),
 }
 
 

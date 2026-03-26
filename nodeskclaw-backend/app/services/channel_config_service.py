@@ -25,6 +25,7 @@ SYSTEM_CHANNEL_IDS = {"nodeskclaw", "learning"}
 CHANNEL_LABELS: dict[str, str] = {
     "feishu": "Feishu / 飞书",
     "dingtalk": "DingTalk / 钉钉",
+    "wecom": "WeCom / 企业微信",
     "slack": "Slack",
     "telegram": "Telegram",
     "discord": "Discord",
@@ -50,6 +51,7 @@ CHANNEL_LABELS: dict[str, str] = {
 CHANNEL_ORDER: dict[str, int] = {
     "feishu": 35,
     "dingtalk": 36,
+    "wecom": 37,
     "slack": 40,
     "telegram": 45,
     "discord": 50,

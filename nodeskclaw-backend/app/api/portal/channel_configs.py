@@ -6,7 +6,7 @@ import logging
 import tarfile
 import zipfile
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -21,7 +21,9 @@ from app.schemas.channel import (
     ChannelConfigsUpdate,
     DeployRepoChannelRequest,
     InstallNpmChannelRequest,
+    WecomBindCancelRequest,
 )
+from app.services import wecom_bind_service
 from app.services.channel_config_service import (
     CHANNEL_SCHEMAS,
     REPO_CHANNEL_PLUGINS,
@@ -209,6 +211,64 @@ async def upload_channel(
 
     result = await upload_channel_plugin(instance, db, plugin_files, plugin_id)
     return _ok(result)
+
+
+@router.post("/{instance_id}/channels/wecom/bind/start")
+async def start_wecom_bind(
+    instance_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    await instance_member_service.check_instance_access(
+        instance_id, current_user, InstanceRole.editor, db
+    )
+    base_url = str(request.base_url).rstrip("/")
+    data = await wecom_bind_service.start_bind_session(
+        instance_id=instance_id,
+        current_user=current_user,
+        db=db,
+        base_url=base_url,
+    )
+    return _ok(data)
+
+
+@router.get("/{instance_id}/channels/wecom/bind/{session_id}")
+async def get_wecom_bind_status(
+    instance_id: str,
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    await instance_member_service.check_instance_access(
+        instance_id, current_user, InstanceRole.viewer, db
+    )
+    data = await wecom_bind_service.get_bind_status(
+        instance_id=instance_id,
+        session_id=session_id,
+        current_user=current_user,
+        db=db,
+    )
+    return _ok(data)
+
+
+@router.post("/{instance_id}/channels/wecom/bind/cancel")
+async def cancel_wecom_bind(
+    instance_id: str,
+    body: WecomBindCancelRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    await instance_member_service.check_instance_access(
+        instance_id, current_user, InstanceRole.editor, db
+    )
+    data = await wecom_bind_service.cancel_bind_session(
+        instance_id=instance_id,
+        current_user=current_user,
+        db=db,
+        session_id=body.session_id,
+    )
+    return _ok(data)
 
 
 def _extract_tgz(content: bytes) -> tuple[dict[str, str], str]:
