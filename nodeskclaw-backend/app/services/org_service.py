@@ -17,6 +17,8 @@ from app.models.org_membership import OrgMembership, OrgRole
 from app.models.org_oauth_binding import OrgOAuthBinding
 from app.models.organization import Organization
 from app.models.instance import Instance
+from app.models.workspace import Workspace
+from app.models.workspace_member import WorkspaceMember
 from app.models.user_llm_config import UserLlmConfig
 from app.models.user_llm_key import UserLlmKey
 from app.models.user import User, UserRole
@@ -441,6 +443,31 @@ async def _upsert_local_model_personal_config(user_id: str, org_id: str, db: Asy
     await db.commit()
 
 
+async def _grant_manage_agents_permission_for_member(
+    org_id: str, user_id: str, db: AsyncSession,
+) -> None:
+    result = await db.execute(
+        select(WorkspaceMember)
+        .join(Workspace, WorkspaceMember.workspace_id == Workspace.id)
+        .where(
+            Workspace.org_id == org_id,
+            WorkspaceMember.user_id == user_id,
+            not_deleted(Workspace),
+            not_deleted(WorkspaceMember),
+        )
+    )
+    changed = False
+    for member in result.scalars().all():
+        perms = list(member.permissions or [])
+        if "manage_agents" in perms:
+            continue
+        perms.append("manage_agents")
+        member.permissions = perms
+        changed = True
+    if changed:
+        await db.commit()
+
+
 async def provision_default_ai_employee_for_member(
     org_id: str,
     member_user: User,
@@ -565,6 +592,7 @@ async def add_member(
         membership.default_instance_id = ai_provision.instance_id
         await db.commit()
         await db.refresh(membership)
+        await _grant_manage_agents_permission_for_member(org_id, user.id, db)
 
     department_memberships = await department_service.list_user_department_memberships(org_id, [user.id], db)
     primary_id, primary_name, secondary_department_ids, secondary_departments, is_department_manager = (
@@ -645,6 +673,7 @@ async def create_member_direct(
             membership.default_instance_id = ai_provision.instance_id
             await db.commit()
             await db.refresh(membership)
+            await _grant_manage_agents_permission_for_member(org_id, existing_user.id, db)
 
         department_memberships = await department_service.list_user_department_memberships(org_id, [existing_user.id], db)
         primary_id, primary_name, secondary_department_ids, secondary_departments, is_department_manager = (
@@ -700,6 +729,7 @@ async def create_member_direct(
         membership.default_instance_id = ai_provision.instance_id
         await db.commit()
         await db.refresh(membership)
+        await _grant_manage_agents_permission_for_member(org_id, user.id, db)
 
     department_memberships = await department_service.list_user_department_memberships(org_id, [user.id], db)
     primary_id, primary_name, secondary_department_ids, secondary_departments, is_department_manager = (
@@ -834,6 +864,8 @@ async def update_member_default_ai(
         membership.default_instance_id = instance.id
 
     await db.commit()
+    if instance_id is not None:
+        await _grant_manage_agents_permission_for_member(org_id, membership.user_id, db)
 
     default_map = await _load_active_default_instance_map(
         org_id,
