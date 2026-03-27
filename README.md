@@ -377,8 +377,8 @@ Database migrations run automatically when the new backend pod starts. See [depl
 ## Community
 
 - [Discord](https://discord.gg/y5NKqcP6eY) -- Join the discussion, ask questions, share feedback
-- [GitHub Issues](https://github.com/patchwork-body/nodeskclaw/issues) -- Bug reports and feature requests
-- WeChat -- Scan the QR code below to join the developer group
+- [GitHub Issues](https://github.com/NoDeskAI/nodeskclaw/issues) -- Bug reports and feature requests
+- WeChat -- Scan the QR code below to join the developer group; if the WeChat group is full, please use Discord above
 
 <img src=".github/wechat-group-qr.jpg" alt="DeskClaw WeChat Developer Group" width="280">
 
