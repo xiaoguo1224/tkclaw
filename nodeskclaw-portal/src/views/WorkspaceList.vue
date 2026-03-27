@@ -4,13 +4,18 @@ import { useRouter } from 'vue-router'
 import { Plus, Loader2, Bot } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useAuthStore } from '@/stores/auth'
 import WorkspaceCard from '@/components/workspace/WorkspaceCard.vue'
 import CustomSelect from '@/components/shared/CustomSelect.vue'
 
 const router = useRouter()
 const store = useWorkspaceStore()
+const authStore = useAuthStore()
 const { t } = useI18n()
 const selectedDepartmentId = ref('')
+const canCreateWorkspace = computed(() =>
+  authStore.user?.portal_org_role === 'admin' || authStore.user?.is_super_admin === true,
+)
 
 const departmentOptions = computed(() => [
   { value: '', label: t('workspaceList.allDepartments') },
@@ -62,6 +67,7 @@ function createNew() {
         <p class="text-sm text-muted-foreground mt-1">{{ t('workspaceList.subtitle') }}</p>
       </div>
       <button
+        v-if="canCreateWorkspace"
         class="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
         @click="createNew"
       >
@@ -101,6 +107,7 @@ function createNew() {
         {{ selectedDepartmentId ? t('workspaceList.emptyByDepartment') : t('workspaceList.emptyDescription') }}
       </p>
       <button
+        v-if="canCreateWorkspace && !selectedDepartmentId"
         class="mt-4 px-6 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
         @click="createNew"
       >

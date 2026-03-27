@@ -186,6 +186,13 @@ router.beforeEach(async (to, _from, next) => {
         return next('/')
       }
     }
+
+    if (to.name === 'CreateWorkspace') {
+      const canCreateWorkspace = authStore.user?.portal_org_role === 'admin' || authStore.user?.is_super_admin === true
+      if (!canCreateWorkspace) {
+        return next('/')
+      }
+    }
   }
 
   next()

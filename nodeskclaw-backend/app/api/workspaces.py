@@ -15,7 +15,7 @@ from sqlalchemy import func, select as sa_select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import hooks
-from app.core.deps import async_session_factory, get_current_org, get_db
+from app.core.deps import async_session_factory, get_current_org, get_db, require_org_admin
 from app.models.instance import Instance
 from app.models.workspace_agent import WorkspaceAgent
 from app.schemas.workspace import (
@@ -88,7 +88,7 @@ def _get_current_user_or_agent_dep():
 @router.post("")
 async def create_workspace(
     data: WorkspaceCreate,
-    org_ctx=Depends(get_current_org),
+    org_ctx=Depends(require_org_admin),
     db: AsyncSession = Depends(get_db),
 ):
     user, org = org_ctx

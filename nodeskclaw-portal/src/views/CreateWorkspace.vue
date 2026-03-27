@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ArrowLeft, Plus, Loader2, Palette, Bot, ChevronLeft } from 'lucide-vue-next'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useAuthStore } from '@/stores/auth'
 import type { WorkspaceTemplateItem } from '@/stores/workspace'
 import { resolveApiErrorMessage } from '@/i18n/error'
 import TemplateCard from '@/components/workspace/TemplateCard.vue'
@@ -11,6 +12,7 @@ import TemplateCard from '@/components/workspace/TemplateCard.vue'
 const { t } = useI18n()
 const router = useRouter()
 const store = useWorkspaceStore()
+const authStore = useAuthStore()
 
 const step = ref(1)
 const selectedTemplateId = ref<string | null>(null)
@@ -30,6 +32,10 @@ const colors = [
 ]
 
 onMounted(async () => {
+  if (authStore.user?.portal_org_role !== 'admin' && authStore.user?.is_super_admin !== true) {
+    router.replace('/')
+    return
+  }
   loadingTemplates.value = true
   try {
     templates.value = await store.fetchWorkspaceTemplates()
