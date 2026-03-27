@@ -28,6 +28,16 @@ class _AsyncClientMock:
         return _Resp(self._responses.pop(0))
 
 
+class _AsyncClientFactory:
+    def __init__(self, batches):
+        self._batches = [list(batch) for batch in batches]
+
+    def __call__(self, timeout=10):
+        if not self._batches:
+            raise RuntimeError("unexpected client creation")
+        return _AsyncClientMock(self._batches.pop(0))
+
+
 @pytest.mark.asyncio
 async def test_wecom_exchange_code_degrade_when_get_user_detail_failed(monkeypatch):
     monkeypatch.setattr(settings, "WECOM_CORP_ID", "corp-1")
@@ -35,14 +45,15 @@ async def test_wecom_exchange_code_degrade_when_get_user_detail_failed(monkeypat
     monkeypatch.setattr(settings, "WECOM_APP_SECRET", "secret-1")
     monkeypatch.setattr(settings, "WECOM_REDIRECT_URI", "https://portal.example.com/login/callback/wecom")
 
-    responses = [
-        {"errcode": 0, "access_token": "token-1"},
-        {"errcode": 0, "UserId": "zhangsan"},
-        {"errcode": 60020, "errmsg": "no permission"},
-    ]
     monkeypatch.setattr(
         "app.utils.oauth_providers.wecom.httpx.AsyncClient",
-        lambda timeout=10: _AsyncClientMock(responses),
+        _AsyncClientFactory([
+            [{"errcode": 0, "access_token": "token-1"}],
+            [
+                {"errcode": 0, "UserId": "zhangsan"},
+                {"errcode": 60020, "errmsg": "no permission"},
+            ],
+        ]),
     )
 
     provider = WecomProvider()
@@ -63,13 +74,12 @@ async def test_wecom_exchange_code_requires_userid_not_openid(monkeypatch):
     monkeypatch.setattr(settings, "WECOM_APP_SECRET", "secret-1")
     monkeypatch.setattr(settings, "WECOM_REDIRECT_URI", "https://portal.example.com/login/callback/wecom")
 
-    responses = [
-        {"errcode": 0, "access_token": "token-1"},
-        {"errcode": 0, "OpenId": "openid-1"},
-    ]
     monkeypatch.setattr(
         "app.utils.oauth_providers.wecom.httpx.AsyncClient",
-        lambda timeout=10: _AsyncClientMock(responses),
+        _AsyncClientFactory([
+            [{"errcode": 0, "access_token": "token-1"}],
+            [{"errcode": 0, "OpenId": "openid-1"}],
+        ]),
     )
 
     provider = WecomProvider()
