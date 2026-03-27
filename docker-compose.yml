@@ -23,6 +23,8 @@ services:
     build:
       context: .
       dockerfile: nodeskclaw-backend/Dockerfile
+    env_file:
+      - nodeskclaw-backend/.env
     depends_on:
       postgres:
         condition: service_healthy
@@ -36,7 +38,6 @@ services:
       LLM_PROXY_INTERNAL_URL: http://llm-proxy:8080
       NODESKCLAW_EDITION: ce
       DOCKER_DATA_DIR: ${NODESKCLAW_DATA_DIR:-$HOME/.nodeskclaw/docker-instances}
-      DEBUG: ${DEBUG:-true}
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-change-me-32-bytes-base64-key__=}
       INIT_ADMIN_ACCOUNT: ${INIT_ADMIN_ACCOUNT:-admin}
@@ -63,6 +64,8 @@ services:
     platform: linux/amd64
     build:
       context: nodeskclaw-portal
+    env_file:
+      - nodeskclaw-portal/.env
     depends_on:
       - nodeskclaw-backend
     environment:
