@@ -126,6 +126,6 @@ class WecomProvider(OAuthProvider):
                 provider_user_id=user_id,
                 provider_tenant_id=corp_id,
                 name=detail.get("name") or user_id,
-                email=detail.get("email") or None,
+                email=detail.get("email") or detail.get("biz_mail") or None,
                 avatar_url=detail.get("avatar") or None,
             )
