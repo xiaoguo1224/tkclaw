@@ -87,3 +87,26 @@ async def test_wecom_exchange_code_requires_userid_not_openid(monkeypatch):
         await provider.exchange_code("code-2")
 
     assert "UserId" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+async def test_wecom_exchange_code_email_fallback_to_biz_mail(monkeypatch):
+    monkeypatch.setattr(settings, "WECOM_CORP_ID", "corp-1")
+    monkeypatch.setattr(settings, "WECOM_AGENT_ID", "1000001")
+    monkeypatch.setattr(settings, "WECOM_APP_SECRET", "secret-1")
+    monkeypatch.setattr(settings, "WECOM_REDIRECT_URI", "https://portal.example.com/login/callback/wecom")
+
+    monkeypatch.setattr(
+        "app.utils.oauth_providers.wecom.httpx.AsyncClient",
+        _AsyncClientFactory([
+            [{"errcode": 0, "access_token": "token-1"}],
+            [
+                {"errcode": 0, "UserId": "lisi"},
+                {"errcode": 0, "name": "李四", "biz_mail": "lisi@example.com"},
+            ],
+        ]),
+    )
+
+    provider = WecomProvider()
+    result = await provider.exchange_code("code-3")
+    assert result.email == "lisi@example.com"

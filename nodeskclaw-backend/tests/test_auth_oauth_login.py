@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from app.models.oauth_connection import UserOAuthConnection
 from app.models.org_membership import OrgMembership
 from app.models.org_oauth_binding import OrgOAuthBinding
+from app.schemas.organization import AiProvisionInfo
 from app.models.user import User
 from app.schemas.auth import UserInfo
 from app.services import auth_service
@@ -162,6 +163,10 @@ async def test_oauth_login_binding_org_marks_not_need_setup(monkeypatch):
     monkeypatch.setattr(auth_service, "_build_user_info", _fake_build_user_info)
     monkeypatch.setattr(auth_service, "create_access_token", lambda _uid: "access-token")
     monkeypatch.setattr(auth_service, "create_refresh_token", lambda _uid: "refresh-token")
+    monkeypatch.setattr(
+        "app.services.org_service.provision_default_ai_employee_for_member",
+        AsyncMock(return_value=AiProvisionInfo(status="failed", message="mock")),
+    )
 
     result = await auth_service.oauth_login("wecom", "code-3", db)
 
@@ -189,3 +194,45 @@ async def test_oauth_login_provider_error_returns_http_401(monkeypatch):
     assert isinstance(exc.detail, dict)
     assert exc.detail.get("message_key") == "errors.auth.oauth_exchange_failed"
     assert exc.detail.get("error_code") == 40130
+
+
+@pytest.mark.asyncio
+async def test_oauth_login_binding_org_auto_provision_ai_on_new_membership(monkeypatch):
+    user = _make_user("User B", "b@example.com")
+    binding = OrgOAuthBinding(org_id="org-2", provider="wecom", provider_tenant_id="corp-2")
+    oauth_info = OAuthUserInfo(
+        provider="wecom",
+        provider_user_id="wecom-u-4",
+        provider_tenant_id="corp-2",
+        name="User B",
+        email="b@example.com",
+        avatar_url=None,
+    )
+    db = _FakeSession(
+        [
+            _ScalarResult(one_or_none=None),
+            _ScalarResult(one_or_none=user),
+            _ScalarResult(one_or_none=binding),
+            _ScalarResult(one_or_none=None),
+            _ScalarResult(one=user),
+        ]
+    )
+
+    grant_mock = AsyncMock()
+    monkeypatch.setattr(auth_service, "get_provider", lambda _name: _Provider(oauth_info))
+    monkeypatch.setattr(auth_service, "_build_user_info", _fake_build_user_info)
+    monkeypatch.setattr(auth_service, "create_access_token", lambda _uid: "access-token")
+    monkeypatch.setattr(auth_service, "create_refresh_token", lambda _uid: "refresh-token")
+    monkeypatch.setattr(
+        "app.services.org_service.provision_default_ai_employee_for_member",
+        AsyncMock(return_value=AiProvisionInfo(status="success", instance_id="inst-1")),
+    )
+    monkeypatch.setattr("app.services.org_service._grant_manage_agents_permission_for_member", grant_mock)
+
+    result = await auth_service.oauth_login("wecom", "code-4", db)
+
+    assert result.needs_org_setup is False
+    membership = next((item for item in db.added if isinstance(item, OrgMembership)), None)
+    assert membership is not None
+    assert membership.default_instance_id == "inst-1"
+    grant_mock.assert_awaited_once_with("org-2", user.id, db)
