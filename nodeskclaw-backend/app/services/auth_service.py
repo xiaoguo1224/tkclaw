@@ -41,7 +41,19 @@ async def oauth_login(
     from app.models.org_oauth_binding import OrgOAuthBinding
 
     provider = get_provider(provider_name)
-    oauth_info = await provider.exchange_code(code, redirect_uri, client_id=client_id)
+    try:
+        oauth_info = await provider.exchange_code(code, redirect_uri, client_id=client_id)
+    except Exception as exc:
+        logger.warning("OAuth exchange failed: provider=%s error=%s", provider_name, exc)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "error_code": 40130,
+                "message_key": "errors.auth.oauth_exchange_failed",
+                "message": "OAuth 登录失败，请重试或联系管理员",
+                "message_params": {"provider": provider_name},
+            },
+        ) from exc
 
     conn_result = await db.execute(
         select(UserOAuthConnection)
