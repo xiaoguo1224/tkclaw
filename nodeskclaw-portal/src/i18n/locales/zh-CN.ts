@@ -1,7 +1,7 @@
 const zhCN = {
   common: {
     appTitle: "TClaw 控制台",
-    workspace: "赛博办公室",
+    workspace: "AI团队",
     instance: "AI 员工",
     members: "成员",
     usage: "用量",
@@ -85,12 +85,12 @@ const zhCN = {
     codePlaceholder: "6 位验证码",
     codeLoginHint: "手机号未注册将自动创建账户；邮箱需已注册且系统已配置 SMTP",
     landing: {
-      headline1: '你的第一间',
-      headline2: '赛博办公室',
+      headline1: '你的第一个',
+      headline2: 'AI团队',
       subtitle: '不只是让 AI 干活，而是为你的组织构建自主协作、持续进化的 AI 劳动力。目标驱动行为，协作从组织结构中自然涌现。',
       themes: {
         cyberOffice: {
-          title: '赛博办公室',
+          title: 'AI团队',
           desc: '有空间布局、协作走廊和共享看板的数字办公室。团队的沟通方式由座位关系自然决定，无需逐条编排',
         },
         aiEmployee: {
@@ -525,7 +525,7 @@ const zhCN = {
     closePreview: "关闭预览",
   },
   createWorkspace: {
-    title: "新建赛博办公室",
+    title: "新建数字人团队",
     chooseTemplate: "选择一个模板快速开始，或从空白创建",
     blankTemplate: "从空白创建",
     agentSlots: "{count} 个 Agent 位",
@@ -541,19 +541,19 @@ const zhCN = {
     previewDescFallback: "暂无描述",
     nameRequired: "请输入办公室名称",
     createFailed: "创建失败",
-    submit: "创建赛博办公室",
+    submit: "创建数字人团队",
   },
   workspaceList: {
-    title: "我的赛博办公室",
+    title: "我的数字人团队",
     subtitle: "管理你的 AI 员工协作空间",
     departmentFilter: "按部门查看",
     allDepartments: "全部部门",
     noDepartmentOptions: "当前角色暂无可筛选部门",
-    createNew: "新建赛博办公室",
-    emptyTitle: "还没有赛博办公室",
-    emptyDescription: "创建一个赛博办公室，添加 AI 员工，让它们互相协作，共同完成任务",
-    emptyByDepartment: "当前部门下还没有关联的赛博办公室",
-    createFirst: "创建第一个赛博办公室",
+    createNew: "新建数字人团队",
+    emptyTitle: "还没有数字人团队",
+    emptyDescription: "创建一个数字人团队，添加 AI 员工，让它们互相协作，共同完成任务",
+    emptyByDepartment: "当前部门下还没有关联的数字人团队",
+    createFirst: "创建第一个数字人团队",
   },
   workspaceCard: {
     noAgent: "无 AI 员工",
