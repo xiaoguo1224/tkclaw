@@ -122,6 +122,7 @@ async function handleCodeSubmit() {
 const WAITLIST_URL = 'https://nodeskai.feishu.cn/share/base/form/shrcnKfwXbiUOenm73jlpElu1hg'
 const WECOM_CORP_ID = import.meta.env.VITE_WECOM_CORP_ID || ''
 const WECOM_AGENT_ID = import.meta.env.VITE_WECOM_AGENT_ID || ''
+const WECOM_QR_CONNECT_URL = 'https://open.work.weixin.qq.com/wwopen/sso/qrConnect'
 
 function isNonWhitelistedEmail(input: string): boolean {
   if (!input.includes('@')) return false
@@ -145,6 +146,14 @@ function onLocaleChange(value: string) {
   locale.value = setCurrentLocale(value)
 }
 
+function isMobileDevice() {
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)
+}
+
+function isWecomClient() {
+  return /wxwork/i.test(navigator.userAgent)
+}
+
 async function handleWecomLogin() {
   if (loading.value) return
   if (!WECOM_CORP_ID || !WECOM_AGENT_ID) {
@@ -153,15 +162,25 @@ async function handleWecomLogin() {
   }
   const redirectUri = `${window.location.origin}/login/callback/wecom`
   const state = 'nodeskclaw_portal'
-  const url =
-    'https://open.weixin.qq.com/connect/oauth2/authorize' +
-    `?appid=${encodeURIComponent(WECOM_CORP_ID)}` +
-    `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-    '&response_type=code' +
-    '&scope=snsapi_base' +
-    `&agentid=${encodeURIComponent(WECOM_AGENT_ID)}` +
-    `&state=${encodeURIComponent(state)}` +
-    '#wechat_redirect'
+  const useMobileAuth = isMobileDevice() || isWecomClient()
+  const url = useMobileAuth
+    ? (
+      'https://open.weixin.qq.com/connect/oauth2/authorize' +
+      `?appid=${encodeURIComponent(WECOM_CORP_ID)}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      '&response_type=code' +
+      '&scope=snsapi_base' +
+      `&agentid=${encodeURIComponent(WECOM_AGENT_ID)}` +
+      `&state=${encodeURIComponent(state)}` +
+      '#wechat_redirect'
+    )
+    : (
+      `${WECOM_QR_CONNECT_URL}` +
+      `?appid=${encodeURIComponent(WECOM_CORP_ID)}` +
+      `&agentid=${encodeURIComponent(WECOM_AGENT_ID)}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
+      `&state=${encodeURIComponent(state)}`
+    )
   window.location.href = url
 }
 
@@ -413,7 +432,7 @@ watch(activeTab, () => { error.value = '' })
             @click="handleWecomLogin"
           >
             <ExternalLink class="w-4 h-4" />
-            {{ t('auth.wecomLogin') }}
+            {{ t('auth.wecomScanLogin') }}
           </button>
 
         <!-- Waitlist 入口 (EE-only) -->

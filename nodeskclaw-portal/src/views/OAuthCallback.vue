@@ -15,7 +15,8 @@ const error = ref('')
 
 onMounted(async () => {
   const provider = route.params.provider as string
-  const code = new URLSearchParams(window.location.search).get('code')
+  const query = new URLSearchParams(window.location.search)
+  const code = query.get('code') || query.get('auth_code')
 
   if (!provider || !code) {
     error.value = t('auth.callbackMissingParams')

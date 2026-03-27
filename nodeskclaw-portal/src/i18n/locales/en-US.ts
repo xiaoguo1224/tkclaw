@@ -67,6 +67,7 @@ const enUS = {
     },
     feishuLogin: "Sign in with Feishu",
     wecomLogin: "Sign in with WeCom",
+    wecomScanLogin: "Scan QR with WeCom",
     wecomConfigMissing: "WeCom sign-in is not configured. Please contact the administrator.",
     orContinueWith: "or continue with",
     callbackMissingParams: "Callback parameters missing, please try again",
