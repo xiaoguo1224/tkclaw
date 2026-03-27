@@ -259,7 +259,10 @@ class PodFS:
 
 async def _get_k8s_client(instance: Instance, db: AsyncSession) -> K8sClient:
     cluster_result = await db.execute(
-        select(Cluster).where(Cluster.id == instance.cluster_id)
+        select(Cluster).where(
+            Cluster.id == instance.cluster_id,
+            Cluster.deleted_at.is_(None),
+        )
     )
     cluster = cluster_result.scalar_one_or_none()
     if not cluster or not cluster.is_k8s or not cluster.credentials_encrypted:

@@ -12,12 +12,26 @@ const TOKEN = process.env.NODESKCLAW_TOKEN || "";
 const WORKSPACE_ID = process.env.NODESKCLAW_WORKSPACE_ID || "";
 
 async function apiFetch(path: string, method = "GET", body?: unknown) {
-  const res = await fetch(`${API}${path}`, {
-    method,
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${TOKEN}` },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  return res.json();
+  let res: Response;
+  try {
+    res = await fetch(`${API}${path}`, {
+      method,
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${TOKEN}` },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (err) {
+    return { error: true, message: `Network error: ${(err as Error).message}` };
+  }
+  if (!res.ok) {
+    let detail: string;
+    try { detail = await res.text(); } catch { detail = ""; }
+    return { error: true, status: res.status, message: detail || res.statusText };
+  }
+  try {
+    return await res.json();
+  } catch {
+    return { error: true, message: "Response is not valid JSON" };
+  }
 }
 
 const server = new Server({ name: "nodeskclaw-proposals", version: "1.0.0" }, { capabilities: { tools: {} } });
@@ -41,7 +55,7 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       break;
     case "check_trust_policy": {
       const a = args as any;
-      result = await apiFetch(`/workspaces/trust-policies/check?workspace_id=${ws}&agent_instance_id=${a.agent_instance_id}&action_type=${a.action_type}`);
+      result = await apiFetch(`/workspaces/trust-policies/check?workspace_id=${ws}&agent_instance_id=${a.agent_instance_id}&action_type=${encodeURIComponent(a.action_type)}`);
       break;
     }
     case "list_my_decisions": {

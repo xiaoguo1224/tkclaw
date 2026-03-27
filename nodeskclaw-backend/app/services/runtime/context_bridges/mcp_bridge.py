@@ -39,7 +39,12 @@ class MCPContextBridge:
             from sqlalchemy import select
 
             async with async_session_factory() as db:
-                result = await db.execute(select(Instance).where(Instance.id == instance_id))
+                result = await db.execute(
+                    select(Instance).where(
+                        Instance.id == instance_id,
+                        Instance.deleted_at.is_(None),
+                    )
+                )
                 inst = result.scalar_one_or_none()
                 if inst:
                     env_vars = json.loads(inst.env_vars or "{}")
@@ -62,7 +67,12 @@ class MCPContextBridge:
             from sqlalchemy import select
 
             async with async_session_factory() as db:
-                result = await db.execute(select(Instance).where(Instance.id == instance_id))
+                result = await db.execute(
+                    select(Instance).where(
+                        Instance.id == instance_id,
+                        Instance.deleted_at.is_(None),
+                    )
+                )
                 inst = result.scalar_one_or_none()
                 if inst:
                     env_vars = json.loads(inst.env_vars or "{}")

@@ -12,8 +12,22 @@ const TOKEN = process.env.NODESKCLAW_TOKEN || "";
 const WORKSPACE_ID = process.env.NODESKCLAW_WORKSPACE_ID || "";
 
 async function apiFetch(path: string, method = "GET") {
-  const res = await fetch(`${API}${path}`, { method, headers: { Authorization: `Bearer ${TOKEN}` } });
-  return res.json();
+  let res: Response;
+  try {
+    res = await fetch(`${API}${path}`, { method, headers: { Authorization: `Bearer ${TOKEN}` } });
+  } catch (err) {
+    return { error: true, message: `Network error: ${(err as Error).message}` };
+  }
+  if (!res.ok) {
+    let detail: string;
+    try { detail = await res.text(); } catch { detail = ""; }
+    return { error: true, status: res.status, message: detail || res.statusText };
+  }
+  try {
+    return await res.json();
+  } catch {
+    return { error: true, message: "Response is not valid JSON" };
+  }
 }
 
 const server = new Server({ name: "nodeskclaw-performance-reader", version: "1.0.0" }, { capabilities: { tools: {} } });

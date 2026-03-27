@@ -931,7 +931,10 @@ async def get_blackboard(db: AsyncSession, workspace_id: str) -> BlackboardInfo 
     assignee_map: dict[str, str] = {}
     if instance_ids:
         insts = (await db.execute(
-            select(Instance.id, Instance.name).where(Instance.id.in_(instance_ids))
+            select(Instance.id, Instance.name).where(
+                Instance.id.in_(instance_ids),
+                Instance.deleted_at.is_(None),
+            )
         )).all()
         assignee_map = {r.id: r.name for r in insts}
 
@@ -1039,7 +1042,10 @@ async def list_tasks(
     assignee_map: dict[str, str] = {}
     if instance_ids:
         insts = (await db.execute(
-            select(Instance.id, Instance.name).where(Instance.id.in_(instance_ids))
+            select(Instance.id, Instance.name).where(
+                Instance.id.in_(instance_ids),
+                Instance.deleted_at.is_(None),
+            )
         )).all()
         assignee_map = {r.id: r.name for r in insts}
 
@@ -1066,7 +1072,10 @@ async def create_task(
     assignee_name = None
     if task.assignee_instance_id:
         inst = (await db.execute(
-            select(Instance.name).where(Instance.id == task.assignee_instance_id)
+            select(Instance.name).where(
+                Instance.id == task.assignee_instance_id,
+                Instance.deleted_at.is_(None),
+            )
         )).scalar_one_or_none()
         assignee_name = inst
     return _task_to_info(task, assignee_name)
@@ -1119,7 +1128,10 @@ async def update_task(
     assignee_name = None
     if task.assignee_instance_id:
         inst = (await db.execute(
-            select(Instance.name).where(Instance.id == task.assignee_instance_id)
+            select(Instance.name).where(
+                Instance.id == task.assignee_instance_id,
+                Instance.deleted_at.is_(None),
+            )
         )).scalar_one_or_none()
         assignee_name = inst
 
@@ -1236,6 +1248,7 @@ async def list_workspace_members(db: AsyncSession, workspace_id: str) -> list[Wo
         select(WorkspaceMember, User).join(User, WorkspaceMember.user_id == User.id).where(
             WorkspaceMember.workspace_id == workspace_id,
             WorkspaceMember.deleted_at.is_(None),
+            User.deleted_at.is_(None),
         )
     )
     rows = result.all()
@@ -1326,7 +1339,9 @@ async def add_workspace_member(
     db.add(wm)
     await db.commit()
 
-    user_result = await db.execute(select(User).where(User.id == user_id))
+    user_result = await db.execute(
+        select(User).where(User.id == user_id, User.deleted_at.is_(None))
+    )
     user = user_result.scalar_one()
     department_memberships = await department_service.list_user_department_memberships(workspace.org_id, [user.id], db)
     _primary_id, primary_name, _secondary_ids, secondary_names, _is_department_manager = (

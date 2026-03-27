@@ -29,8 +29,12 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - ${NODESKCLAW_DATA_DIR:-$HOME/.nodeskclaw/docker-instances}:${NODESKCLAW_DATA_DIR:-$HOME/.nodeskclaw/docker-instances}
+      - type: bind
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+      - type: bind
+        source: ${NODESKCLAW_DATA_DIR:-${HOME:-.}/.nodeskclaw/docker-instances}
+        target: /nodeskclaw-data
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://nodeskclaw:nodeskclaw@postgres:5432/nodeskclaw}
       DATABASE_NAME_SUFFIX: ""

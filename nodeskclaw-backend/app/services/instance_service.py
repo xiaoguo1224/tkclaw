@@ -104,6 +104,7 @@ async def _in_deploy_grace(instance_id: str, db: AsyncSession, grace_seconds: in
         .where(
             DeployRecord.instance_id == instance_id,
             DeployRecord.status == DeployStatus.success,
+            DeployRecord.deleted_at.is_(None),
         )
         .order_by(DeployRecord.finished_at.desc())
         .limit(1)
@@ -526,7 +527,12 @@ async def _monitor_restart(
             )
             if has_ready:
                 async with async_session_factory() as db:
-                    result = await db.execute(select(Instance).where(Instance.id == instance_id))
+                    result = await db.execute(
+                        select(Instance).where(
+                            Instance.id == instance_id,
+                            Instance.deleted_at.is_(None),
+                        )
+                    )
                     inst = result.scalar_one_or_none()
                     if inst and inst.status == InstanceStatus.restarting:
                         inst.status = InstanceStatus.running
@@ -544,7 +550,12 @@ async def _monitor_restart(
     logger.warning("重启监控超时 (%ds)，强制恢复状态: instance=%s", _RESTART_TIMEOUT, instance_id)
     try:
         async with async_session_factory() as db:
-            result = await db.execute(select(Instance).where(Instance.id == instance_id))
+            result = await db.execute(
+                select(Instance).where(
+                    Instance.id == instance_id,
+                    Instance.deleted_at.is_(None),
+                )
+            )
             inst = result.scalar_one_or_none()
             if inst and inst.status == InstanceStatus.restarting:
                 inst.status = InstanceStatus.running
