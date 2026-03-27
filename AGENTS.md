@@ -85,10 +85,6 @@ vue-tsc -b                                # 类型检查
 docker build --platform linux/amd64 -t my-image:latest .
 ```
 
-### 数据库规则
-在进行数据库结构修改时，必须通过 Alembic 迁移管理；
-每次修改都需要创建迁移文件，放在 `nodeskclaw-backend/alembic/versions`，并保证可执行（`alembic upgrade head`）。
-
 ### 导入完整性
 
 在函数/代码块内使用模型或工具类时，必须确保该作用域内有对应的 import。不要假设外层已导入。
@@ -194,14 +190,6 @@ fix(portal): 修复实例列表分页后状态丢失问题
 feat(instance): 实例列表新增搜索和过滤功能
 fix(deploy): 修复 env_vars 存数据库未序列化的问题
 ```
-
-### 社区 PR 合并
-
-- 必须保留外部贡献者的 commit 归属（Author 字段）
-- 使用 `git cherry-pick`（不加 `--no-commit`）保留原始 author
-- 维护者的修复作为独立 commit 叠加在原始 commit 之上
-- 合并前用 `git log --format="%an - %s"` 验证归属正确
-- 禁止 squash merge 吞掉贡献者的 commit
 
 ### 禁止
 
