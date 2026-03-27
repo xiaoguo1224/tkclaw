@@ -46,8 +46,27 @@ function main() {
   const files = fs.readdirSync(sessionsDir)
     .filter((name) => name.endsWith(".jsonl"))
     .sort();
+  const knownFiles = new Set(files.map((file) => `${sessionFilePrefix}/${file}`));
 
   let changed = false;
+
+  for (const [key, value] of Object.entries(store)) {
+    if (!value || typeof value !== "object") {
+      continue;
+    }
+
+    const sessionFile = value.sessionFile;
+    if (typeof sessionFile !== "string" || !sessionFile.startsWith(sessionFilePrefix)) {
+      continue;
+    }
+
+    if (knownFiles.has(sessionFile)) {
+      continue;
+    }
+
+    delete store[key];
+    changed = true;
+  }
 
   for (const file of files) {
     const stem = path.basename(file, ".jsonl");
