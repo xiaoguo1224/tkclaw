@@ -1284,6 +1284,7 @@ const zhCN = {
       token_type_invalid: "Token 类型错误",
       token_scope_forbidden: "Token scope 不允许",
       token_subject_missing: "Token 无效",
+      oauth_exchange_failed: "OAuth 登录失败，请重试或联系管理员",
       user_not_found_or_disabled: "用户不存在或已禁用",
       password_too_short: "密码至少 6 位",
       email_already_registered: "该邮箱已注册",

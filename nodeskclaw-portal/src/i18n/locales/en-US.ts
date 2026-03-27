@@ -1284,6 +1284,7 @@ const enUS = {
       token_type_invalid: "Invalid token type",
       token_scope_forbidden: "Token scope is not allowed",
       token_subject_missing: "Token subject is missing",
+      oauth_exchange_failed: "OAuth sign-in failed. Please retry or contact the administrator.",
       user_not_found_or_disabled: "User not found or disabled",
       password_too_short: "Password must be at least 6 characters",
       email_already_registered: "This email is already registered",
