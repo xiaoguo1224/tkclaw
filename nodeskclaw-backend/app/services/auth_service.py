@@ -146,7 +146,25 @@ async def oauth_login(
                 )
             )
             if existing_membership.scalar_one_or_none() is None:
-                db.add(OrgMembership(user_id=user.id, org_id=binding.org_id, role=OrgRole.member))
+                membership = OrgMembership(user_id=user.id, org_id=binding.org_id, role=OrgRole.member)
+                db.add(membership)
+
+                from app.services.org_service import (
+                    _grant_manage_agents_permission_for_member,
+                    provision_default_ai_employee_for_member,
+                )
+
+                ai_provision = await provision_default_ai_employee_for_member(binding.org_id, user, db)
+                if ai_provision.status == "success" and ai_provision.instance_id:
+                    membership.default_instance_id = ai_provision.instance_id
+                    await _grant_manage_agents_permission_for_member(binding.org_id, user.id, db)
+                elif ai_provision.status == "failed":
+                    logger.warning(
+                        "OAuth auto-provision AI failed: org=%s user=%s message=%s",
+                        binding.org_id,
+                        user.id,
+                        ai_provision.message,
+                    )
             user.current_org_id = binding.org_id
         else:
             needs_org_setup = True
