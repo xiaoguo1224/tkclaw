@@ -86,8 +86,8 @@ docker build --platform linux/amd64 -t my-image:latest .
 ```
 
 ### 数据库规则
-在进行数据库修改的时候，需要记录sql语句，例如：`alter table users add 列_name integer`;
-每次修改都需要记录下来，创建sql文件，命名规则为"日期+操作（增加、删除字段等）"，放在`nodeskclaw-backend\flyway`文件夹
+在进行数据库结构修改时，必须通过 Alembic 迁移管理；
+每次修改都需要创建迁移文件，放在 `nodeskclaw-backend/alembic/versions`，并保证可执行（`alembic upgrade head`）。
 
 ### 导入完整性
 
