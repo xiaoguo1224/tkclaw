@@ -163,7 +163,7 @@ async function handleWecomLogin() {
     return
   }
   const redirectUri = WECOM_REDIRECT_URI || `${window.location.origin}/login/callback/wecom`
-  const state = 'nodeskclaw_portal'
+  const state = 'noTkClaw_portal'
   const useMobileAuth = isMobileDevice() || isWecomClient()
   const url = useMobileAuth
     ? (
@@ -216,8 +216,8 @@ watch(activeTab, () => { error.value = '' })
       <div class="relative z-10 flex flex-col justify-between px-12 xl:px-20 py-12">
         <!-- Logo -->
         <div class="flex items-center gap-3">
-          <img src="/logo.png" alt="DeskClaw" class="w-10 h-10" />
-          <span class="text-xl font-bold tracking-tight">DeskClaw</span>
+          <img src="/logo.png" alt="TkClaw" class="w-10 h-10" />
+          <span class="text-xl font-bold tracking-tight">TkClaw</span>
           <span class="px-1.5 py-0.5 text-[10px] font-semibold leading-none rounded bg-primary/15 text-primary">Beta</span>
         </div>
 
@@ -277,9 +277,9 @@ watch(activeTab, () => { error.value = '' })
         </div>
         <!-- 移动端 Logo -->
         <div class="flex flex-col items-center gap-3 lg:hidden">
-          <img src="/logo.png" alt="DeskClaw" class="w-12 h-12" />
+          <img src="/logo.png" alt="TkClaw" class="w-12 h-12" />
           <div class="flex items-center gap-2">
-            <span class="text-xl font-bold">DeskClaw</span>
+            <span class="text-xl font-bold">TkClaw</span>
             <span class="px-1.5 py-0.5 text-[10px] font-semibold leading-none rounded bg-primary/15 text-primary">Beta</span>
           </div>
         </div>
@@ -454,7 +454,7 @@ watch(activeTab, () => { error.value = '' })
         <!-- 底部 -->
         <div class="pt-4 text-center">
           <p class="text-[11px] text-muted-foreground/50">
-            DeskClaw &copy; 2026 &middot; by <a href="https://nodesks.ai/" target="_blank" class="hover:text-muted-foreground transition-colors underline underline-offset-2">NoDesk AI</a>
+            TkClaw &copy; 2026 &middot; by <a href="https://nodesks.ai/" target="_blank" class="hover:text-muted-foreground transition-colors underline underline-offset-2">TkClaw</a>
           </p>
         </div>
       </div>

@@ -21,7 +21,7 @@ const orgStore = useOrgStore()
 const { isEE } = useEdition()
 
 const K8S_NAME_MAX = 63
-const NS_PREFIX_BASE = 'nodeskclaw-'.length + 1
+const NS_PREFIX_BASE = 'noTkClaw-'.length + 1
 const DEPLOY_NAME_MAX = 35
 
 const name = ref('')
@@ -864,7 +864,7 @@ async function handleDeploy() {
             <label class="text-sm font-medium">配置大模型</label>
           </div>
           <p class="text-xs text-muted-foreground">
-            DeskClaw 需要至少一个大模型 API Key 才能正常使用
+            TkClaw 需要至少一个大模型 API Key 才能正常使用
           </p>
 
           <template v-if="!llmSkipped">

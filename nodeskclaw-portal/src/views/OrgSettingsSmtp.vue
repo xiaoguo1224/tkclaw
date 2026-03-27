@@ -286,7 +286,7 @@ onMounted(() => {
           <input
             v-model="verificationSubject"
             type="text"
-            placeholder="DeskClaw - 登录验证码"
+            placeholder="TkClaw - 登录验证码"
             class="w-full h-9 px-3 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
           />
         </div>
