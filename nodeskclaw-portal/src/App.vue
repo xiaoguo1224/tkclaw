@@ -71,8 +71,8 @@ function onLocaleChange(value: string) {
       <header class="h-14 flex items-center justify-between px-6 border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-50">
         <div class="flex items-center gap-6 min-w-0">
           <div class="flex items-center gap-2 shrink-0 cursor-pointer" @click="router.push('/')">
-            <img src="/logo.png" alt="TkClaw" class="w-5 h-5" />
-            <span class="font-bold text-base">TkClaw</span>
+            <img src="/logo.png" alt="TClaw" class="w-5 h-5" />
+            <span class="font-bold text-base">TClaw</span>
             <span class="px-1.5 py-0.5 text-[10px] font-semibold leading-none rounded bg-primary/15 text-primary">{{ appVersion }}</span>
           </div>
           <nav v-if="!isSetupPage" class="flex items-center gap-1 overflow-x-auto min-w-0">
