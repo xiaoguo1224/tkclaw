@@ -6,8 +6,6 @@ Create Date: 2026-03-26 13:10:00
 """
 
 from alembic import op
-import sqlalchemy as sa
-from sqlalchemy import text
 
 
 revision = "e2c7a1c9f0ab"
@@ -17,58 +15,87 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.create_table(
-        "wecom_bind_sessions",
-        sa.Column("id", sa.String(length=36), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False),
-        sa.Column("deleted_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("instance_id", sa.String(length=36), nullable=False),
-        sa.Column("org_id", sa.String(length=36), nullable=False),
-        sa.Column("user_id", sa.String(length=36), nullable=False),
-        sa.Column("state", sa.String(length=96), nullable=False),
-        sa.Column("status", sa.String(length=16), server_default=sa.text("'pending'"), nullable=False),
-        sa.Column("qr_url", sa.Text(), nullable=False),
-        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
-        sa.Column("bound_user_id", sa.String(length=128), nullable=True),
-        sa.Column("bound_open_user_id", sa.String(length=128), nullable=True),
-        sa.Column("callback_raw", sa.Text(), nullable=True),
-        sa.Column("fail_reason", sa.String(length=256), nullable=True),
-        sa.Column("bound_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("cancelled_at", sa.DateTime(timezone=True), nullable=True),
-        sa.ForeignKeyConstraint(["instance_id"], ["instances.id"]),
-        sa.ForeignKeyConstraint(["org_id"], ["organizations.id"]),
-        sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
-        sa.PrimaryKeyConstraint("id"),
+    op.execute(
+        """
+        create table if not exists wecom_bind_sessions (
+            id varchar(36) not null primary key,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now(),
+            deleted_at timestamptz null,
+            instance_id varchar(36) not null references instances(id),
+            org_id varchar(36) not null references organizations(id),
+            user_id varchar(36) not null references users(id),
+            state varchar(96) not null,
+            status varchar(16) not null default 'pending',
+            qr_url text not null,
+            expires_at timestamptz not null,
+            bound_user_id varchar(128) null,
+            bound_open_user_id varchar(128) null,
+            callback_raw text null,
+            fail_reason varchar(256) null,
+            bound_at timestamptz null,
+            cancelled_at timestamptz null
+        );
+        """
     )
-    op.create_index("ix_wecom_bind_sessions_instance_id", "wecom_bind_sessions", ["instance_id"], unique=False)
-    op.create_index("ix_wecom_bind_sessions_org_id", "wecom_bind_sessions", ["org_id"], unique=False)
-    op.create_index("ix_wecom_bind_sessions_user_id", "wecom_bind_sessions", ["user_id"], unique=False)
-    op.create_index("ix_wecom_bind_sessions_state", "wecom_bind_sessions", ["state"], unique=False)
-    op.create_index("ix_wecom_bind_sessions_status", "wecom_bind_sessions", ["status"], unique=False)
-    op.create_index("ix_wecom_bind_sessions_deleted_at", "wecom_bind_sessions", ["deleted_at"], unique=False)
-    op.create_index(
-        "ix_wecom_bind_sessions_instance_user_status",
-        "wecom_bind_sessions",
-        ["instance_id", "user_id", "status"],
-        unique=False,
+    op.execute(
+        """
+        create index if not exists ix_wecom_bind_sessions_instance_id
+            on wecom_bind_sessions(instance_id);
+        """
     )
-    op.create_index(
-        "uq_wecom_bind_sessions_state_active",
-        "wecom_bind_sessions",
-        ["state"],
-        unique=True,
-        postgresql_where=text("deleted_at IS NULL"),
+    op.execute(
+        """
+        create index if not exists ix_wecom_bind_sessions_org_id
+            on wecom_bind_sessions(org_id);
+        """
+    )
+    op.execute(
+        """
+        create index if not exists ix_wecom_bind_sessions_user_id
+            on wecom_bind_sessions(user_id);
+        """
+    )
+    op.execute(
+        """
+        create index if not exists ix_wecom_bind_sessions_state
+            on wecom_bind_sessions(state);
+        """
+    )
+    op.execute(
+        """
+        create index if not exists ix_wecom_bind_sessions_status
+            on wecom_bind_sessions(status);
+        """
+    )
+    op.execute(
+        """
+        create index if not exists ix_wecom_bind_sessions_deleted_at
+            on wecom_bind_sessions(deleted_at);
+        """
+    )
+    op.execute(
+        """
+        create index if not exists ix_wecom_bind_sessions_instance_user_status
+            on wecom_bind_sessions(instance_id, user_id, status);
+        """
+    )
+    op.execute(
+        """
+        create unique index if not exists uq_wecom_bind_sessions_state_active
+            on wecom_bind_sessions(state)
+            where deleted_at is null;
+        """
     )
 
 
 def downgrade() -> None:
-    op.drop_index("uq_wecom_bind_sessions_state_active", table_name="wecom_bind_sessions")
-    op.drop_index("ix_wecom_bind_sessions_instance_user_status", table_name="wecom_bind_sessions")
-    op.drop_index("ix_wecom_bind_sessions_deleted_at", table_name="wecom_bind_sessions")
-    op.drop_index("ix_wecom_bind_sessions_status", table_name="wecom_bind_sessions")
-    op.drop_index("ix_wecom_bind_sessions_state", table_name="wecom_bind_sessions")
-    op.drop_index("ix_wecom_bind_sessions_user_id", table_name="wecom_bind_sessions")
-    op.drop_index("ix_wecom_bind_sessions_org_id", table_name="wecom_bind_sessions")
-    op.drop_index("ix_wecom_bind_sessions_instance_id", table_name="wecom_bind_sessions")
-    op.drop_table("wecom_bind_sessions")
+    op.execute("drop index if exists uq_wecom_bind_sessions_state_active;")
+    op.execute("drop index if exists ix_wecom_bind_sessions_instance_user_status;")
+    op.execute("drop index if exists ix_wecom_bind_sessions_deleted_at;")
+    op.execute("drop index if exists ix_wecom_bind_sessions_status;")
+    op.execute("drop index if exists ix_wecom_bind_sessions_state;")
+    op.execute("drop index if exists ix_wecom_bind_sessions_user_id;")
+    op.execute("drop index if exists ix_wecom_bind_sessions_org_id;")
+    op.execute("drop index if exists ix_wecom_bind_sessions_instance_id;")
+    op.execute("drop table if exists wecom_bind_sessions;")
