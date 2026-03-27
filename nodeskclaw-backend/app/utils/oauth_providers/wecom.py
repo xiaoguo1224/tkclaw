@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 WECOM_GET_TOKEN_URL = "https://qyapi.weixin.qq.com/cgi-bin/gettoken"
 WECOM_GET_USERINFO_URL = "https://qyapi.weixin.qq.com/cgi-bin/user/getuserinfo"
 WECOM_GET_USER_URL = "https://qyapi.weixin.qq.com/cgi-bin/user/get"
+WECOM_GET_USER_DETAIL_URL = "https://qyapi.weixin.qq.com/cgi-bin/auth/getuserdetail"
 
 
 class WecomProvider(OAuthProvider):
@@ -70,6 +71,24 @@ class WecomProvider(OAuthProvider):
                 raise ValueError(f"企业微信 access_token 为空: {data}")
             return access_token
 
+    async def _get_sensitive_user_detail(self, access_token: str, user_ticket: str, user_id: str) -> dict:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                WECOM_GET_USER_DETAIL_URL,
+                params={"access_token": access_token},
+                json={"user_ticket": user_ticket},
+            )
+            data = resp.json()
+            if data.get("errcode") != 0:
+                logger.warning(
+                    "wecom oauth step=get_sensitive_user_detail failed errcode=%s errmsg=%s userid=%s",
+                    data.get("errcode"),
+                    data.get("errmsg"),
+                    user_id,
+                )
+                return {}
+            return data
+
     async def exchange_code(
         self, code: str, redirect_uri: str | None = None, client_id: str | None = None
     ) -> OAuthUserInfo:
@@ -100,6 +119,16 @@ class WecomProvider(OAuthProvider):
                 )
                 raise ValueError(f"企业微信未返回 UserId: {user_info}")
 
+            sensitive_detail = {}
+            user_ticket = user_info.get("user_ticket") or user_info.get("user_ticket_id") or ""
+            if user_ticket:
+                sensitive_detail = await self._get_sensitive_user_detail(access_token, user_ticket, user_id)
+            else:
+                logger.info(
+                    "wecom oauth step=getuserinfo no_user_ticket userid=%s scope_may_not_include_privateinfo",
+                    user_id,
+                )
+
             detail_resp = await client.get(
                 WECOM_GET_USER_URL,
                 params={"access_token": access_token, "userid": user_id},
@@ -116,16 +145,22 @@ class WecomProvider(OAuthProvider):
                     provider="wecom",
                     provider_user_id=user_id,
                     provider_tenant_id=corp_id,
-                    name=user_id,
-                    email=None,
-                    avatar_url=None,
+                    name=sensitive_detail.get("name") or user_id,
+                    email=sensitive_detail.get("email") or sensitive_detail.get("biz_mail") or None,
+                    avatar_url=sensitive_detail.get("avatar") or None,
                 )
 
             return OAuthUserInfo(
                 provider="wecom",
                 provider_user_id=user_id,
                 provider_tenant_id=corp_id,
-                name=detail.get("name") or user_id,
-                email=detail.get("email") or detail.get("biz_mail") or None,
-                avatar_url=detail.get("avatar") or None,
+                name=detail.get("name") or sensitive_detail.get("name") or user_id,
+                email=(
+                    detail.get("email")
+                    or detail.get("biz_mail")
+                    or sensitive_detail.get("email")
+                    or sensitive_detail.get("biz_mail")
+                    or None
+                ),
+                avatar_url=detail.get("avatar") or sensitive_detail.get("avatar") or None,
             )

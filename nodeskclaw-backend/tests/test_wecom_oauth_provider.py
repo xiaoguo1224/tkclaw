@@ -27,6 +27,11 @@ class _AsyncClientMock:
             raise RuntimeError("unexpected get call")
         return _Resp(self._responses.pop(0))
 
+    async def post(self, _url, params=None, json=None):
+        if not self._responses:
+            raise RuntimeError("unexpected post call")
+        return _Resp(self._responses.pop(0))
+
 
 class _AsyncClientFactory:
     def __init__(self, batches):
@@ -110,3 +115,28 @@ async def test_wecom_exchange_code_email_fallback_to_biz_mail(monkeypatch):
     provider = WecomProvider()
     result = await provider.exchange_code("code-3")
     assert result.email == "lisi@example.com"
+
+
+@pytest.mark.asyncio
+async def test_wecom_exchange_code_fetch_sensitive_detail_by_user_ticket(monkeypatch):
+    monkeypatch.setattr(settings, "WECOM_CORP_ID", "corp-1")
+    monkeypatch.setattr(settings, "WECOM_AGENT_ID", "1000001")
+    monkeypatch.setattr(settings, "WECOM_APP_SECRET", "secret-1")
+    monkeypatch.setattr(settings, "WECOM_REDIRECT_URI", "https://portal.example.com/login/callback/wecom")
+
+    monkeypatch.setattr(
+        "app.utils.oauth_providers.wecom.httpx.AsyncClient",
+        _AsyncClientFactory([
+            [{"errcode": 0, "access_token": "token-1"}],
+            [
+                {"errcode": 0, "UserId": "wangwu", "user_ticket": "ticket-1"},
+                {"errcode": 0, "name": "王五", "email": "wangwu@example.com"},
+            ],
+            [{"errcode": 0, "name": "王五"}],
+        ]),
+    )
+
+    provider = WecomProvider()
+    result = await provider.exchange_code("code-4")
+    assert result.name == "王五"
+    assert result.email == "wangwu@example.com"
