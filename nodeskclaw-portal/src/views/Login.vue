@@ -122,6 +122,7 @@ async function handleCodeSubmit() {
 const WAITLIST_URL = 'https://nodeskai.feishu.cn/share/base/form/shrcnKfwXbiUOenm73jlpElu1hg'
 const WECOM_CORP_ID = import.meta.env.VITE_WECOM_CORP_ID || ''
 const WECOM_AGENT_ID = import.meta.env.VITE_WECOM_AGENT_ID || ''
+const WECOM_REDIRECT_URI = import.meta.env.VITE_WECOM_REDIRECT_URI || ''
 const WECOM_QR_CONNECT_URL = 'https://open.work.weixin.qq.com/wwopen/sso/qrConnect'
 
 function isNonWhitelistedEmail(input: string): boolean {
@@ -160,7 +161,7 @@ async function handleWecomLogin() {
     error.value = t('auth.wecomConfigMissing')
     return
   }
-  const redirectUri = `${window.location.origin}/login/callback/wecom`
+  const redirectUri = WECOM_REDIRECT_URI || `${window.location.origin}/login/callback/wecom`
   const state = 'nodeskclaw_portal'
   const useMobileAuth = isMobileDevice() || isWecomClient()
   const url = useMobileAuth

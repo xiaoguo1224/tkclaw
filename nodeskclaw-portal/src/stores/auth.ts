@@ -62,7 +62,9 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function oauthLogin(provider: string, code: string) {
-    const redirect_uri = window.location.origin + `/login/callback/${provider}`
+    const redirect_uri = provider === 'wecom'
+      ? (import.meta.env.VITE_WECOM_REDIRECT_URI || `${window.location.origin}/login/callback/${provider}`)
+      : (window.location.origin + `/login/callback/${provider}`)
     let client_id: string | undefined
     if (provider === 'feishu') {
       client_id = import.meta.env.VITE_FEISHU_APP_ID || undefined

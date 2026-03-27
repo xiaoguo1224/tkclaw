@@ -18,6 +18,7 @@ nodeskclaw-backend/.env.*
 nodeskclaw-backend/data/
 nodeskclaw-backend/.ruff_cache
 nodeskclaw-backend/.pytest_cache
+nodeskclaw-backend/pytest-cache-files-*
 nodeskclaw-backend/.cursor
 nodeskclaw-backend/.vscode
 **/*.pyc
