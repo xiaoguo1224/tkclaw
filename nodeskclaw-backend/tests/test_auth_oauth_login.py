@@ -1,6 +1,7 @@
 from unittest.mock import AsyncMock
 
 import pytest
+from fastapi import HTTPException
 
 from app.models.oauth_connection import UserOAuthConnection
 from app.models.org_membership import OrgMembership
@@ -168,3 +169,23 @@ async def test_oauth_login_binding_org_marks_not_need_setup(monkeypatch):
     assert user.current_org_id == "org-1"
     assert any(isinstance(item, OrgMembership) for item in db.added)
     db.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_oauth_login_provider_error_returns_http_401(monkeypatch):
+    db = _FakeSession([])
+
+    class _FailProvider:
+        async def exchange_code(self, _code: str, _redirect_uri: str | None = None, client_id: str | None = None):
+            raise ValueError("boom")
+
+    monkeypatch.setattr(auth_service, "get_provider", lambda _name: _FailProvider())
+
+    with pytest.raises(HTTPException) as exc_info:
+        await auth_service.oauth_login("wecom", "code-x", db)
+
+    exc = exc_info.value
+    assert exc.status_code == 401
+    assert isinstance(exc.detail, dict)
+    assert exc.detail.get("message_key") == "errors.auth.oauth_exchange_failed"
+    assert exc.detail.get("error_code") == 40130
