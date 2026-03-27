@@ -4,37 +4,45 @@ import { useRouter } from 'vue-router'
 import { Plus, Loader2, Bot } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { useOrgStore } from '@/stores/org'
 import WorkspaceCard from '@/components/workspace/WorkspaceCard.vue'
 import CustomSelect from '@/components/shared/CustomSelect.vue'
 
 const router = useRouter()
 const store = useWorkspaceStore()
-const orgStore = useOrgStore()
 const { t } = useI18n()
 const selectedDepartmentId = ref('')
 
-function flattenDepartments(items = orgStore.departments, depth = 0): Array<{ id: string; label: string }> {
-  return items.flatMap(item => [
-    { id: item.id, label: `${' '.repeat(depth * 2)}${item.name}` },
-    ...flattenDepartments(item.children || [], depth + 1),
-  ])
-}
-
 const departmentOptions = computed(() => [
   { value: '', label: t('workspaceList.allDepartments') },
-  ...flattenDepartments().map(item => ({ value: item.id, label: item.label })),
+  ...store.filterDepartments.map(item => ({
+    value: item.id,
+    label: `${' '.repeat(item.depth * 2)}${item.name}`,
+  })),
 ])
 
 onMounted(async () => {
-  if (!orgStore.currentOrgId) await orgStore.fetchCurrentOrg()
-  if (orgStore.currentOrgId) await orgStore.fetchDepartments()
+  await store.fetchWorkspaceFilterDepartments()
+  if (
+    selectedDepartmentId.value
+    && !store.filterDepartments.some(item => item.id === selectedDepartmentId.value)
+  ) {
+    selectedDepartmentId.value = ''
+  }
   await store.fetchWorkspaces(selectedDepartmentId.value || null)
 })
 
 watch(selectedDepartmentId, async value => {
   await store.fetchWorkspaces(value || null)
 })
+
+watch(
+  () => store.filterDepartments,
+  (items) => {
+    if (selectedDepartmentId.value && !items.some(item => item.id === selectedDepartmentId.value)) {
+      selectedDepartmentId.value = ''
+    }
+  },
+)
 
 function openWorkspace(id: string) {
   router.push(`/workspace/${id}`)
@@ -70,6 +78,9 @@ function createNew() {
         trigger-class="w-full justify-between"
         @update:model-value="(value: string | null) => { selectedDepartmentId = value || '' }"
       />
+      <p v-if="store.filterDepartments.length === 0" class="text-xs text-muted-foreground mt-2">
+        {{ t('workspaceList.noDepartmentOptions') }}
+      </p>
     </div>
 
     <!-- Loading -->

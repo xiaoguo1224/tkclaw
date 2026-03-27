@@ -21,7 +21,10 @@ from app.schemas.channel import (
     ChannelConfigsUpdate,
     DeployRepoChannelRequest,
     InstallNpmChannelRequest,
+    WecomBindCancelRequest,
+    WecomManualSaveRequest,
 )
+from app.services import wecom_bind_service
 from app.services.channel_config_service import (
     CHANNEL_SCHEMAS,
     REPO_CHANNEL_PLUGINS,
@@ -209,6 +212,98 @@ async def upload_channel(
 
     result = await upload_channel_plugin(instance, db, plugin_files, plugin_id)
     return _ok(result)
+
+
+@router.post("/{instance_id}/channels/wecom/install")
+async def install_wecom_plugin(
+    instance_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    await instance_member_service.check_instance_access(
+        instance_id, current_user, InstanceRole.editor, db
+    )
+    data = await wecom_bind_service.install_official_plugin(
+        instance_id=instance_id,
+        current_user=current_user,
+        db=db,
+    )
+    return _ok(data)
+
+
+@router.post("/{instance_id}/channels/wecom/qr/start")
+async def start_wecom_qr(
+    instance_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    await instance_member_service.check_instance_access(
+        instance_id, current_user, InstanceRole.editor, db
+    )
+    data = await wecom_bind_service.start_qr_session(
+        instance_id=instance_id,
+        current_user=current_user,
+        db=db,
+    )
+    return _ok(data)
+
+
+@router.get("/{instance_id}/channels/wecom/qr/{session_id}")
+async def get_wecom_qr_status(
+    instance_id: str,
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    await instance_member_service.check_instance_access(
+        instance_id, current_user, InstanceRole.viewer, db
+    )
+    data = await wecom_bind_service.get_qr_status(
+        instance_id=instance_id,
+        session_id=session_id,
+        current_user=current_user,
+        db=db,
+    )
+    return _ok(data)
+
+
+@router.post("/{instance_id}/channels/wecom/qr/cancel")
+async def cancel_wecom_qr(
+    instance_id: str,
+    body: WecomBindCancelRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    await instance_member_service.check_instance_access(
+        instance_id, current_user, InstanceRole.editor, db
+    )
+    data = await wecom_bind_service.cancel_qr_session(
+        instance_id=instance_id,
+        current_user=current_user,
+        db=db,
+        session_id=body.session_id,
+    )
+    return _ok(data)
+
+
+@router.post("/{instance_id}/channels/wecom/manual-save")
+async def save_wecom_manual_config(
+    instance_id: str,
+    body: WecomManualSaveRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    await instance_member_service.check_instance_access(
+        instance_id, current_user, InstanceRole.editor, db
+    )
+    data = await wecom_bind_service.save_manual_config(
+        instance_id=instance_id,
+        current_user=current_user,
+        db=db,
+        bot_id=body.bot_id,
+        secret=body.secret,
+    )
+    return _ok(data)
 
 
 def _extract_tgz(content: bytes) -> tuple[dict[str, str], str]:

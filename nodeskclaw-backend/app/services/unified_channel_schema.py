@@ -349,6 +349,65 @@ UNIFIED_CHANNEL_REGISTRY: dict[str, ChannelDefinition] = {
             ),
         ),
     ),
+
+    "wecom": ChannelDefinition(
+        label="WeCom / 企业微信",
+        supported_runtimes=("openclaw",),
+        order=37,
+        fields=(
+            FieldDef(
+                key="botId", label="Bot ID（机器人 ID）", type="string", required=True,
+                placeholder="bot_xxxxxxxxxxxxxxxx",
+                runtime_key={"openclaw": "botId"},
+            ),
+            FieldDef(
+                key="secret", label="Secret（机器人密钥）", type="password", required=True,
+                placeholder="企业微信机器人 Secret",
+                runtime_key={"openclaw": "secret"},
+            ),
+            FieldDef(
+                key="enabled", label="Enabled（启用）", type="boolean", required=False, default=True,
+                runtime_key={"openclaw": "enabled"},
+            ),
+            FieldDef(
+                key="dmPolicy", label="DM Policy（私聊策略）", type="select", required=False, default="open",
+                options=(
+                    {"value": "pairing", "label": "pairing（需配对）"},
+                    {"value": "open", "label": "open（所有人可用）"},
+                    {"value": "allowlist", "label": "allowlist（白名单）"},
+                    {"value": "disabled", "label": "disabled（禁用私聊）"},
+                ),
+                runtime_key={"openclaw": "dmPolicy"},
+            ),
+            FieldDef(
+                key="allowFrom", label="Allow From（私聊白名单）", type="string_list", required=False,
+                runtime_key={"openclaw": "allowFrom"},
+            ),
+            FieldDef(
+                key="groupPolicy", label="Group Policy（群聊策略）", type="select", required=False, default="open",
+                options=(
+                    {"value": "open", "label": "open（开放）"},
+                    {"value": "allowlist", "label": "allowlist（白名单）"},
+                    {"value": "disabled", "label": "disabled（禁用群聊）"},
+                ),
+                runtime_key={"openclaw": "groupPolicy"},
+            ),
+            FieldDef(
+                key="groupAllowFrom", label="Group Allow From（群聊白名单）", type="string_list", required=False,
+                runtime_key={"openclaw": "groupAllowFrom"},
+            ),
+            FieldDef(
+                key="sendThinkingMessage", label="Send Thinking Message（发送思考中提示）", type="boolean",
+                required=False, default=True,
+                runtime_key={"openclaw": "sendThinkingMessage"},
+            ),
+            FieldDef(
+                key="websocketUrl", label="WebSocket URL（长连接地址）", type="string", required=False,
+                placeholder="wss://openws.work.weixin.qq.com",
+                runtime_key={"openclaw": "websocketUrl"},
+            ),
+        ),
+    ),
 }
 
 

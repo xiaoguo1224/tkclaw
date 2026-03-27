@@ -34,7 +34,22 @@ export interface MemberInfo {
   secondary_department_ids: string[]
   secondary_departments: string[]
   is_department_manager: boolean
+  default_ai_instance_id: string | null
+  default_ai_instance_name: string | null
+  has_default_ai: boolean
+  ai_provision?: {
+    status: 'success' | 'failed'
+    instance_id?: string | null
+    message_key?: string | null
+    message?: string | null
+  } | null
   created_at: string
+}
+
+export interface MemberDefaultAiCandidateInfo {
+  id: string
+  name: string
+  status: string
 }
 
 export interface DepartmentInfo {
@@ -114,6 +129,12 @@ export const useOrgStore = defineStore('org', () => {
 
   async function updateOrgName(name: string) {
     const res = await api.put('/orgs/current/name', { name })
+    currentOrg.value = res.data.data
+    return res.data.data
+  }
+
+  async function updateCurrentOrgDefaultCluster(clusterId: string | null) {
+    const res = await api.put('/orgs/current/default-cluster', { cluster_id: clusterId })
     currentOrg.value = res.data.data
     return res.data.data
   }
@@ -249,6 +270,25 @@ export const useOrgStore = defineStore('org', () => {
     return res.data.data
   }
 
+  async function listMemberDefaultAiCandidates(membershipId: string) {
+    if (!currentOrgId.value) return []
+    const res = await api.get(`/orgs/${currentOrgId.value}/members/${membershipId}/default-ai-candidates`)
+    return (res.data.data ?? []) as MemberDefaultAiCandidateInfo[]
+  }
+
+  async function updateMemberDefaultAi(
+    membershipId: string,
+    instanceId: string | null,
+  ) {
+    if (!currentOrgId.value) return
+    const res = await api.put(`/orgs/${currentOrgId.value}/members/${membershipId}/default-ai`, {
+      instance_id: instanceId,
+    })
+    const idx = members.value.findIndex(m => m.id === membershipId)
+    if (idx >= 0) members.value[idx] = res.data.data
+    return res.data.data as MemberInfo
+  }
+
   // ── 用量 ──
 
   async function fetchUsage() {
@@ -271,6 +311,7 @@ export const useOrgStore = defineStore('org', () => {
     fetchMyOrg,
     fetchCurrentOrg,
     updateOrgName,
+    updateCurrentOrgDefaultCluster,
     fetchMembers,
     fetchDepartments,
     createDepartment,
@@ -283,6 +324,8 @@ export const useOrgStore = defineStore('org', () => {
     addMember,
     updateMemberRole,
     updateMemberDepartments,
+    listMemberDefaultAiCandidates,
+    updateMemberDefaultAi,
     removeMember,
     fetchUsage,
   }

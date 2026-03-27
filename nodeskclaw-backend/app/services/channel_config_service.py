@@ -25,6 +25,7 @@ SYSTEM_CHANNEL_IDS = {"nodeskclaw", "learning"}
 CHANNEL_LABELS: dict[str, str] = {
     "feishu": "Feishu / 飞书",
     "dingtalk": "DingTalk / 钉钉",
+    "wecom": "WeCom / 企业微信",
     "slack": "Slack",
     "telegram": "Telegram",
     "discord": "Discord",
@@ -50,6 +51,7 @@ CHANNEL_LABELS: dict[str, str] = {
 CHANNEL_ORDER: dict[str, int] = {
     "feishu": 35,
     "dingtalk": 36,
+    "wecom": 37,
     "slack": 40,
     "telegram": 45,
     "discord": 50,
@@ -79,10 +81,30 @@ CHANNEL_SCHEMAS: dict[str, list[dict]] = get_legacy_channel_schemas()
 SENSITIVE_KEYS = {
     "appSecret", "botToken", "appToken", "token", "appPassword",
     "accessToken", "encryptKey", "verificationToken", "apiKey",
-    "serviceAccountKeyFile", "clientSecret",
+    "serviceAccountKeyFile", "clientSecret", "secret",
     "app_secret", "bot_token", "app_token", "client_secret",
     "encrypt_key", "verification_token",
 }
+
+WECOM_OFFICIAL_PLUGIN_PACKAGE = "@wecom/wecom-openclaw-plugin"
+WECOM_OFFICIAL_PLUGIN_NAME = "wecom-openclaw-plugin"
+WECOM_OFFICIAL_PLUGIN_PATH = f"/root/.openclaw/extensions/{WECOM_OFFICIAL_PLUGIN_NAME}"
+_WECOM_PLUGIN_CHECK_SCRIPT = textwrap.dedent("""\
+    const fs = require('fs');
+    const path = require('path');
+    let installed = false;
+    try {
+      const globalRoot = require('child_process').execSync('npm root -g').toString().trim();
+      const candidates = [
+        path.join(globalRoot, 'openclaw', 'extensions', 'wecom-openclaw-plugin', 'openclaw.plugin.json'),
+        '/root/.openclaw/extensions/wecom-openclaw-plugin/openclaw.plugin.json',
+      ];
+      installed = candidates.some((p) => fs.existsSync(p));
+    } catch (e) {
+      installed = false;
+    }
+    process.stdout.write(installed ? '1' : '0');
+""")
 
 
 # ── Repo Channel Plugins ─────────────────────────────────
@@ -298,6 +320,135 @@ async def _discover_openclaw_channels(
     return channels
 
 
+async def _run_openclaw_exec(instance: Instance, db: AsyncSession, command: list[str]) -> str:
+    async with remote_fs(instance, db) as fs:
+        try:
+            if instance.compute_provider == "docker":
+                from app.services.nfs_mount import DockerFS
+                assert isinstance(fs, DockerFS)
+                return await fs.exec_command(command)
+            return await fs._k8s.exec_in_pod(
+                fs._ns, fs._pod, command, container=fs._container,
+            )
+        except Exception as e:
+            logger.error("OpenClaw exec failed: instance=%s command=%s err=%s", instance.id, command, e)
+            raise AppException(
+                code=50200,
+                message=f"实例内命令执行失败: {e}",
+                status_code=502,
+                message_key="errors.channel.command_failed",
+            ) from e
+
+
+async def is_official_wecom_plugin_installed(instance: Instance, db: AsyncSession) -> bool:
+    _assert_openclaw_runtime(instance)
+    raw = await _run_openclaw_exec(instance, db, ["node", "-e", _WECOM_PLUGIN_CHECK_SCRIPT])
+    return raw.strip() == "1"
+
+
+def ensure_wecom_plugin_config(config: dict) -> dict:
+    plugins = config.setdefault("plugins", {})
+    allow = plugins.setdefault("allow", [])
+    if WECOM_OFFICIAL_PLUGIN_NAME not in allow:
+        allow.append(WECOM_OFFICIAL_PLUGIN_NAME)
+    entries = plugins.setdefault("entries", {})
+    entries.pop("wecom", None)
+    entries[WECOM_OFFICIAL_PLUGIN_NAME] = {"enabled": True}
+
+    tools = config.setdefault("tools", {})
+    if isinstance(tools.get("allow"), list):
+        if "wecom_mcp" not in tools["allow"]:
+            tools["allow"].append("wecom_mcp")
+    else:
+        also_allow = tools.setdefault("alsoAllow", [])
+        if "wecom_mcp" not in also_allow:
+            also_allow.append("wecom_mcp")
+    return config
+
+
+def cleanup_stale_wecom_plugin_config(config: dict) -> tuple[dict, bool]:
+    changed = False
+    plugins = config.get("plugins")
+    if not isinstance(plugins, dict):
+        return config, changed
+
+    allow = plugins.get("allow")
+    if isinstance(allow, list):
+        new_allow = [item for item in allow if item != WECOM_OFFICIAL_PLUGIN_NAME]
+        if new_allow != allow:
+            plugins["allow"] = new_allow
+            changed = True
+
+    entries = plugins.get("entries")
+    if isinstance(entries, dict):
+        if entries.pop("wecom", None) is not None:
+            changed = True
+        if entries.pop(WECOM_OFFICIAL_PLUGIN_NAME, None) is not None:
+            changed = True
+
+    installs = plugins.get("installs")
+    if isinstance(installs, dict):
+        if installs.pop(WECOM_OFFICIAL_PLUGIN_NAME, None) is not None:
+            changed = True
+
+    load = plugins.get("load")
+    if isinstance(load, dict) and isinstance(load.get("paths"), list):
+        paths = load["paths"]
+        filtered = [
+            p for p in paths
+            if WECOM_OFFICIAL_PLUGIN_NAME not in str(p)
+        ]
+        if filtered != paths:
+            load["paths"] = filtered
+            changed = True
+
+    return config, changed
+
+
+async def ensure_official_wecom_plugin_installed(
+    instance: Instance,
+    db: AsyncSession,
+    *,
+    force: bool = False,
+) -> dict:
+    _assert_openclaw_runtime(instance)
+    if not force and await is_official_wecom_plugin_installed(instance, db):
+        return {"status": "installed", "already_installed": True, "package": WECOM_OFFICIAL_PLUGIN_PACKAGE}
+
+    adapter = get_config_adapter("openclaw")
+    async with remote_fs(instance, db) as fs:
+        config = await adapter.read_config(fs) or {}
+        config, changed = cleanup_stale_wecom_plugin_config(config)
+        if changed:
+            await adapter.write_config(fs, config)
+
+    output = ""
+    try:
+        output = await _run_openclaw_exec(
+            instance,
+            db,
+            ["npx", "-y", "@wecom/wecom-openclaw-cli", "install", "--skip-config"],
+        )
+    except AppException as e:
+        if not await is_official_wecom_plugin_installed(instance, db):
+            raise
+        output = f"installer_non_zero_but_plugin_present: {e.message}"
+    if not await is_official_wecom_plugin_installed(instance, db):
+        raise AppException(
+            code=50200,
+            message="企业微信官方插件安装后未检测到，请检查实例环境",
+            status_code=502,
+            message_key="errors.channel.install_failed",
+        )
+
+    async with remote_fs(instance, db) as fs:
+        config = await adapter.read_config(fs) or {}
+        ensure_wecom_plugin_config(config)
+        await adapter.write_config(fs, config)
+
+    return {"status": "installed", "already_installed": False, "package": WECOM_OFFICIAL_PLUGIN_PACKAGE, "output": output}
+
+
 # ── Config Read / Write ───────────────────────────────────
 
 def _mask_sensitive(config: dict) -> dict:
@@ -357,6 +508,9 @@ async def write_channel_configs(
     runtime = instance.runtime or "openclaw"
     adapter = get_config_adapter(runtime)
 
+    if runtime == "openclaw" and "wecom" in channel_configs:
+        await ensure_official_wecom_plugin_installed(instance, db)
+
     async with remote_fs(instance, db) as fs:
         try:
             config = await adapter.read_config(fs)
@@ -398,6 +552,8 @@ async def write_channel_configs(
 
         merged = {**system_configs, **native_channels}
         config = adapter.merge_channels(config, merged)
+        if runtime == "openclaw" and "wecom" in channel_configs:
+            ensure_wecom_plugin_config(config)
 
         try:
             await adapter.write_config(fs, config)
@@ -491,6 +647,8 @@ async def install_npm_channel(
 ) -> dict:
     """Install a third-party channel plugin via openclaw CLI in the Pod (OpenClaw only)."""
     _assert_openclaw_runtime(instance)
+    if package_name.strip() == WECOM_OFFICIAL_PLUGIN_PACKAGE:
+        return await ensure_official_wecom_plugin_installed(instance, db, force=True)
     if not package_name or not package_name.strip():
         raise BadRequestError(
             message="npm 包名不能为空",

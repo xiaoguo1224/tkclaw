@@ -98,6 +98,14 @@ class Settings(BaseSettings):
     # ── Portal ────────────────────────────────────────────
     PORTAL_BASE_URL: str = ""  # 用户门户基础 URL，如 https://portal.example.com
 
+    # ── 企业微信绑定（OpenClaw Channel）──────────────────
+    WECOM_CORP_ID: str = ""
+    WECOM_AGENT_ID: str = ""
+    WECOM_AGENT_SECRET: str = ""
+    WECOM_CALLBACK_TOKEN: str = ""
+    WECOM_CALLBACK_AES_KEY: str = ""
+    WECOM_QR_EXPIRE_SECONDS: int = 300
+
     # ── 云平台 ──────────────────────────────────────────
     VKE_SUBNET_ID: str = ""
 

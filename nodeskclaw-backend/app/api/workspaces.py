@@ -104,8 +104,23 @@ async def list_workspaces(
     db: AsyncSession = Depends(get_db),
 ):
     user, org = org_ctx
+    if department_id:
+        allowed_departments = await workspace_service.list_workspace_filter_departments(db, org.id, user.id)
+        allowed_department_ids = {item["id"] for item in allowed_departments}
+        if department_id not in allowed_department_ids:
+            raise _error(403, 40331, "errors.workspace.department_filter_forbidden", "无权按该部门筛选办公室")
     items = await workspace_service.list_workspaces(db, org.id, user_id=user.id, department_id=department_id)
     return _ok([i.model_dump(mode="json") for i in items])
+
+
+@router.get("/filter-departments")
+async def list_workspace_filter_departments(
+    org_ctx=Depends(get_current_org),
+    db: AsyncSession = Depends(get_db),
+):
+    user, org = org_ctx
+    items = await workspace_service.list_workspace_filter_departments(db, org.id, user.id)
+    return _ok(items)
 
 
 @router.get("/{workspace_id}")

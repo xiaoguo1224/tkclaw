@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Bot } from 'lucide-vue-next'
+import { Bot, Building2, Users } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import MiniHexPreview from './MiniHexPreview.vue'
 import type { WorkspaceListItem } from '@/stores/workspace'
@@ -15,6 +15,12 @@ const statusSummary = computed(() => {
   if (agents.length === 0) return ''
   if (active === agents.length) return t('workspaceCard.allActive')
   return t('workspaceCard.activeCount', { active, total: agents.length })
+})
+
+const departmentSummary = computed(() => {
+  const departmentNames = props.workspace.department_names || []
+  if (!departmentNames.length) return t('workspaceCard.noDepartments')
+  return departmentNames.join(' / ')
 })
 </script>
 
@@ -44,10 +50,19 @@ const statusSummary = computed(() => {
         </div>
       </div>
 
+      <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Building2 class="w-3 h-3" />
+        <span class="truncate">{{ t('workspaceCard.departmentsLabel') }}: {{ departmentSummary }}</span>
+      </div>
+
       <div class="flex items-center gap-3 text-xs text-muted-foreground">
         <span class="flex items-center gap-1">
           <Bot class="w-3 h-3" />
           {{ t('workspaceCard.agentCount', { count: workspace.agent_count }) }}
+        </span>
+        <span class="flex items-center gap-1">
+          <Users class="w-3 h-3" />
+          {{ t('workspaceCard.memberCount', { count: workspace.member_count || 0 }) }}
         </span>
         <span>{{ statusSummary }}</span>
       </div>

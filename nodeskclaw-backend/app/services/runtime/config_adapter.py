@@ -100,7 +100,7 @@ class OpenClawConfigAdapter(RuntimeConfigAdapter):
 
     def supported_channels(self) -> list[str]:
         return [
-            "feishu", "dingtalk", "telegram", "discord", "slack", "whatsapp",
+            "feishu", "dingtalk", "wecom", "telegram", "discord", "slack", "whatsapp",
             "irc", "signal", "googlechat", "msteams", "matrix",
             "mattermost", "bluebubbles", "nextcloud-talk", "imessage",
             "line", "nostr", "tlon", "twitch", "synology-chat",
