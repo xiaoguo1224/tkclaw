@@ -17,26 +17,48 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        "org_memberships",
-        sa.Column("default_instance_id", sa.String(length=36), nullable=True),
+    op.execute(
+        """
+        alter table org_memberships
+            add column if not exists default_instance_id varchar(36);
+        """
     )
-    op.create_foreign_key(
-        "fk_org_memberships_default_instance_id",
-        "org_memberships",
-        "instances",
-        ["default_instance_id"],
-        ["id"],
+    op.execute(
+        """
+        do $$
+        begin
+            if not exists (
+                select 1
+                from pg_constraint
+                where conname = 'fk_org_memberships_default_instance_id'
+            ) then
+                alter table org_memberships
+                    add constraint fk_org_memberships_default_instance_id
+                    foreign key (default_instance_id) references instances(id);
+            end if;
+        end
+        $$;
+        """
     )
-    op.create_index(
-        "ix_org_memberships_default_instance_id",
-        "org_memberships",
-        ["default_instance_id"],
-        unique=False,
+    op.execute(
+        """
+        create index if not exists ix_org_memberships_default_instance_id
+            on org_memberships(default_instance_id);
+        """
     )
 
 
 def downgrade() -> None:
-    op.drop_index("ix_org_memberships_default_instance_id", table_name="org_memberships")
-    op.drop_constraint("fk_org_memberships_default_instance_id", "org_memberships", type_="foreignkey")
-    op.drop_column("org_memberships", "default_instance_id")
+    op.execute("drop index if exists ix_org_memberships_default_instance_id;")
+    op.execute(
+        """
+        alter table org_memberships
+            drop constraint if exists fk_org_memberships_default_instance_id;
+        """
+    )
+    op.execute(
+        """
+        alter table org_memberships
+            drop column if exists default_instance_id;
+        """
+    )
