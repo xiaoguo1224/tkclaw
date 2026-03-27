@@ -54,9 +54,19 @@ class WecomProvider(OAuthProvider):
             )
             data = resp.json()
             if data.get("errcode") != 0:
+                logger.error(
+                    "wecom oauth step=gettoken failed errcode=%s errmsg=%s",
+                    data.get("errcode"),
+                    data.get("errmsg"),
+                )
                 raise ValueError(f"企业微信获取 access_token 失败: {data}")
             access_token = data.get("access_token") or ""
             if not access_token:
+                logger.error(
+                    "wecom oauth step=gettoken access_token_empty errcode=%s errmsg=%s",
+                    data.get("errcode"),
+                    data.get("errmsg"),
+                )
                 raise ValueError(f"企业微信 access_token 为空: {data}")
             return access_token
 
@@ -73,10 +83,21 @@ class WecomProvider(OAuthProvider):
             )
             user_info = resp.json()
             if user_info.get("errcode") != 0:
+                logger.error(
+                    "wecom oauth step=getuserinfo failed errcode=%s errmsg=%s",
+                    user_info.get("errcode"),
+                    user_info.get("errmsg"),
+                )
                 raise ValueError(f"企业微信 code 换用户失败: {user_info}")
 
             user_id = user_info.get("UserId") or ""
             if not user_id:
+                logger.error(
+                    "wecom oauth step=getuserinfo missing_userid errcode=%s errmsg=%s openid=%s",
+                    user_info.get("errcode"),
+                    user_info.get("errmsg"),
+                    user_info.get("OpenId"),
+                )
                 raise ValueError(f"企业微信未返回 UserId: {user_info}")
 
             detail_resp = await client.get(
@@ -85,7 +106,20 @@ class WecomProvider(OAuthProvider):
             )
             detail = detail_resp.json()
             if detail.get("errcode") != 0:
-                raise ValueError(f"企业微信获取用户详情失败: {detail}")
+                logger.warning(
+                    "wecom oauth step=get_user_detail degraded errcode=%s errmsg=%s userid=%s",
+                    detail.get("errcode"),
+                    detail.get("errmsg"),
+                    user_id,
+                )
+                return OAuthUserInfo(
+                    provider="wecom",
+                    provider_user_id=user_id,
+                    provider_tenant_id=corp_id,
+                    name=user_id,
+                    email=None,
+                    avatar_url=None,
+                )
 
             return OAuthUserInfo(
                 provider="wecom",
