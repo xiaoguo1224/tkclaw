@@ -123,6 +123,7 @@ const WAITLIST_URL = 'https://nodeskai.feishu.cn/share/base/form/shrcnKfwXbiUOen
 const WECOM_CORP_ID = import.meta.env.VITE_WECOM_CORP_ID || ''
 const WECOM_AGENT_ID = import.meta.env.VITE_WECOM_AGENT_ID || ''
 const WECOM_REDIRECT_URI = import.meta.env.VITE_WECOM_REDIRECT_URI || ''
+const WECOM_SCOPE = import.meta.env.VITE_WECOM_SCOPE || 'snsapi_privateinfo'
 const WECOM_QR_CONNECT_URL = 'https://open.work.weixin.qq.com/wwopen/sso/qrConnect'
 
 function isNonWhitelistedEmail(input: string): boolean {
@@ -170,7 +171,7 @@ async function handleWecomLogin() {
       `?appid=${encodeURIComponent(WECOM_CORP_ID)}` +
       `&redirect_uri=${encodeURIComponent(redirectUri)}` +
       '&response_type=code' +
-      '&scope=snsapi_base' +
+      `&scope=${encodeURIComponent(WECOM_SCOPE)}` +
       `&agentid=${encodeURIComponent(WECOM_AGENT_ID)}` +
       `&state=${encodeURIComponent(state)}` +
       '#wechat_redirect'
