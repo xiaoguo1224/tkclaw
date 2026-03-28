@@ -263,6 +263,13 @@ deploy_to_k8s() {
   fi
 }
 
+get_all_targets() {
+  local targets=(backend portal)
+  [[ -d "$PROJECT_ROOT/ee" ]] && targets=(backend admin portal)
+  [[ "$SKIP_PROXY" != true ]] && targets+=(proxy)
+  echo "${targets[@]}"
+}
+
 # ── cmd: deploy ──────────────────────────────────────────
 
 cmd_deploy() {
@@ -270,10 +277,13 @@ cmd_deploy() {
     require_context
   fi
 
+  if [[ "$TARGET" == "admin" && ! -d "$PROJECT_ROOT/ee" ]]; then
+    err "admin 组件需要 ee/ 目录（仅 EE 版本可用）"
+    exit 1
+  fi
   local targets=()
   if [[ "$TARGET" == "all" ]]; then
-    targets=(backend admin portal)
-    [[ "$SKIP_PROXY" != true ]] && targets+=(proxy)
+    read -ra targets <<< "$(get_all_targets)"
   else
     targets=("$TARGET")
   fi
@@ -353,8 +363,8 @@ cmd_release() {
   log "公开镜像仓库: ${REGISTRY}"
   echo ""
 
-  local targets=(backend admin portal)
-  [[ "$SKIP_PROXY" != true ]] && targets+=(proxy)
+  local targets
+  read -ra targets <<< "$(get_all_targets)"
 
   log "生成 changelog..."
   local notes_file; notes_file="$(generate_changelog "$VERSION")"
@@ -408,8 +418,8 @@ cmd_promote() {
 
   confirm "即将将 ${VERSION} 部署到生产环境 ${PROD_NS}（集群: ${KUBE_CONTEXT}）"
 
-  local targets=(backend admin portal)
-  [[ "$SKIP_PROXY" != true ]] && targets+=(proxy)
+  local targets
+  read -ra targets <<< "$(get_all_targets)"
 
   for t in "${targets[@]}"; do
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -481,6 +491,7 @@ cmd_init() {
 
   log "应用 K8s 部署清单（Deployment + Service）..."
   for f in backend.yaml admin.yaml portal.yaml; do
+    [[ "$f" == "admin.yaml" && ! -d "$PROJECT_ROOT/ee" ]] && continue
     if [[ -f "$SCRIPT_DIR/k8s/$f" ]]; then
       sed "s|<YOUR_REGISTRY>/<YOUR_NAMESPACE>|${REGISTRY}|g" "$SCRIPT_DIR/k8s/$f" \
         | $KUBECTL -n "$NAMESPACE" apply -f -
@@ -513,9 +524,9 @@ usage() {
   init                首次环境初始化
 
 目标 (deploy 命令):
-  all       backend + admin + portal + proxy（默认）
+  all       backend + portal + proxy（默认；含 ee/ 时加 admin）
   backend   后端
-  admin     Admin 前端
+  admin     Admin 前端（需 ee/ 目录）
   portal    Portal 前端
   proxy     LLM Proxy
 
