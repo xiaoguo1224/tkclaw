@@ -1,7 +1,7 @@
 services:
   postgres:
     platform: linux/amd64
-    image: postgres:16-alpine
+    image: 10.0.16.26:5000/tkclaw/postgres:16-alpine
     volumes:
       - pg_data:/var/lib/postgresql/data
     ports:
@@ -20,9 +20,7 @@ services:
 
   nodeskclaw-backend:
     platform: linux/amd64
-    build:
-      context: .
-      dockerfile: nodeskclaw-backend/Dockerfile
+    image: 10.0.16.26:5000/tkclaw/tkclaw-nodeskclaw-backend:v1.1
     env_file:
       - nodeskclaw-backend/.env
     depends_on:
@@ -51,8 +49,7 @@ services:
 
   llm-proxy:
     platform: linux/amd64
-    build:
-      context: nodeskclaw-llm-proxy
+    image: 10.0.16.26:5000/tkclaw/tkclaw-llm-proxy:v1.1
     depends_on:
       postgres:
         condition: service_healthy
@@ -65,8 +62,7 @@ services:
 
   portal:
     platform: linux/amd64
-    build:
-      context: nodeskclaw-portal
+    image: 10.0.16.26:5000/tkclaw/tkclaw-portal:v1.1
     env_file:
       - nodeskclaw-portal/.env
     depends_on:
