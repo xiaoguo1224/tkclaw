@@ -30,7 +30,7 @@ const loading = ref(true)
 const testingId = ref<string | null>(null)
 
 const showAddDialog = ref(false)
-const addForm = ref({ name: '', kubeconfig: '', computeProvider: 'docker' as 'docker' | 'k8s' })
+const addForm = ref({ name: '', kubeconfig: '', computeProvider: 'k8s' as 'docker' | 'k8s' })
 const adding = ref(false)
 const nameAutoFilled = ref(false)
 
@@ -79,7 +79,7 @@ watch(() => addForm.value.kubeconfig, (val) => {
 })
 
 function openAddDialog() {
-  addForm.value = { name: '', kubeconfig: '', computeProvider: 'docker' }
+  addForm.value = { name: '', kubeconfig: '', computeProvider: 'k8s' }
   nameAutoFilled.value = false
   showAddDialog.value = true
 }
@@ -403,19 +403,6 @@ function statusDotClass(status: string) {
             <div class="grid grid-cols-2 gap-3">
               <button
                 class="flex items-center gap-3 p-3.5 rounded-xl border-2 transition-all text-left"
-                :class="addForm.computeProvider === 'docker' ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/30'"
-                @click="selectType('docker')"
-              >
-                <div class="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" :class="addForm.computeProvider === 'docker' ? 'bg-blue-500/15' : 'bg-blue-500/10'">
-                  <Container class="w-4.5 h-4.5 text-blue-500" />
-                </div>
-                <div class="min-w-0">
-                  <div class="text-sm font-medium">{{ t('clusters.typeDocker') }}</div>
-                  <div class="text-xs text-muted-foreground">{{ t('clusters.dockerDesc') }}</div>
-                </div>
-              </button>
-              <button
-                class="flex items-center gap-3 p-3.5 rounded-xl border-2 transition-all text-left"
                 :class="addForm.computeProvider === 'k8s' ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/30'"
                 @click="selectType('k8s')"
               >
@@ -425,6 +412,22 @@ function statusDotClass(status: string) {
                 <div class="min-w-0">
                   <div class="text-sm font-medium">{{ t('clusters.typeK8s') }}</div>
                   <div class="text-xs text-muted-foreground">{{ t('clusters.k8sDesc') }}</div>
+                </div>
+              </button>
+              <button
+                class="flex items-center gap-3 p-3.5 rounded-xl border-2 transition-all text-left"
+                :class="addForm.computeProvider === 'docker' ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/30'"
+                @click="selectType('docker')"
+              >
+                <div class="w-9 h-9 rounded-lg flex items-center justify-center shrink-0" :class="addForm.computeProvider === 'docker' ? 'bg-blue-500/15' : 'bg-blue-500/10'">
+                  <Container class="w-4.5 h-4.5 text-blue-500" />
+                </div>
+                <div class="min-w-0">
+                  <div class="flex items-center gap-1.5">
+                    <span class="text-sm font-medium">{{ t('clusters.typeDocker') }}</span>
+                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-yellow-500/15 text-yellow-600" :title="t('clusters.dockerComingSoonTooltip')">{{ t('clusters.dockerComingSoon') }}</span>
+                  </div>
+                  <div class="text-xs text-muted-foreground">{{ t('clusters.dockerDesc') }}</div>
                 </div>
               </button>
             </div>

@@ -1006,7 +1006,7 @@ const enUS = {
     typeK8s: "Kubernetes Cluster",
     k8sDesc: "Remote K8s cluster",
     setupTitle: "Configure Compute Cluster",
-    setupDesc: "Add a Docker or Kubernetes cluster to deploy instances",
+    setupDesc: "Add a Kubernetes cluster to deploy instances",
     setupSubmit: "Create Cluster",
     testConnection: "Test Connection",
     testSuccess: "Connected successfully ({version})",
@@ -1041,6 +1041,8 @@ const enUS = {
     },
     dockerLabel: "Docker Runtime",
     dockerDesc: "Local Docker environment",
+    dockerComingSoon: "Beta",
+    dockerComingSoonTooltip: "Docker deployment support is limited in this version. Kubernetes is recommended.",
     authType: {
       token: "Token",
       certificate: "Certificate",

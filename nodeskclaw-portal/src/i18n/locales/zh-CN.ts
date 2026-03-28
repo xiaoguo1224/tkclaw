@@ -1006,7 +1006,7 @@ const zhCN = {
     typeK8s: "Kubernetes 集群",
     k8sDesc: "远程 K8s 集群",
     setupTitle: "配置计算集群",
-    setupDesc: "添加 Docker 或 Kubernetes 集群以部署实例",
+    setupDesc: "添加 Kubernetes 集群以部署实例",
     setupSubmit: "创建集群",
     testConnection: "测试连接",
     testSuccess: "连接成功 ({version})",
@@ -1041,6 +1041,8 @@ const zhCN = {
     },
     dockerLabel: "Docker 运行环境",
     dockerDesc: "本地 Docker 环境",
+    dockerComingSoon: "待支持",
+    dockerComingSoonTooltip: "当前版本 Docker 部署支持尚不完善，推荐使用 Kubernetes 集群",
     authType: {
       token: "Token",
       certificate: "证书",
