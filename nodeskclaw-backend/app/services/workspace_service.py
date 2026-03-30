@@ -510,6 +510,15 @@ async def update_agent(
     elif data.hex_r is not None:
         wa.hex_r = data.hex_r
 
+    if position_changed:
+        card = await node_card_service.get_node_card(
+            db, node_id=inst.id, workspace_id=workspace_id,
+        )
+        if card:
+            await node_card_service.update_node_card(
+                db, card, hex_q=wa.hex_q, hex_r=wa.hex_r,
+            )
+
     await db.commit()
 
     if position_changed:
