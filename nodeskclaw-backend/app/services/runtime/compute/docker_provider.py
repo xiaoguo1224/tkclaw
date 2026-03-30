@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import re
+from pathlib import Path
 
 from app.services.docker_constants import DOCKER_DATA_DIR
 from app.services.runtime.compute.base import (
@@ -42,6 +43,27 @@ _K8S_MEM_SUFFIXES: dict[str, str] = {
     "ki": "k", "mi": "m", "gi": "g", "ti": "t", "pi": "p",
 }
 
+_OPENCLAW_TEMPLATE = """{
+  "gateway": {
+    "port": ${OPENCLAW_GATEWAY_PORT},
+    "bind": "${OPENCLAW_GATEWAY_BIND}",
+    "auth": {
+      "mode": "token",
+      "token": "${OPENCLAW_GATEWAY_TOKEN}"
+    },
+    "controlUi": {
+      "enabled": true,
+      "allowInsecureAuth": true,
+      "dangerouslyAllowHostHeaderOriginFallback": true,
+      "dangerouslyDisableDeviceAuth": true
+    }
+  },
+  "logging": {
+    "level": "${OPENCLAW_LOG_LEVEL}"
+  }
+}
+"""
+
 
 def _parse_mem(mem_str: str) -> str:
     """Convert K8s-style memory (e.g. '2Gi', '512Mi') to Docker format ('2g', '512m')."""
@@ -65,6 +87,15 @@ def _extract_docker_error(stderr_text: str) -> str:
     if idx2 != -1:
         return stderr_text[idx2:].strip()[:500]
     return stderr_text.strip()[:500]
+
+
+def _ensure_openclaw_workspace(data_dir: Path) -> None:
+    config_file = data_dir / "openclaw.json"
+    template_file = data_dir / "openclaw.json.template"
+    if config_file.exists() and config_file.stat().st_size == 0:
+        config_file.unlink()
+    if not template_file.exists():
+        template_file.write_text(_OPENCLAW_TEMPLATE, encoding="utf-8")
 
 
 def _build_compose_yaml(config: InstanceComputeConfig) -> dict:
@@ -144,6 +175,8 @@ class DockerComputeProvider:
         os.makedirs(project_dir, exist_ok=True)
         data_dir = DOCKER_DATA_DIR / config.slug / "data"
         os.makedirs(str(data_dir), exist_ok=True)
+        if config.runtime == "openclaw":
+            _ensure_openclaw_workspace(data_dir)
 
         compose = _build_compose_yaml(config)
         compose_path = os.path.join(project_dir, "docker-compose.yml")
