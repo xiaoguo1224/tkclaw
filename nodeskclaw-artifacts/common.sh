@@ -7,8 +7,8 @@
 set -e
 
 # ── OCI 镜像仓库配置 ──────────────────────────────
-REGISTRY_HOST="nodesk-center-cn-beijing.cr.volces.com"
-REGISTRY_NAMESPACE="public"
+REGISTRY_HOST="10.0.16.26:5000"
+REGISTRY_NAMESPACE="tkclaw"
 
 registry_for() {
   local runtime="$1"

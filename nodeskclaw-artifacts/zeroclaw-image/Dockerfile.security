@@ -66,7 +66,8 @@ RUN echo "${IMAGE_VERSION}" > /opt/zeroclaw/.zeroclaw-version
 
 # 复用 base 镜像的 entrypoint（从构建上下文获取）
 COPY nodeskclaw-artifacts/zeroclaw-image/docker-entrypoint.sh /opt/zeroclaw/docker-entrypoint.sh
-RUN chmod +x /opt/zeroclaw/docker-entrypoint.sh
+RUN sed -i 's/\r$//' /opt/zeroclaw/docker-entrypoint.sh && \
+    chmod +x /opt/zeroclaw/docker-entrypoint.sh
 
 ENV PATH="/opt/zeroclaw:${PATH}"
 ENV SECURITY_LAYER_ENABLED=true

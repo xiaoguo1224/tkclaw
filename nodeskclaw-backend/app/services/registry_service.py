@@ -107,7 +107,7 @@ async def list_image_tags(
     if "://" in registry:
         url = registry
     else:
-        url = f"https://{registry}"
+        url = f"http://{registry}"
 
     parts = url.split("/")
     if len(parts) >= 4:

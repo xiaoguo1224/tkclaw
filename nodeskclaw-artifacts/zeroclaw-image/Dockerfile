@@ -19,7 +19,8 @@ RUN mkdir -p /opt/zeroclaw && \
     rm -f /tmp/zeroclaw.tar.gz
 
 COPY docker-entrypoint.sh /opt/zeroclaw/docker-entrypoint.sh
-RUN chmod +x /opt/zeroclaw/docker-entrypoint.sh
+RUN sed -i 's/\r$//' /opt/zeroclaw/docker-entrypoint.sh && \
+    chmod +x /opt/zeroclaw/docker-entrypoint.sh
 
 ENV PATH="/opt/zeroclaw:${PATH}"
 

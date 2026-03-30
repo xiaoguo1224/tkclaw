@@ -182,8 +182,7 @@ def _ensure_gateway_config(config: dict, instance: Instance) -> None:
     control_ui = gw.setdefault("controlUi", {})
     control_ui["allowInsecureAuth"] = True
     control_ui["dangerouslyDisableDeviceAuth"] = True
-    if "dangerouslyAllowHostHeaderOriginFallback" in control_ui:
-        control_ui["dangerouslyAllowHostHeaderOriginFallback"] = True
+    control_ui["dangerouslyAllowHostHeaderOriginFallback"] = True
 
 
 def _set_default_agent_model(config: dict, providers: dict) -> None:

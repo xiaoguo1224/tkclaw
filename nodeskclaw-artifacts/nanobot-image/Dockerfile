@@ -15,7 +15,8 @@ RUN pip install --no-cache-dir /tmp/nodeskclaw-tunnel-bridge/ && \
 
 COPY config.json.template /opt/nanobot/config.json.template
 COPY docker-entrypoint.sh /opt/nanobot/docker-entrypoint.sh
-RUN chmod +x /opt/nanobot/docker-entrypoint.sh
+RUN sed -i 's/\r$//' /opt/nanobot/docker-entrypoint.sh && \
+    chmod +x /opt/nanobot/docker-entrypoint.sh
 
 RUN echo "${IMAGE_VERSION}" > /opt/nanobot/.nanobot-version
 

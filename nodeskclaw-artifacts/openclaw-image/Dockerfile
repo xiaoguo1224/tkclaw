@@ -40,6 +40,11 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 RUN --mount=type=cache,target=/root/.npm \
     npm install -g openclaw@${OPENCLAW_VERSION} @nodeskai/genehub
 
+RUN mkdir -p /root/.openclaw/extensions
+
+RUN --mount=type=cache,target=/root/.npm \
+    openclaw plugins install @wecom/wecom-openclaw-plugin
+
 # ---------- 预置用户数据目录结构 ----------
 RUN mkdir -p /root/.openclaw/agents/main/sessions \
              /root/.openclaw/config \
@@ -64,7 +69,8 @@ RUN echo "${IMAGE_VERSION}" > /root/.openclaw-version
 # ---------- 启动脚本 + Init Container 脚本 ----------
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 COPY init-container.sh /init-container.sh
-RUN chmod +x /docker-entrypoint.sh /init-container.sh
+RUN sed -i 's/\r$//' /docker-entrypoint.sh /init-container.sh && \
+    chmod +x /docker-entrypoint.sh /init-container.sh
 
 # ---------- 运行配置 ----------
 WORKDIR /root
