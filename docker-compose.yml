@@ -38,8 +38,6 @@ services:
       LLM_PROXY_INTERNAL_URL: http://llm-proxy:8080
       NODESKCLAW_EDITION: ce
       DOCKER_DATA_DIR: ${NODESKCLAW_DATA_DIR:-$HOME/.nodeskclaw/docker-instances}
-      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
-      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-change-me-32-bytes-base64-key__=}
       INIT_ADMIN_ACCOUNT: ${INIT_ADMIN_ACCOUNT:-admin}
       PORTAL_BASE_URL: ${PORTAL_BASE_URL:-}
       WECOM_CORP_ID: ${WECOM_CORP_ID:-}
