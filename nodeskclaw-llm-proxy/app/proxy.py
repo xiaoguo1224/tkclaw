@@ -492,6 +492,27 @@ async def _handle_non_stream(
     )
 
 
+def _extract_sse_error(line: str) -> str | None:
+    """Parse an SSE data line for error content (OpenAI-compatible format)."""
+    stripped = line.strip()
+    if not stripped.startswith("data: ") or stripped == "data: [DONE]":
+        return None
+    try:
+        obj = json.loads(stripped[6:])
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if isinstance(obj.get("error"), dict):
+        err = obj["error"]
+        return f"{err.get('type', 'error')}: {err.get('message', str(err))}"[:512]
+    if isinstance(obj.get("error"), str):
+        return obj["error"][:512]
+    for choice in obj.get("choices") or []:
+        reason = choice.get("finish_reason")
+        if reason and reason not in ("stop", "length", "tool_calls", "function_call"):
+            return f"finish_reason={reason}"
+    return None
+
+
 async def _handle_stream(
     client: httpx.AsyncClient,
     method: str, url: str, headers: dict, body: bytes,
@@ -513,22 +534,32 @@ async def _handle_stream(
     async def stream_generator():
         nonlocal usage_data
         seen_done = False
+        stream_error: str | None = None
         try:
             async for line in resp.aiter_lines():
                 parsed = _parse_usage_from_sse_chunk(line)
                 if parsed:
                     usage_data = parsed
+                if not stream_error:
+                    stream_error = _extract_sse_error(line)
                 if line.strip() == "data: [DONE]":
                     seen_done = True
                 yield line + "\n"
             if not seen_done:
                 yield "data: [DONE]\n\n"
+        except Exception as e:
+            stream_error = stream_error or f"stream interrupted: {e}"
+            raise
         finally:
             await resp.aclose()
             latency_ms = int((time.monotonic() - start) * 1000)
+            if stream_error:
+                logger.warning("SSE stream error from %s: %s", ctx.provider, stream_error[:512])
             response_meta = json.dumps(usage_data, ensure_ascii=False) if usage_data else None
             await _record_usage(ctx, usage=usage_data, status_code=resp.status_code,
-                                latency_ms=latency_ms, response_body=response_meta)
+                                latency_ms=latency_ms,
+                                error_message=stream_error[:512] if stream_error else None,
+                                response_body=response_meta)
 
     resp_headers = {}
     for k, v in resp.headers.items():

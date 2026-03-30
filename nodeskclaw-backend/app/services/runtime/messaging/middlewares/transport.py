@@ -252,6 +252,7 @@ class TransportMiddleware(MessageMiddleware):
                 "instance_id": result.target_node_id,
                 "agent_name": agent_name,
                 "error": "instance_not_connected_locally",
+                "error_detail": None,
             })
         except Exception as e:
             logger.error("Failed to broadcast offline error for %s: %s", result.target_node_id, e)

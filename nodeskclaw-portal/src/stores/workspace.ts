@@ -197,6 +197,10 @@ export interface GroupChatMessage {
   intent?: string
   priority?: string
   envelope_id?: string
+  error?: {
+    code: string
+    detail?: string
+  }
 }
 
 export interface ChatHistoryQuery {
@@ -687,6 +691,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   function _handleAgentError(data: Record<string, unknown>) {
     const instanceId = data.instance_id as string
     const agentName = data.agent_name as string
+    const errorCode = (data.error as string) || 'unknown'
+    const errorDetail = (data.error_detail as string) || undefined
     typingAgents.value.delete(instanceId)
     _clearTypingTimer(instanceId)
 
@@ -695,16 +701,17 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     )
     if (streaming) {
       streaming.streaming = false
-      streaming.content += `\n[Error: ${data.error}]`
+      streaming.error = { code: errorCode, detail: errorDetail }
     } else {
       chatMessages.value.push({
         id: `error-${instanceId}-${Date.now()}`,
         sender_type: 'agent',
         sender_id: instanceId,
         sender_name: agentName,
-        content: `[Error: ${data.error}]`,
+        content: '',
         message_type: 'chat',
         created_at: new Date().toISOString(),
+        error: { code: errorCode, detail: errorDetail },
       })
     }
   }

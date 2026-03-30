@@ -1226,6 +1226,14 @@ const zhCN = {
     failed: "密码修改失败",
   },
   errors: {
+    agent: {
+      empty_response: '未能生成回复，请稍后重试',
+      stream_error: '回复过程中出错',
+      instance_not_connected_locally: 'AI 员工离线，请检查实例状态',
+      unknown: '服务异常',
+      view_detail: '查看详情',
+      hide_detail: '收起详情',
+    },
     common: {
       not_found: "资源不存在",
       forbidden: "无权限",

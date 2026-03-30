@@ -1226,6 +1226,14 @@ const enUS = {
     failed: "Failed to change password",
   },
   errors: {
+    agent: {
+      empty_response: 'Failed to generate a response. Please try again later.',
+      stream_error: 'An error occurred while generating the response.',
+      instance_not_connected_locally: 'AI employee is offline. Please check the instance status.',
+      unknown: 'Service error.',
+      view_detail: 'View details',
+      hide_detail: 'Hide details',
+    },
     common: {
       not_found: "Resource not found",
       forbidden: "Permission denied",
