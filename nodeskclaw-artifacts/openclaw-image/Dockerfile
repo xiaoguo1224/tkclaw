@@ -69,7 +69,8 @@ RUN echo "${IMAGE_VERSION}" > /root/.openclaw-version
 # ---------- 启动脚本 + Init Container 脚本 ----------
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 COPY init-container.sh /init-container.sh
-RUN chmod +x /docker-entrypoint.sh /init-container.sh
+RUN sed -i 's/\r$//' /docker-entrypoint.sh /init-container.sh && \
+    chmod +x /docker-entrypoint.sh /init-container.sh
 
 # ---------- 运行配置 ----------
 WORKDIR /root
