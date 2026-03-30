@@ -554,6 +554,13 @@ const enUS = {
     emptyDescription: "Create a cyber office, add Agents, and let them collaborate on tasks.",
     emptyByDepartment: "There are no linked cyber offices under this department yet.",
     createFirst: "Create your first cyber office",
+    channelReminder: {
+      title: "Default AI Employee Has No Channel",
+      description: "{name} has no channel configured and may not receive messages. It is recommended to configure one now.",
+      neverAgain: "Don't remind me again",
+      later: "Later",
+      goConfig: "Configure Channel",
+    },
   },
   workspaceCard: {
     noAgent: "No AI Employee",

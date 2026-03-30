@@ -554,6 +554,13 @@ const zhCN = {
     emptyDescription: "创建一个赛博办公室，添加 AI 员工，让它们互相协作，共同完成任务",
     emptyByDepartment: "当前部门下还没有关联的赛博办公室",
     createFirst: "创建第一个赛博办公室",
+    channelReminder: {
+      title: "默认 AI 员工未配置 Channel",
+      description: "检测到 {name} 尚未配置任何 Channel，可能无法接收消息。建议现在去完成配置。",
+      neverAgain: "不再提醒",
+      later: "稍后再说",
+      goConfig: "去配置 Channel",
+    },
   },
   workspaceCard: {
     noAgent: "无 AI 员工",

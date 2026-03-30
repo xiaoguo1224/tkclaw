@@ -94,6 +94,7 @@ export interface OrgUsage {
 
 export const useOrgStore = defineStore('org', () => {
   const currentOrg = ref<OrgInfo | null>(null)
+  const currentMember = ref<MemberInfo | null>(null)
   const members = ref<MemberInfo[]>([])
   const departments = ref<DepartmentInfo[]>([])
   const usage = ref<OrgUsage | null>(null)
@@ -149,6 +150,18 @@ export const useOrgStore = defineStore('org', () => {
       members.value = res.data.data ?? []
     } finally {
       loading.value = false
+    }
+  }
+
+  async function fetchCurrentMember() {
+    try {
+      const res = await api.get('/orgs/current/member')
+      currentMember.value = res.data.data ?? null
+      return currentMember.value
+    } catch (e) {
+      console.warn('[orgStore] fetchCurrentMember 失败:', e)
+      currentMember.value = null
+      return null
     }
   }
 
@@ -303,6 +316,7 @@ export const useOrgStore = defineStore('org', () => {
 
   return {
     currentOrg,
+    currentMember,
     currentOrgId,
     members,
     departments,
@@ -313,6 +327,7 @@ export const useOrgStore = defineStore('org', () => {
     updateOrgName,
     updateCurrentOrgDefaultCluster,
     fetchMembers,
+    fetchCurrentMember,
     fetchDepartments,
     createDepartment,
     updateDepartment,

@@ -43,12 +43,17 @@ export const useAuthStore = defineStore('auth', () => {
   const systemInfo = ref<SystemInfo | null>(null)
 
   const isLoggedIn = computed(() => !!token.value)
+  const POST_LOGIN_FIRST_LANDING_KEY = 'portal_post_login_first_landing_pending'
 
   function setTokens(access: string, refresh: string) {
     token.value = access
     refreshToken.value = refresh
     localStorage.setItem('portal_token', access)
     localStorage.setItem('portal_refresh_token', refresh)
+  }
+
+  function markPostLoginFirstLanding() {
+    sessionStorage.setItem(POST_LOGIN_FIRST_LANDING_KEY, '1')
   }
 
   function clearAuth() {
@@ -74,6 +79,7 @@ export const useAuthStore = defineStore('auth', () => {
     const res = await api.post('/auth/oauth/callback', { provider, code, redirect_uri, client_id })
     const data = res.data.data
     setTokens(data.access_token, data.refresh_token)
+    markPostLoginFirstLanding()
     user.value = data.user
     lastOAuthProvider.value = data.provider || provider
     sessionStorage.setItem('oauth_provider', lastOAuthProvider.value!)
@@ -110,6 +116,7 @@ export const useAuthStore = defineStore('auth', () => {
     const res = await api.post('/auth/login', { email, password })
     const data = res.data.data
     setTokens(data.access_token, data.refresh_token)
+    markPostLoginFirstLanding()
     user.value = data.user
     return data
   }
@@ -123,6 +130,7 @@ export const useAuthStore = defineStore('auth', () => {
     const res = await api.post('/auth/sms/login', { phone, code })
     const data = res.data.data
     setTokens(data.access_token, data.refresh_token)
+    markPostLoginFirstLanding()
     user.value = data.user
     return data
   }
@@ -131,6 +139,7 @@ export const useAuthStore = defineStore('auth', () => {
     const res = await api.post('/auth/account-login', { account, password })
     const data = res.data.data
     setTokens(data.access_token, data.refresh_token)
+    markPostLoginFirstLanding()
     user.value = data.user
     return data
   }
@@ -144,6 +153,7 @@ export const useAuthStore = defineStore('auth', () => {
     const res = await api.post('/auth/verification-code/login', { account, code })
     const data = res.data.data
     setTokens(data.access_token, data.refresh_token)
+    markPostLoginFirstLanding()
     user.value = data.user
     return data
   }
