@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -13,6 +14,7 @@ from app.services.runtime.compute.base import ComputeHandle
 logger = logging.getLogger(__name__)
 
 INSTANCE_HEALTH_CHECK_INTERVAL = 60  # seconds
+_INSTALLING_WECOM_INSTANCE_IDS: set[str] = set()
 
 
 class InstanceHealthChecker:
@@ -83,11 +85,81 @@ class InstanceHealthChecker:
                 if await _in_deploy_grace(instance.id, db):
                     new_health = "unknown"
             self._update_if_changed(instance, new_health)
+            await self._maybe_auto_install_wecom(instance, db, new_health)
         except Exception as e:
             logger.warning(
                 "实例 %s (%s) 健康检查失败: %s",
                 instance.name, instance.compute_provider, e,
             )
+
+    async def _maybe_auto_install_wecom(self, instance: Instance, db, new_health: str) -> None:
+        if new_health != "healthy":
+            return
+        if instance.runtime != "openclaw":
+            return
+
+        config = self._load_advanced_config(instance.advanced_config)
+        nodeskclaw_meta = config.get("_nodeskclaw")
+        if not isinstance(nodeskclaw_meta, dict):
+            return
+        if nodeskclaw_meta.get("wecom_auto_install_pending") is not True:
+            return
+
+        if instance.id in _INSTALLING_WECOM_INSTANCE_IDS:
+            return
+        _INSTALLING_WECOM_INSTANCE_IDS.add(instance.id)
+        try:
+            attempt = self._as_int(nodeskclaw_meta.get("wecom_auto_install_attempts"), default=0) + 1
+            logger.info(
+                "wecom auto-install start instance_id=%s attempt=%s",
+                instance.id,
+                attempt,
+            )
+
+            from app.services.channel_config_service import ensure_official_wecom_plugin_installed
+
+            try:
+                await ensure_official_wecom_plugin_installed(instance, db)
+                nodeskclaw_meta["wecom_auto_install_pending"] = False
+                nodeskclaw_meta["wecom_auto_install_installed_at"] = datetime.now(timezone.utc).isoformat()
+                nodeskclaw_meta["wecom_auto_install_last_error"] = ""
+                logger.info(
+                    "wecom auto-install success instance_id=%s attempt=%s",
+                    instance.id,
+                    attempt,
+                )
+            except Exception as e:
+                nodeskclaw_meta["wecom_auto_install_pending"] = True
+                nodeskclaw_meta["wecom_auto_install_last_error"] = str(e)[:500]
+                logger.warning(
+                    "wecom auto-install failed instance_id=%s attempt=%s error=%s",
+                    instance.id,
+                    attempt,
+                    str(e)[:200],
+                )
+
+            nodeskclaw_meta["wecom_auto_install_attempts"] = attempt
+            config["_nodeskclaw"] = nodeskclaw_meta
+            instance.advanced_config = json.dumps(config, ensure_ascii=False)
+        finally:
+            _INSTALLING_WECOM_INSTANCE_IDS.discard(instance.id)
+
+    @staticmethod
+    def _load_advanced_config(raw: str | None) -> dict:
+        if not raw:
+            return {}
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+
+    @staticmethod
+    def _as_int(value, default: int = 0) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
 
     @staticmethod
     def _build_handle(instance: Instance) -> ComputeHandle:

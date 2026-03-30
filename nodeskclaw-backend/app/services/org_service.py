@@ -367,6 +367,53 @@ async def list_members(
     return members
 
 
+async def get_current_member(org_id: str, user_id: str, db: AsyncSession) -> MemberInfo:
+    result = await db.execute(
+        select(OrgMembership, User)
+        .join(User, OrgMembership.user_id == User.id)
+        .where(
+            OrgMembership.org_id == org_id,
+            OrgMembership.user_id == user_id,
+            not_deleted(OrgMembership),
+        )
+    )
+    row = result.first()
+    if row is None:
+        raise NotFoundError("用户不是当前组织成员", "errors.org.member_not_found")
+
+    membership, user = row
+    department_memberships = await department_service.list_user_department_memberships(org_id, [user.id], db)
+    default_map = await _load_active_default_instance_map(
+        org_id,
+        [membership.default_instance_id] if membership.default_instance_id else [],
+        db,
+    )
+    default_instance = default_map.get(membership.default_instance_id) if membership.default_instance_id else None
+    primary_department_id, primary_department_name, secondary_department_ids, secondary_departments, is_department_manager = (
+        department_service.summarize_user_departments(department_memberships.get(user.id, []))
+    )
+
+    return MemberInfo(
+        id=membership.id,
+        user_id=membership.user_id,
+        org_id=membership.org_id,
+        role=membership.role,
+        is_super_admin=user.is_super_admin,
+        user_name=user.name,
+        user_email=user.email,
+        user_avatar_url=user.avatar_url,
+        primary_department_id=primary_department_id,
+        primary_department_name=primary_department_name,
+        secondary_department_ids=secondary_department_ids,
+        secondary_departments=secondary_departments,
+        is_department_manager=is_department_manager,
+        default_ai_instance_id=default_instance.id if default_instance else None,
+        default_ai_instance_name=default_instance.name if default_instance else None,
+        has_default_ai=bool(default_instance),
+        created_at=membership.created_at,
+    )
+
+
 def _build_ai_employee_name(member_name: str | None) -> str:
     raw_name = (member_name or "").strip() or "member"
     final_name = f"{raw_name}-bot"

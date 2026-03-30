@@ -354,7 +354,7 @@ async function handleSave() {
     const res = await api.post(`/instances/${instanceId.value}/restart-runtime`, null, { timeout: 120000 })
     const result = res.data.data
     if (result?.status === 'ok') {
-      successMsg.value = '配置已保存，TClaw 已重启'
+      successMsg.value = '配置已保存，TClaw已重启'
     } else if (result?.status === 'timeout') {
       successMsg.value = '配置已保存，但 TClaw 重启超时，请检查AI 员工状态'
     } else {

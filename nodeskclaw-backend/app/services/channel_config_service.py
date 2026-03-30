@@ -427,7 +427,7 @@ async def ensure_official_wecom_plugin_installed(
         output = await _run_openclaw_exec(
             instance,
             db,
-            ["npx", "-y", "@wecom/wecom-openclaw-cli", "install", "--skip-config"],
+              ["openclaw", "plugins", "install", "@wecom/wecom-openclaw-plugin"],
         )
     except AppException as e:
         if not await is_official_wecom_plugin_installed(instance, db):

@@ -5,17 +5,22 @@ import { Plus, Loader2, Bot } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useAuthStore } from '@/stores/auth'
+import { useOrgStore } from '@/stores/org'
 import WorkspaceCard from '@/components/workspace/WorkspaceCard.vue'
 import CustomSelect from '@/components/shared/CustomSelect.vue'
+import api from '@/services/api'
 
 const router = useRouter()
 const store = useWorkspaceStore()
 const authStore = useAuthStore()
+const orgStore = useOrgStore()
 const { t } = useI18n()
 const selectedDepartmentId = ref('')
-const canCreateWorkspace = computed(() =>
-  authStore.user?.portal_org_role === 'admin' || authStore.user?.is_super_admin === true,
-)
+const showChannelReminderDialog = ref(false)
+const channelReminderNeverAgain = ref(false)
+const channelReminderInstanceId = ref('')
+const channelReminderInstanceName = ref('')
+const POST_LOGIN_FIRST_LANDING_KEY = 'portal_post_login_first_landing_pending'
 
 const departmentOptions = computed(() => [
   { value: '', label: t('workspaceList.allDepartments') },
@@ -34,6 +39,7 @@ onMounted(async () => {
     selectedDepartmentId.value = ''
   }
   await store.fetchWorkspaces(selectedDepartmentId.value || null)
+  await checkDefaultAiChannelReminderOnFirstLanding()
 })
 
 watch(selectedDepartmentId, async value => {
@@ -55,6 +61,73 @@ function openWorkspace(id: string) {
 
 function createNew() {
   router.push('/workspace/create')
+}
+
+function consumePostLoginFirstLandingFlag() {
+  const pending = sessionStorage.getItem(POST_LOGIN_FIRST_LANDING_KEY) === '1'
+  if (pending) {
+    sessionStorage.removeItem(POST_LOGIN_FIRST_LANDING_KEY)
+  }
+  return pending
+}
+
+function getNeverAgainStorageKey(userId: string, orgId: string, instanceId: string) {
+  return `portal_channel_reminder_skip:${userId}:${orgId}:${instanceId}`
+}
+
+function hasConfiguredChannel(configs: Record<string, unknown>) {
+  const values = Object.values(configs)
+  if (values.length === 0) return false
+  return values.some((value) => {
+    if (value && typeof value === 'object') {
+      return Object.keys(value as Record<string, unknown>).length > 0
+    }
+    return Boolean(value)
+  })
+}
+
+async function checkDefaultAiChannelReminderOnFirstLanding() {
+  if (!consumePostLoginFirstLandingFlag()) return
+  const userId = authStore.user?.id
+  const orgId = authStore.user?.current_org_id
+  if (!userId || !orgId) return
+
+  const member = await orgStore.fetchCurrentMember()
+  const defaultInstanceId = member?.default_ai_instance_id
+  if (!defaultInstanceId) return
+
+  const skipKey = getNeverAgainStorageKey(userId, orgId, defaultInstanceId)
+  if (localStorage.getItem(skipKey) === '1') return
+
+  try {
+    const res = await api.get(`/instances/${defaultInstanceId}/channel-configs`)
+    const configs = (res.data?.data ?? {}) as Record<string, unknown>
+    if (hasConfiguredChannel(configs)) return
+    channelReminderInstanceId.value = defaultInstanceId
+    channelReminderInstanceName.value = member?.default_ai_instance_name || ''
+    showChannelReminderDialog.value = true
+  } catch {
+    showChannelReminderDialog.value = false
+  }
+}
+
+function closeChannelReminderDialog() {
+  if (channelReminderNeverAgain.value) {
+    const userId = authStore.user?.id
+    const orgId = authStore.user?.current_org_id
+    const instanceId = channelReminderInstanceId.value
+    if (userId && orgId && instanceId) {
+      localStorage.setItem(getNeverAgainStorageKey(userId, orgId, instanceId), '1')
+    }
+  }
+  showChannelReminderDialog.value = false
+}
+
+function goConfigureDefaultAiChannel() {
+  const targetInstanceId = channelReminderInstanceId.value
+  closeChannelReminderDialog()
+  if (!targetInstanceId) return
+  router.push(`/instances/${targetInstanceId}/channels`)
 }
 </script>
 
@@ -126,6 +199,34 @@ function createNew() {
         :workspace="ws"
         @click="openWorkspace(ws.id)"
       />
+    </div>
+
+    <div v-if="showChannelReminderDialog" class="fixed inset-0 z-50 flex items-center justify-center">
+      <div class="absolute inset-0 bg-black/50" @click="closeChannelReminderDialog" />
+      <div class="relative z-10 w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl">
+        <h3 class="text-lg font-semibold">{{ t('workspaceList.channelReminder.title') }}</h3>
+        <p class="mt-2 text-sm text-muted-foreground">
+          {{ t('workspaceList.channelReminder.description', { name: channelReminderInstanceName || t('common.instance') }) }}
+        </p>
+        <label class="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
+          <input v-model="channelReminderNeverAgain" type="checkbox" class="h-4 w-4 rounded border-border" />
+          <span>{{ t('workspaceList.channelReminder.neverAgain') }}</span>
+        </label>
+        <div class="mt-6 flex justify-end gap-2">
+          <button
+            class="px-3 py-2 rounded-md text-sm border border-border hover:bg-muted/60 transition-colors"
+            @click="closeChannelReminderDialog"
+          >
+            {{ t('workspaceList.channelReminder.later') }}
+          </button>
+          <button
+            class="px-3 py-2 rounded-md text-sm bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+            @click="goConfigureDefaultAiChannel"
+          >
+            {{ t('workspaceList.channelReminder.goConfig') }}
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>

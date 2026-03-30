@@ -67,41 +67,6 @@ def _track_background_task(task: asyncio.Task) -> None:
     _bg_tasks.add(task)
     task.add_done_callback(_bg_tasks.discard)
 
-
-def _schedule_wecom_plugin_install(instance_id: str, runtime: str, record_id: str) -> None:
-    if runtime != "openclaw":
-        return
-
-    async def _install() -> None:
-        from app.core.deps import async_session_factory
-        from app.models.base import not_deleted
-        from app.services.channel_config_service import ensure_official_wecom_plugin_installed
-
-        try:
-            async with async_session_factory() as db:
-                result = await db.execute(
-                    select(Instance).where(Instance.id == instance_id, not_deleted(Instance))
-                )
-                instance = result.scalar_one_or_none()
-                if instance is None:
-                    return
-                await ensure_official_wecom_plugin_installed(instance, db)
-        except Exception:
-            logger.warning(
-                "企业微信官方插件自动安装失败 [deploy_id=%s, instance_id=%s]",
-                record_id,
-                instance_id,
-                exc_info=True,
-            )
-
-    _track_background_task(
-        asyncio.create_task(
-            _install(),
-            name=f"wecom-plugin-install-{instance_id}",
-        )
-    )
-
-
 def _truncate_slug_preserve_suffix(slug: str, max_len: int) -> str:
     """截断 slug 使其不超过 max_len，保留末尾随机后缀段，只截断前面的拼音部分。
 
@@ -460,6 +425,18 @@ async def deploy_instance(
     if docker_host_port is not None:
         env_vars["DOCKER_HOST_PORT"] = str(docker_host_port)
 
+    advanced_config = dict(req.advanced_config) if req.advanced_config else {}
+    nodeskclaw_meta = advanced_config.get("_nodeskclaw")
+    if not isinstance(nodeskclaw_meta, dict):
+        nodeskclaw_meta = {}
+    nodeskclaw_meta.update({
+        "wecom_auto_install_pending": True,
+        "wecom_auto_install_attempts": 0,
+        "wecom_auto_install_last_error": "",
+        "wecom_auto_install_installed_at": None,
+    })
+    advanced_config["_nodeskclaw"] = nodeskclaw_meta
+
     # 创建实例记录
     instance = Instance(
         name=req.name,
@@ -478,7 +455,7 @@ async def deploy_instance(
         proxy_token=gateway_token,
         wp_api_key=f"nodeskclaw-wp-{_secrets.token_hex(32)}",
         env_vars=_json.dumps(env_vars),
-        advanced_config=_json.dumps(req.advanced_config) if req.advanced_config else None,
+        advanced_config=_json.dumps(advanced_config),
         llm_providers=[c.provider for c in req.llm_configs] if req.llm_configs else None,
         storage_class=req.storage_class,
         storage_size=req.storage_size,
@@ -577,7 +554,7 @@ async def deploy_instance(
         quota_cpu=req.quota_cpu,
         quota_mem=req.quota_mem,
         env_vars=env_vars,
-        advanced_config=req.advanced_config,
+        advanced_config=advanced_config,
         proxy_endpoint=cluster.proxy_endpoint,
         org_id=org_id,
         has_llm_configs=bool(req.llm_configs),
@@ -753,7 +730,6 @@ async def _execute_via_compute_provider(ctx: _DeployContext) -> None:
             message="部署成功", percent=100,
         ).model_dump(),
     )
-    _schedule_wecom_plugin_install(ctx.instance_id, ctx.runtime, ctx.record_id)
 
 
 async def _mark_deploy_failed(ctx: _DeployContext, message: str) -> None:
@@ -1145,7 +1121,6 @@ async def _execute_deploy_inner(ctx, async_session_factory, get_config, total, s
                 success_msg = f"部署成功{llm_sync_warning}{gene_install_warning}"
                 _publish(total, "完成", status="success", message=success_msg)
                 logger.info("部署成功: %s (namespace=%s)", ctx.name, ctx.namespace)
-                _schedule_wecom_plugin_install(ctx.instance_id, ctx.runtime, ctx.record_id)
             else:
                 # 超时未就绪 —— 标记失败，附带 Deployment 状态详情
                 conditions = dep_status.get("conditions", [])

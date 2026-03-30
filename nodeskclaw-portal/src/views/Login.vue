@@ -454,7 +454,7 @@ watch(activeTab, () => { error.value = '' })
         <!-- 底部 -->
         <div class="pt-4 text-center">
           <p class="text-[11px] text-muted-foreground/50">
-            TClaw &copy; 2026 &middot; by <a href="https://nodesks.ai/" target="_blank" class="hover:text-muted-foreground transition-colors underline underline-offset-2">TClaw</a>
+            TClaw &copy; 2026 &middot;
           </p>
         </div>
       </div>

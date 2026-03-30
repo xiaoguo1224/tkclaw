@@ -124,6 +124,16 @@ async def get_current_organization(
     return ApiResponse(data=data)
 
 
+@router.get("/current/member", response_model=ApiResponse[MemberInfo])
+async def get_current_organization_member(
+    db: AsyncSession = Depends(get_db),
+    org_ctx: tuple = Depends(get_current_org),
+):
+    user, org = org_ctx
+    data = await org_service.get_current_member(org.id, user.id, db)
+    return ApiResponse(data=data)
+
+
 @router.put("/current/name", response_model=ApiResponse[OrgInfo])
 async def update_current_org_name(
     body: OrgNameUpdate,
