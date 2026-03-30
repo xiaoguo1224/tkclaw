@@ -40,6 +40,11 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 RUN --mount=type=cache,target=/root/.npm \
     npm install -g openclaw@${OPENCLAW_VERSION} @nodeskai/genehub
 
+RUN mkdir -p /root/.openclaw/extensions
+
+RUN --mount=type=cache,target=/root/.npm \
+    openclaw plugins install @wecom/wecom-openclaw-plugin
+
 # ---------- 预置用户数据目录结构 ----------
 RUN mkdir -p /root/.openclaw/agents/main/sessions \
              /root/.openclaw/config \
