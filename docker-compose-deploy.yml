@@ -1,0 +1,79 @@
+services:
+  postgres:
+    platform: linux/amd64
+    image: 10.0.16.26:5000/tkclaw/postgres:16-alpine
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-nodeskclaw}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nodeskclaw}
+      POSTGRES_DB: ${POSTGRES_DB:-nodeskclaw}
+      TZ: ${TZ:-Asia/Shanghai}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nodeskclaw}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  nodeskclaw-backend:
+    platform: linux/amd64
+    image: 10.0.16.26:5000/tkclaw/tkclaw-nodeskclaw-backend:test1
+    env_file:
+      - nodeskclaw-backend/.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${NODESKCLAW_DATA_DIR:-$HOME/.nodeskclaw/docker-instances}:${NODESKCLAW_DATA_DIR:-$HOME/.nodeskclaw/docker-instances}
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://nodeskclaw:nodeskclaw@postgres:5432/nodeskclaw}
+      DATABASE_NAME_SUFFIX: ""
+      LLM_PROXY_URL: http://llm-proxy:8080
+      LLM_PROXY_INTERNAL_URL: http://llm-proxy:8080
+      NODESKCLAW_EDITION: ce
+      DOCKER_DATA_DIR: ${NODESKCLAW_DATA_DIR:-$HOME/.nodeskclaw/docker-instances}
+      INIT_ADMIN_ACCOUNT: ${INIT_ADMIN_ACCOUNT:-admin}
+      PORTAL_BASE_URL: ${PORTAL_BASE_URL:-}
+      WECOM_CORP_ID: ${WECOM_CORP_ID:-}
+      WECOM_AGENT_ID: ${WECOM_AGENT_ID:-}
+      WECOM_AGENT_SECRET: ${WECOM_AGENT_SECRET:-}
+      WECOM_CALLBACK_TOKEN: ${WECOM_CALLBACK_TOKEN:-}
+      WECOM_CALLBACK_AES_KEY: ${WECOM_CALLBACK_AES_KEY:-}
+      WECOM_QR_EXPIRE_SECONDS: ${WECOM_QR_EXPIRE_SECONDS:-300}
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      - "${BACKEND_PORT:-4510}:8000"
+    restart: unless-stopped
+
+  llm-proxy:
+    platform: linux/amd64
+    image: 10.0.16.26:5000/tkclaw/tkclaw-llm-proxy:v1.12
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://nodeskclaw:nodeskclaw@postgres:5432/nodeskclaw}
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      - "${LLM_PROXY_PORT:-4511}:8080"
+    restart: unless-stopped
+
+  portal:
+    platform: linux/amd64
+    image: 10.0.16.26:5000/tkclaw/tkclaw-portal:test1
+    env_file:
+      - nodeskclaw-portal/.env
+    depends_on:
+      - nodeskclaw-backend
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      - "${PORTAL_PORT:-80}:80"
+    restart: unless-stopped
+
+volumes:
+  pg_data:
