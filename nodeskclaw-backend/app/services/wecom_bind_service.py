@@ -127,6 +127,10 @@ async def _save_wecom_channel_config(
             wecom_config["groupPolicy"] = "open"
         if "sendThinkingMessage" not in wecom_config:
             wecom_config["sendThinkingMessage"] = True
+        if (wecom_config.get("dmPolicy") == "open" or wecom_config.get("groupPolicy") == "open"):
+            allow_from = wecom_config.get("allowFrom")
+            if not isinstance(allow_from, list) or len(allow_from) == 0:
+                wecom_config["allowFrom"] = ["*"]
 
         channels["wecom"] = wecom_config
         config = adapter.merge_channels(config, channels)

@@ -342,6 +342,18 @@ async def is_official_wecom_plugin_installed(instance: Instance, db: AsyncSessio
     return raw.strip() == "1"
 
 
+async def _cleanup_wecom_install_stage_dirs(instance: Instance, db: AsyncSession) -> None:
+    _assert_openclaw_runtime(instance)
+    try:
+        await _run_openclaw_exec(
+            instance,
+            db,
+            ["sh", "-lc", "rm -rf /root/.openclaw/extensions/.openclaw-install-stage-* || true"],
+        )
+    except Exception:
+        logger.warning("清理 wecom 安装临时目录失败: instance=%s", instance.id, exc_info=True)
+
+
 def ensure_wecom_plugin_config(config: dict) -> dict:
     plugins = config.setdefault("plugins", {})
     allow = plugins.setdefault("allow", [])
@@ -352,13 +364,18 @@ def ensure_wecom_plugin_config(config: dict) -> dict:
     entries[WECOM_OFFICIAL_PLUGIN_NAME] = {"enabled": True}
 
     tools = config.setdefault("tools", {})
-    if isinstance(tools.get("allow"), list):
-        if "wecom_mcp" not in tools["allow"]:
-            tools["allow"].append("wecom_mcp")
-    else:
-        also_allow = tools.setdefault("alsoAllow", [])
-        if "wecom_mcp" not in also_allow:
-            also_allow.append("wecom_mcp")
+    allow = tools.get("allow")
+    if not isinstance(allow, list):
+        allow = []
+    also_allow = tools.get("alsoAllow")
+    if isinstance(also_allow, list):
+        for item in also_allow:
+            if item not in allow:
+                allow.append(item)
+    if "wecom_mcp" not in allow:
+        allow.append("wecom_mcp")
+    tools["allow"] = allow
+    tools.pop("alsoAllow", None)
     return config
 
 
@@ -408,6 +425,7 @@ async def ensure_official_wecom_plugin_installed(
     force: bool = False,
 ) -> dict:
     _assert_openclaw_runtime(instance)
+    await _cleanup_wecom_install_stage_dirs(instance, db)
     if not force and await is_official_wecom_plugin_installed(instance, db):
         return {"status": "installed", "already_installed": True, "package": WECOM_OFFICIAL_PLUGIN_PACKAGE}
 
@@ -436,6 +454,7 @@ async def ensure_official_wecom_plugin_installed(
             status_code=502,
             message_key="errors.channel.install_failed",
         )
+    await _cleanup_wecom_install_stage_dirs(instance, db)
 
     async with remote_fs(instance, db) as fs:
         config = await adapter.read_config(fs) or {}
