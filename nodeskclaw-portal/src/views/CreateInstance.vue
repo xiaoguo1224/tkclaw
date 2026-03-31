@@ -13,7 +13,6 @@ import { useI18n } from 'vue-i18n'
 import { useEdition } from '@/composables/useFeature'
 import { getRuntimeCaps } from '@/utils/runtimeCapabilities'
 import {
-  PROVIDERS, PROVIDER_LABELS, PROVIDER_DEFAULT_URLS,
   BUILTIN_PROVIDERS, WORKING_PLAN_PROVIDERS, ALL_KNOWN_PROVIDERS,
   isCodexProvider, DEFAULT_CODEX_MODEL, defaultModelForProvider,
 } from '@/utils/llmProviders'

@@ -9,7 +9,6 @@ import type { ModelItem } from '@/components/shared/ModelSelect.vue'
 import api from '@/services/api'
 import { getRuntimeCaps } from '@/utils/runtimeCapabilities'
 import {
-  PROVIDERS, PROVIDER_LABELS, PROVIDER_DEFAULT_URLS,
   BUILTIN_PROVIDERS, WORKING_PLAN_PROVIDERS, ALL_KNOWN_PROVIDERS,
   isCodexProvider, defaultModelForProvider,
 } from '@/utils/llmProviders'
