@@ -83,6 +83,7 @@ class CompanionClient:
             )
             return resp.status_code == 200
         except Exception:
+            logger.debug("Companion health check failed for %s", self._config.base_url, exc_info=True)
             return False
 
     async def status(self) -> CompanionStatus:
@@ -102,7 +103,7 @@ class CompanionClient:
                     extra=data,
                 )
         except Exception:
-            pass
+            logger.debug("Companion status check failed for %s", self._config.base_url, exc_info=True)
         return CompanionStatus(healthy=False)
 
     async def cancel(self, session_id: str = "") -> bool:
@@ -115,6 +116,7 @@ class CompanionClient:
             )
             return resp.status_code == 200
         except Exception:
+            logger.debug("Companion cancel failed for %s", self._config.base_url, exc_info=True)
             return False
 
     async def capabilities(self) -> CompanionCapabilities:
@@ -135,7 +137,7 @@ class CompanionClient:
                     extra=data,
                 )
         except Exception:
-            pass
+            logger.debug("Companion capabilities check failed for %s", self._config.base_url, exc_info=True)
         return CompanionCapabilities()
 
     async def close(self) -> None:

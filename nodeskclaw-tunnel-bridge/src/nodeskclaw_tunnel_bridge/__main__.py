@@ -1,9 +1,8 @@
-"""CLI entry point for standalone tunnel bridge (used by ZeroClaw)."""
+"""CLI entry point for standalone tunnel bridge."""
 
 from __future__ import annotations
 
 import argparse
-import asyncio
 import logging
 import sys
 
@@ -12,7 +11,6 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="NoDeskClaw tunnel bridge")
     parser.add_argument(
         "--runtime",
-        choices=["zeroclaw"],
         required=True,
         help="Target runtime to bridge",
     )
@@ -28,16 +26,8 @@ def main() -> None:
         format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     )
 
-    if args.runtime == "zeroclaw":
-        from .zeroclaw_bridge import ZeroClawBridge
-        bridge = ZeroClawBridge()
-        try:
-            asyncio.run(bridge.run())
-        except KeyboardInterrupt:
-            pass
-    else:
-        print(f"Unsupported runtime: {args.runtime}", file=sys.stderr)
-        sys.exit(1)
+    print(f"Unsupported runtime: {args.runtime}", file=sys.stderr)
+    sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ import httpx
 
 from app.core.config import settings
 from app.schemas.llm import ModelInfo
+from app.services.codex_provider import CODEX_MODELS, is_codex_provider
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +58,9 @@ def _set_cache(provider: str, api_key: str, models: list[ModelInfo]) -> None:
 async def fetch_provider_models(
     provider: str, api_key: str, *, base_url: str | None = None,
 ) -> list[ModelInfo]:
+    if is_codex_provider(provider):
+        return list(CODEX_MODELS)
+
     cached = _get_cached(provider, api_key)
     if cached is not None:
         return cached

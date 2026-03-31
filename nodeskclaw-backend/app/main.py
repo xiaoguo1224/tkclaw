@@ -19,8 +19,9 @@ from app.core.exceptions import register_exception_handlers
 _LOG_DIR = os.path.join(os.path.dirname(__file__), "..", "logs")
 os.makedirs(_LOG_DIR, exist_ok=True)
 
+_app_version = settings.APP_VERSION
 _log_formatter = logging.Formatter(
-    "%(asctime)s %(levelname)-5s [%(name)s] %(message)s",
+    f"%(asctime)s %(levelname)-5s [v{_app_version}] [%(name)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
@@ -37,7 +38,7 @@ class _ColorFormatter(logging.Formatter):
 
     def __init__(self):
         super().__init__(
-            "%(asctime)s %(colored_level)s [%(name)s] %(message)s",
+            f"%(asctime)s %(colored_level)s [v{_app_version}] [%(name)s] %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         )
 
@@ -94,7 +95,8 @@ class _PoolDisconnectFilter(logging.Filter):
         return True
 
 
-logging.getLogger("sqlalchemy.pool").addFilter(_PoolDisconnectFilter())
+for _pool_logger_name in ("sqlalchemy.pool", "sqlalchemy.pool.impl"):
+    logging.getLogger(_pool_logger_name).addFilter(_PoolDisconnectFilter())
 
 import warnings  # noqa: E402
 from sqlalchemy.exc import SAWarning  # noqa: E402
@@ -128,6 +130,7 @@ async def lifespan(app: FastAPI):
     from app.utils.oauth_providers.registry import register_provider
 
     logger = logging.getLogger(__name__)
+    logger.info("NoDeskClaw v%s starting (Python %s)", settings.APP_VERSION, sys.version.split()[0])
 
     # ── EE Model 注册（在 Alembic 迁移之前导入，使其加入 Base.metadata）──
     from app.core.feature_gate import feature_gate as _fg
@@ -381,6 +384,10 @@ async def lifespan(app: FastAPI):
                     logger.info("种子基因检查完成，无需导入（均已存在）")
         except Exception as _seed_err:
             logger.warning("种子基因导入失败: %s", _seed_err)
+
+    # ── 默认工作基因 seed（在 Gene 种子导入之后执行）──
+    from app.startup.seed import seed_default_required_genes
+    await seed_default_required_genes(async_session_factory)
 
     # 预热 K8s 连接池：从 DB 加载所有已连接集群
     async with async_session_factory() as db:
@@ -724,14 +731,14 @@ async def lifespan(app: FastAPI):
             try:
                 await _pg_notify_service.stop_listening(_asyncpg_conn, _pg_notify_channels)
             except Exception:
-                pass
+                logger.warning("Failed to stop PG NOTIFY listeners", exc_info=True)
         try:
             async with async_session_factory() as _shutdown_db:
                 from app.services.runtime import sse_registry
                 await sse_registry.cleanup_backend_connections(_shutdown_db)
                 await _shutdown_db.commit()
         except Exception:
-            pass
+            logger.warning("Failed to cleanup SSE backend connections", exc_info=True)
         from app.services.runtime.failure_recovery import shutdown_cleanup
         await shutdown_cleanup(async_session_factory)
         logger.info("Runtime v2: 已清理")

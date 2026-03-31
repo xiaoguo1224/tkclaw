@@ -232,19 +232,20 @@ async def pod_logs_stream(
     tail_lines: int = Query(50),
     since_seconds: int | None = Query(None, description="最近 N 秒的日志"),
     since_time: str | None = Query(None, description="ISO 8601 起始时间"),
-    db: AsyncSession = Depends(get_db),
     _current_user: User = Depends(get_current_user),
 ):
     """SSE 流: 实时 Pod 日志，支持时间范围筛选。"""
-    instance = await instance_service.get_instance(instance_id, db)
-    result = await db.execute(
-        select(Cluster).where(Cluster.id == instance.cluster_id, Cluster.deleted_at.is_(None))
-    )
-    cluster = result.scalar_one_or_none()
-    if not cluster:
-        raise NotFoundError("集群不存在")
+    from app.core.deps import async_session_factory
 
-    k8s = await require_k8s_client(cluster)
+    async with async_session_factory() as db:
+        instance = await instance_service.get_instance(instance_id, db)
+        result = await db.execute(
+            select(Cluster).where(Cluster.id == instance.cluster_id, Cluster.deleted_at.is_(None))
+        )
+        cluster = result.scalar_one_or_none()
+        if not cluster:
+            raise NotFoundError("集群不存在")
+        k8s = await require_k8s_client(cluster)
 
     async def generate():
         try:

@@ -10,8 +10,8 @@ ARG NODE_VERSION=22
 FROM node:${NODE_VERSION}-bookworm-slim
 
 # ---------- 构建参数 ----------
-ARG OPENCLAW_VERSION=2026.3.13
-ARG IMAGE_VERSION=v2026.3.13
+ARG OPENCLAW_VERSION=2026.3.24
+ARG IMAGE_VERSION=v2026.3.24
 
 # ---------- 元数据标签 ----------
 LABEL maintainer="Xy718Labs"
@@ -62,6 +62,8 @@ RUN mkdir -p /root/.openclaw/agents/main/sessions \
 
 # ---------- 配置模板 ----------
 COPY openclaw.json.template /root/.openclaw/openclaw.json.template
+COPY repair-sessions-index.js /repair-sessions-index.js
+COPY repair-user-data.js /repair-user-data.js
 
 # ---------- 版本标记 ----------
 RUN echo "${IMAGE_VERSION}" > /root/.openclaw-version

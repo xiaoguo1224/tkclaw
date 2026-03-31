@@ -140,12 +140,16 @@ class InstanceLlmConfigEntry(BaseModel):
     key_source: str
     selected_models: list[dict] | None = None
     personal_key_masked: str | None = None
+    base_url: str | None = None
+    api_type: str | None = None
 
 
 class InstanceLlmConfigItem(BaseModel):
     provider: str
     key_source: str = Field(..., pattern=r"^(org|personal)$")
     selected_models: list[dict] | None = None
+    base_url: str | None = None
+    api_type: str | None = None
 
 
 class InstanceLlmConfigUpdate(BaseModel):

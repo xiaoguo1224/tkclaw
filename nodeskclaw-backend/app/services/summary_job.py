@@ -69,7 +69,10 @@ class SummaryJob:
             messages = messages_result.scalars().all()
 
             bb_result = await db.execute(
-                select(Blackboard).where(Blackboard.workspace_id == ws.id)
+                select(Blackboard).where(
+                    Blackboard.workspace_id == ws.id,
+                    Blackboard.deleted_at.is_(None),
+                )
             )
             bb = bb_result.scalar_one_or_none()
             if not bb:

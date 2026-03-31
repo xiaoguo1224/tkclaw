@@ -87,11 +87,29 @@ if [ -f "${CONFIG_FILE}" ]; then
       c.gateway.controlUi.dangerouslyDisableDeviceAuth = true;
       changed = true;
     }
+    const skills = c.skills ?? (c.skills = {});
+    const load = skills.load ?? (skills.load = {});
+    const extraDirs = Array.isArray(load.extraDirs) ? load.extraDirs : [];
+    if (!extraDirs.includes('/root/.openclaw/skills')) {
+      extraDirs.push('/root/.openclaw/skills');
+      load.extraDirs = extraDirs;
+      changed = true;
+    }
     if (changed) {
       fs.writeFileSync(f, JSON.stringify(c, null, 2));
-      console.log('[entrypoint] 已补全 controlUi 配置');
+      console.log('[entrypoint] 已补全 controlUi / skills 配置');
     }
   "
+fi
+
+# ---- 1.2. 升级数据修复（兼容旧版目录/文件命名） ----
+
+node /repair-user-data.js
+
+# ---- 1.3. 会话索引修复（兼容旧版会话文件命名） ----
+
+if [ -d "${OPENCLAW_DIR}/agents/main/sessions" ]; then
+  node /repair-sessions-index.js
 fi
 
 # ---- 2. 凭证注入 ----

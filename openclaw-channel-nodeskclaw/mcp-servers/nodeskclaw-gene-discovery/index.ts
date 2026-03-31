@@ -11,12 +11,26 @@ const API = process.env.NODESKCLAW_API_URL || "http://localhost:4510/api/v1";
 const TOKEN = process.env.NODESKCLAW_TOKEN || "";
 
 async function apiFetch(path: string, method = "GET", body?: unknown) {
-  const res = await fetch(`${API}${path}`, {
-    method,
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${TOKEN}` },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  return res.json();
+  let res: Response;
+  try {
+    res = await fetch(`${API}${path}`, {
+      method,
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${TOKEN}` },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (err) {
+    return { error: true, message: `Network error: ${(err as Error).message}` };
+  }
+  if (!res.ok) {
+    let detail: string;
+    try { detail = await res.text(); } catch { detail = ""; }
+    return { error: true, status: res.status, message: detail || res.statusText };
+  }
+  try {
+    return await res.json();
+  } catch {
+    return { error: true, message: "Response is not valid JSON" };
+  }
 }
 
 const server = new Server({ name: "nodeskclaw-gene-discovery", version: "1.0.0" }, { capabilities: { tools: {} } });

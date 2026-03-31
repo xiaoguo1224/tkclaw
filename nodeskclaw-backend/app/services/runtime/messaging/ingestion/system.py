@@ -19,8 +19,10 @@ def build_system_envelope(
     content: str,
     source_label: str = "system",
     targets: list[str] | None = None,
+    mention_targets: list[str] | None = None,
 ) -> MessageEnvelope:
     routing_targets = targets or []
+    resolved_mention_targets = mention_targets or []
     mode = "broadcast"
     if routing_targets:
         mode = "unicast" if len(routing_targets) == 1 else "multicast"
@@ -38,6 +40,7 @@ def build_system_envelope(
             intent=IntentType.NOTIFY,
             content=content,
             priority=Priority.NORMAL,
+            extensions={"mention_targets": resolved_mention_targets},
             routing=MessageRouting(mode=mode, targets=routing_targets),
         ),
     )

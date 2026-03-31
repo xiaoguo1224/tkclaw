@@ -180,97 +180,8 @@ class NanobotConfigAdapter(RuntimeConfigAdapter):
         return result
 
 
-class ZeroClawConfigAdapter(RuntimeConfigAdapter):
-
-    _CONFIG_REL = ".zeroclaw/config.toml"
-
-    async def read_config(self, fs: RemoteFS) -> dict | None:
-        import tomllib
-        raw = await fs.read_text(self._CONFIG_REL)
-        if raw is None:
-            return None
-        try:
-            return tomllib.loads(raw)
-        except tomllib.TOMLDecodeError as e:
-            raise ValueError(f"zeroclaw config.toml 格式无法解析: {e}") from e
-
-    async def write_config(self, fs: RemoteFS, data: dict) -> None:
-        import tomli_w
-        await fs.write_text(
-            self._CONFIG_REL,
-            tomli_w.dumps(data),
-        )
-
-    def extract_channels(self, config: dict) -> dict:
-        return config.get("channels_config", {})
-
-    def merge_channels(self, config: dict, channels: dict) -> dict:
-        config["channels_config"] = channels
-        return config
-
-    async def restart(self, instance: Instance, db: AsyncSession) -> dict:
-        return await _restart_container(instance, db)
-
-    def supported_channels(self) -> list[str]:
-        return [
-            "feishu", "telegram", "discord", "slack", "matrix",
-            "whatsapp", "email", "dingtalk", "qq", "signal", "irc",
-            "mattermost", "imessage", "nextcloud-talk", "webhook",
-            "linq", "nostr",
-        ]
-
-    def translate_to_runtime(self, canonical: dict, channel_id: str) -> dict:
-        from app.services.unified_channel_schema import UNIFIED_CHANNEL_REGISTRY
-        defn = UNIFIED_CHANNEL_REGISTRY.get(channel_id)
-        if not defn:
-            return _camel_to_snake_dict(canonical)
-        result: dict = {}
-        for field in defn.fields:
-            runtime_key = field.runtime_key.get("zeroclaw")
-            if runtime_key and field.key in canonical:
-                result[runtime_key] = canonical[field.key]
-        for k, v in canonical.items():
-            if not any(f.key == k for f in defn.fields):
-                result[_camel_to_snake(k)] = v
-        return result
-
-    def translate_from_runtime(self, native: dict, channel_id: str) -> dict:
-        from app.services.unified_channel_schema import UNIFIED_CHANNEL_REGISTRY
-        defn = UNIFIED_CHANNEL_REGISTRY.get(channel_id)
-        if not defn:
-            return _snake_to_camel_dict(native)
-        result: dict = {}
-        reverse_map = {}
-        for field in defn.fields:
-            runtime_key = field.runtime_key.get("zeroclaw")
-            if runtime_key:
-                reverse_map[runtime_key] = field.key
-        for k, v in native.items():
-            result[reverse_map.get(k, _snake_to_camel(k))] = v
-        return result
-
-
-def _camel_to_snake(name: str) -> str:
-    s = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1_\2", name)
-    s = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", s)
-    return s.lower()
-
-
-def _snake_to_camel(name: str) -> str:
-    parts = name.split("_")
-    return parts[0] + "".join(p.capitalize() for p in parts[1:])
-
-
-def _camel_to_snake_dict(d: dict) -> dict:
-    return {_camel_to_snake(k): v for k, v in d.items()}
-
-
-def _snake_to_camel_dict(d: dict) -> dict:
-    return {_snake_to_camel(k): v for k, v in d.items()}
-
-
 async def _restart_container(instance: Instance, db: AsyncSession) -> dict:
-    """Generic container restart for NanoBot / ZeroClaw (SIGTERM + wait)."""
+    """Generic container restart for NanoBot (SIGTERM + wait)."""
     if instance.compute_provider == "docker":
         from app.services.instance_service import _build_docker_handle, _get_docker_provider
         try:
@@ -320,7 +231,6 @@ async def _restart_container(instance: Instance, db: AsyncSession) -> dict:
 _ADAPTERS: dict[str, RuntimeConfigAdapter] = {
     "openclaw": OpenClawConfigAdapter(),
     "nanobot": NanobotConfigAdapter(),
-    "zeroclaw": ZeroClawConfigAdapter(),
 }
 
 

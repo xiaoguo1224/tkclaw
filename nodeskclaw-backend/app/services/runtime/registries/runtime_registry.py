@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -36,6 +36,8 @@ class RuntimeSpec:
     scripts_dir_rel: str = ".deskclaw/tools"
     has_web_ui: bool = True
     has_init_script: bool = True
+    available: bool = True
+    docker_command: tuple[str, ...] | None = None
 
 
 class RuntimeRegistry:
@@ -82,30 +84,6 @@ def _register_builtins() -> None:
         order=0,
     ))
     RUNTIME_REGISTRY.register(RuntimeSpec(
-        runtime_id="zeroclaw",
-        adapter=None,
-        gene_install_adapter=_noop_gene_adapter,
-        description="ZeroClaw runtime -- high-performance Rust-based agent kernel.",
-        requires_companion=False,
-        display_name="高性能工作引擎",
-        display_description="Rust 构建，极速响应，适合高并发场景",
-        display_tags=(),
-        display_powered_by="ZeroClaw",
-        gateway_port=8080,
-        health_probe_path="/health",
-        order=1,
-        image_registry_key="image_registry_zeroclaw",
-        config_rel_path=".zeroclaw/config.toml",
-        config_format="toml",
-        channels_section_key="channels_config",
-        field_naming="snake_case",
-        supports_channel_plugins=False,
-        data_dir_container_path="/root/.zeroclaw",
-        skills_dir_rel=".deskclaw/skills",
-        has_web_ui=False,
-        has_init_script=False,
-    ))
-    RUNTIME_REGISTRY.register(RuntimeSpec(
         runtime_id="nanobot",
         adapter=None,
         gene_install_adapter=_noop_gene_adapter,
@@ -128,6 +106,7 @@ def _register_builtins() -> None:
         skills_dir_rel=".deskclaw/skills",
         has_web_ui=False,
         has_init_script=False,
+        available=False,
     ))
 
 

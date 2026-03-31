@@ -19,6 +19,9 @@ OPENCLAW_CONFIG_REL = ".openclaw/openclaw.json"
 SKILLS_EXTRA_DIR = "/root/.openclaw/skills"
 
 _SESSIONS_REL = ".openclaw/agents/main/sessions/sessions.json"
+_MAIN_SESSION_KEY = "agent:main:main"
+_MAIN_SESSION_REL = ".openclaw/agents/main/sessions/agent_main_main.jsonl"
+_MAIN_SESSION_FILE = "/root/.openclaw/agents/main/sessions/agent_main_main.jsonl"
 
 
 async def _write_sessions_json(fs: RemoteFS, path: str, store: dict) -> None:
@@ -44,6 +47,47 @@ async def invalidate_skill_snapshots(fs: RemoteFS) -> None:
             logger.info("Cleared stale skillsSnapshot from %d session(s)", len(store))
     except Exception as e:
         logger.warning("Failed to invalidate skill snapshots: %s", e)
+
+
+async def clear_main_session(fs: RemoteFS) -> bool:
+    raw = await fs.read_text(_SESSIONS_REL)
+    store: dict = {}
+    if raw:
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                store = parsed
+        except Exception as e:
+            logger.warning("Failed to parse sessions.json while clearing main session: %s", e)
+
+    main_entry: dict = {}
+    stale_keys: list[str] = []
+    for key, entry in store.items():
+        if not isinstance(entry, dict):
+            continue
+        session_id = entry.get("sessionId")
+        session_file = entry.get("sessionFile")
+        is_main = (
+            key in {"main", _MAIN_SESSION_KEY}
+            or session_id in {"main", "agent_main_main"}
+            or session_file == _MAIN_SESSION_FILE
+        )
+        if is_main:
+            main_entry = {**entry}
+            stale_keys.append(key)
+
+    for key in stale_keys:
+        store.pop(key, None)
+
+    store[_MAIN_SESSION_KEY] = {
+        **main_entry,
+        "sessionId": "agent_main_main",
+        "sessionFile": _MAIN_SESSION_FILE,
+        "systemSent": False,
+    }
+    await _write_sessions_json(fs, _SESSIONS_REL, store)
+    await fs.write_text(_MAIN_SESSION_REL, "")
+    return True
 
 
 async def inject_evolution_notification(

@@ -28,6 +28,7 @@ from app.models.instance import Instance  # noqa: F401
 from app.models.invitation import Invitation  # noqa: F401
 from app.models.instance_template import InstanceTemplate, TemplateItem  # noqa: F401
 from app.models.instance_mcp_server import InstanceMcpServer  # noqa: F401
+from app.models.instance_llm_override import InstanceLlmOverride  # noqa: F401
 from app.models.instance_member import InstanceMember  # noqa: F401
 from app.models.llm_usage_log import LlmUsageLog  # noqa: F401
 from app.models.message_queue import MessageQueueItem  # noqa: F401

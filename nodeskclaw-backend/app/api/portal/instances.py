@@ -272,22 +272,23 @@ async def pod_logs_stream(
     tail_lines: int = Query(50),
     since_seconds: int | None = Query(None),
     since_time: str | None = Query(None),
-    db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    await instance_member_service.check_instance_access(
-        instance_id, current_user, InstanceRole.viewer, db
-    )
+    from app.core.deps import async_session_factory
     from app.core.exceptions import NotFoundError
-    instance = await instance_service.get_instance(instance_id, db)
-    result = await db.execute(
-        select(Cluster).where(Cluster.id == instance.cluster_id, Cluster.deleted_at.is_(None))
-    )
-    cluster = result.scalar_one_or_none()
-    if not cluster:
-        raise NotFoundError("集群不存在")
 
-    k8s = await require_k8s_client(cluster)
+    async with async_session_factory() as db:
+        await instance_member_service.check_instance_access(
+            instance_id, current_user, InstanceRole.viewer, db
+        )
+        instance = await instance_service.get_instance(instance_id, db)
+        result = await db.execute(
+            select(Cluster).where(Cluster.id == instance.cluster_id, Cluster.deleted_at.is_(None))
+        )
+        cluster = result.scalar_one_or_none()
+        if not cluster:
+            raise NotFoundError("集群不存在")
+        k8s = await require_k8s_client(cluster)
 
     async def generate():
         try:

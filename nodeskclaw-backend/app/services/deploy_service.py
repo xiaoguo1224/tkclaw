@@ -13,12 +13,13 @@ import json as _json
 import secrets as _secrets
 from datetime import datetime, timezone
 from dataclasses import dataclass
+from urllib.parse import urlparse as _urlparse
 
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import BadRequestError, NotFoundError
 
 from app.models.cluster import Cluster
 from app.models.deploy_record import DeployAction, DeployRecord, DeployStatus
@@ -39,6 +40,7 @@ from app.services.k8s.resource_builder import (
     build_resource_quota,
     build_service,
 )
+from app.services.codex_provider import normalize_selected_models
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +121,6 @@ def _schedule_pv_cleanup(k8s: K8sClient, namespace: str) -> None:
     _bg_tasks.add(task)
     task.add_done_callback(_bg_tasks.discard)
 
-
 async def cancel_deploy(deploy_id: str) -> str:
     """立即取消部署：清理 K8s namespace + 更新 DB + 杀掉后台协程。
 
@@ -130,7 +131,10 @@ async def cancel_deploy(deploy_id: str) -> str:
     async with async_session_factory() as db:
         # 1. 查部署记录 + 实例
         rec_result = await db.execute(
-            select(DeployRecord).where(DeployRecord.id == deploy_id)
+            select(DeployRecord).where(
+                DeployRecord.id == deploy_id,
+                DeployRecord.deleted_at.is_(None),
+            )
         )
         record = rec_result.scalar_one_or_none()
         if not record:
@@ -139,7 +143,10 @@ async def cancel_deploy(deploy_id: str) -> str:
             return f"部署已结束（状态: {record.status}）"
 
         inst_result = await db.execute(
-            select(Instance).where(Instance.id == record.instance_id)
+            select(Instance).where(
+                Instance.id == record.instance_id,
+                Instance.deleted_at.is_(None),
+            )
         )
         instance = inst_result.scalar_one_or_none()
         if not instance:
@@ -171,7 +178,10 @@ async def cancel_deploy(deploy_id: str) -> str:
                     logger.info("取消部署，已清理 Docker 容器: %s", instance.slug)
             else:
                 cluster_result = await db.execute(
-                    select(Cluster).where(Cluster.id == instance.cluster_id)
+                    select(Cluster).where(
+                        Cluster.id == instance.cluster_id,
+                        Cluster.deleted_at.is_(None),
+                    )
                 )
                 cluster = cluster_result.scalar_one_or_none()
                 if cluster and cluster.is_k8s and cluster.credentials_encrypted:
@@ -401,6 +411,15 @@ async def deploy_instance(
             docker_host_port += 1
         namespace = f"docker-{slug}"
 
+    if not is_docker:
+        _parsed = _urlparse(settings.AGENT_API_BASE_URL or "")
+        if _parsed.hostname in ("localhost", "127.0.0.1", "0.0.0.0", "::1"):
+            raise BadRequestError(
+                message="AGENT_API_BASE_URL 当前为 localhost，K8s 集群中的 AI 员工无法通过此地址连接后端。"
+                        "请在后端 .env 中将 AGENT_API_BASE_URL 设置为 K8s Pod 可达的外部地址后重启后端。",
+                message_key="errors.deploy.localhost_not_reachable",
+            )
+
     env_vars = dict(req.env_vars) if req.env_vars else {}
     gateway_token = env_vars.get("GATEWAY_TOKEN") or env_vars.get("OPENCLAW_GATEWAY_TOKEN")
     if not gateway_token:
@@ -483,17 +502,18 @@ async def deploy_instance(
         existing_map = {c.provider: c for c in existing_result.scalars().all()}
 
         for item in req.llm_configs:
+            selected_models = normalize_selected_models(item.provider, item.selected_models)
             existing = existing_map.get(item.provider)
             if existing:
                 existing.key_source = item.key_source
-                existing.selected_models = item.selected_models
+                existing.selected_models = selected_models
             else:
                 db.add(UserLlmConfig(
                     user_id=user.id,
                     org_id=org_id,
                     provider=item.provider,
                     key_source=item.key_source,
-                    selected_models=item.selected_models,
+                    selected_models=selected_models,
                 ))
         await db.commit()
         logger.info(
@@ -669,12 +689,22 @@ async def _execute_via_compute_provider(ctx: _DeployContext) -> None:
         return
 
     async with async_session_factory() as db:
-        rec_result = await db.execute(select(DeployRecord).where(DeployRecord.id == ctx.record_id))
+        rec_result = await db.execute(
+            select(DeployRecord).where(
+                DeployRecord.id == ctx.record_id,
+                DeployRecord.deleted_at.is_(None),
+            )
+        )
         record = rec_result.scalar_one()
         record.status = DeployStatus.success
         record.finished_at = datetime.now(timezone.utc)
 
-        inst_result = await db.execute(select(Instance).where(Instance.id == ctx.instance_id))
+        inst_result = await db.execute(
+            select(Instance).where(
+                Instance.id == ctx.instance_id,
+                Instance.deleted_at.is_(None),
+            )
+        )
         instance = inst_result.scalar_one()
         instance.status = InstanceStatus.running
 
@@ -719,13 +749,23 @@ async def _mark_deploy_failed(ctx: _DeployContext, message: str) -> None:
 
     try:
         async with async_session_factory() as db:
-            rec_result = await db.execute(select(DeployRecord).where(DeployRecord.id == ctx.record_id))
+            rec_result = await db.execute(
+                select(DeployRecord).where(
+                    DeployRecord.id == ctx.record_id,
+                    DeployRecord.deleted_at.is_(None),
+                )
+            )
             record = rec_result.scalar_one()
             record.status = DeployStatus.failed
             record.message = message
             record.finished_at = datetime.now(timezone.utc)
 
-            inst_result = await db.execute(select(Instance).where(Instance.id == ctx.instance_id))
+            inst_result = await db.execute(
+                select(Instance).where(
+                    Instance.id == ctx.instance_id,
+                    Instance.deleted_at.is_(None),
+                )
+            )
             instance = inst_result.scalar_one()
             instance.soft_delete()
             await db.execute(
@@ -776,7 +816,10 @@ async def _execute_deploy_inner(ctx, async_session_factory, get_config, total, s
             _publish(1, steps[0])
 
             cluster_result = await db.execute(
-                select(Cluster).where(Cluster.id == ctx.cluster_id)
+                select(Cluster).where(
+                    Cluster.id == ctx.cluster_id,
+                    Cluster.deleted_at.is_(None),
+                )
             )
             cluster = cluster_result.scalar_one()
             from app.services.runtime.registries.compute_registry import require_k8s_client
@@ -886,7 +929,10 @@ async def _execute_deploy_inner(ctx, async_session_factory, get_config, total, s
                 )
                 await k8s.create_or_skip(k8s.networking.create_namespaced_ingress, ctx.namespace, ing)
                 inst_result = await db.execute(
-                    select(Instance).where(Instance.id == ctx.instance_id)
+                    select(Instance).where(
+                        Instance.id == ctx.instance_id,
+                        Instance.deleted_at.is_(None),
+                    )
                 )
                 instance = inst_result.scalar_one()
                 instance.ingress_domain = ingress_host
@@ -964,7 +1010,7 @@ async def _execute_deploy_inner(ctx, async_session_factory, get_config, total, s
                             sc = pvc.spec.storage_class_name or "(默认)"
                             diag_lines.append(f"PVC {pvc.metadata.name}: {pvc_phase} (StorageClass: {sc})")
                     except Exception:
-                        pass
+                        logger.warning("Failed to list PVCs for deploy diag in %s", ctx.namespace, exc_info=True)
 
                     # ── K8s Events（最近 5 条） ──
                     try:
@@ -973,7 +1019,7 @@ async def _execute_deploy_inner(ctx, async_session_factory, get_config, total, s
                         for ev in recent:
                             diag_lines.append(f"Event: {ev.reason} — {(ev.message or '')[:200]}")
                     except Exception:
-                        pass
+                        logger.warning("Failed to list Events for deploy diag in %s", ctx.namespace, exc_info=True)
 
                     # ── Deployment conditions ──
                     for cond in dep_status.get("conditions", []):
@@ -987,9 +1033,19 @@ async def _execute_deploy_inner(ctx, async_session_factory, get_config, total, s
 
                 await asyncio.sleep(2)
 
-            rec_result = await db.execute(select(DeployRecord).where(DeployRecord.id == ctx.record_id))
+            rec_result = await db.execute(
+                select(DeployRecord).where(
+                    DeployRecord.id == ctx.record_id,
+                    DeployRecord.deleted_at.is_(None),
+                )
+            )
             record = rec_result.scalar_one()
-            inst_result = await db.execute(select(Instance).where(Instance.id == ctx.instance_id))
+            inst_result = await db.execute(
+                select(Instance).where(
+                    Instance.id == ctx.instance_id,
+                    Instance.deleted_at.is_(None),
+                )
+            )
             instance = inst_result.scalar_one()
 
             if deployment_ready:
@@ -1071,7 +1127,7 @@ async def _execute_deploy_inner(ctx, async_session_factory, get_config, total, s
                             from app.services.instance_template_service import increment_use_count
                             await increment_use_count(db, ctx.template_id)
                         except Exception:
-                            pass
+                            logger.warning("Failed to increment template use count for %s", ctx.template_id, exc_info=True)
 
                 success_msg = f"部署成功{llm_sync_warning}{gene_install_warning}"
                 _publish(total, "完成", status="success", message=success_msg)
@@ -1130,13 +1186,23 @@ async def _execute_deploy_inner(ctx, async_session_factory, get_config, total, s
             await adapter.cleanup_proxy(ctx)
 
             try:
-                rec_result = await db.execute(select(DeployRecord).where(DeployRecord.id == ctx.record_id))
+                rec_result = await db.execute(
+                    select(DeployRecord).where(
+                        DeployRecord.id == ctx.record_id,
+                        DeployRecord.deleted_at.is_(None),
+                    )
+                )
                 record = rec_result.scalar_one()
                 record.status = DeployStatus.failed
                 record.message = str(e)[:500]
                 record.finished_at = datetime.now(timezone.utc)
 
-                inst_result = await db.execute(select(Instance).where(Instance.id == ctx.instance_id))
+                inst_result = await db.execute(
+                    select(Instance).where(
+                        Instance.id == ctx.instance_id,
+                        Instance.deleted_at.is_(None),
+                    )
+                )
                 instance = inst_result.scalar_one()
 
                 instance.soft_delete()

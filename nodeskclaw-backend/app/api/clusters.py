@@ -1,6 +1,10 @@
 """Cluster management endpoints."""
 
+import logging
+
 from fastapi import APIRouter, Depends
+
+logger = logging.getLogger(__name__)
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -139,7 +143,7 @@ async def cluster_overview(
                 "enabled": sc.metadata.name in allowed_names,
             })
     except Exception:
-        pass  # StorageClass 获取失败不影响概览
+        logger.warning("Failed to list StorageClasses for cluster %s", cluster_id, exc_info=True)
 
     # 获取 IngressClass 列表
     ingress_classes = []
@@ -154,7 +158,7 @@ async def cluster_overview(
                 "controller": ic.spec.controller if ic.spec else "",
             })
     except Exception:
-        pass
+        logger.warning("Failed to list IngressClasses for cluster %s", cluster_id, exc_info=True)
 
     return ApiResponse(data={
         "summary": summary,

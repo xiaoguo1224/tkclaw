@@ -3,11 +3,13 @@ import { ref, computed, onMounted, onUnmounted, inject, type Ref, type ComputedR
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
-  RefreshCw, Trash2, Circle, Loader2, Copy, Check, RotateCcw, AlertTriangle, FileText, X,
+  RefreshCw, Trash2, Circle, Loader2, Copy, Check, RotateCcw, AlertTriangle,
 } from 'lucide-vue-next'
 import api from '@/services/api'
 import { useToast } from '@/composables/useToast'
 import { useConfirm } from '@/composables/useConfirm'
+import { getStatusDisplay } from '@/utils/instanceStatus'
+import { copyToClipboard } from '@/utils/clipboard'
 
 const router = useRouter()
 const toast = useToast()
@@ -30,6 +32,7 @@ interface InstanceDetail {
   name: string
   status: string
   health_status?: string
+  display_status?: string
   image_version: string
   ingress_domain: string | null
   namespace: string
@@ -60,7 +63,6 @@ interface EngineInfo {
 }
 const ENGINE_INFO: Record<string, EngineInfo> = {
   openclaw: { name: '全能工作引擎', description: '支持工具调用、基因系统、多技能管理', poweredBy: 'OpenClaw', tags: ['默认'] },
-  zeroclaw: { name: '高性能工作引擎', description: 'Rust 构建，极速响应，适合高并发场景', poweredBy: 'ZeroClaw', tags: [] },
   nanobot:  { name: '轻量工作引擎', description: '超轻量，快速部署，适合简单对话场景', poweredBy: 'Nanobot', tags: [] },
 }
 const engineInfo = computed(() => ENGINE_INFO[instance.value?.runtime ?? 'openclaw'] ?? null)
@@ -128,12 +130,14 @@ function syncGatewayToken(detail: InstanceDetail | null) {
 }
 
 async function copyToken() {
-  try {
-    await navigator.clipboard.writeText(gatewayToken.value)
+  const ok = await copyToClipboard(gatewayToken.value)
+  if (ok) {
     tokenCopied.value = true
     toast.success(t('agentDetailDialog.tokenCopied'))
     setTimeout(() => { tokenCopied.value = false }, 2000)
-  } catch { /* ignore */ }
+  } else {
+    toast.error(t('common.copyFailed'))
+  }
 }
 
 onMounted(async () => {
@@ -361,6 +365,28 @@ async function handleDelete() {
             <span class="text-muted-foreground">创建时间</span>
             <span class="ml-2">{{ new Date(instance.created_at).toLocaleString('zh-CN') }}</span>
           </div>
+          <div class="col-span-2">
+            <span class="text-muted-foreground">{{ t('instanceDetail.workStatus') }}</span>
+            <span class="ml-2 inline-flex items-center gap-1.5">
+              <Circle
+                class="w-2 h-2 fill-current"
+                :class="[
+                  getStatusDisplay(instance.display_status ?? '').bgColor.replace('bg-', 'text-'),
+                  getStatusDisplay(instance.display_status ?? '').pulse ? 'animate-pulse' : '',
+                ]"
+              />
+              <span :class="getStatusDisplay(instance.display_status ?? '').color">
+                {{ t('displayStatus.' + getStatusDisplay(instance.display_status ?? '').key + '_desc') }}
+              </span>
+              <router-link
+                v-if="getStatusDisplay(instance.display_status ?? '').key === 'error'"
+                :to="{ name: 'InstanceRuntime', params: { id: instance.id } }"
+                class="text-xs text-primary hover:underline ml-1"
+              >
+                {{ t('common.runtimeStatus') }}
+              </router-link>
+            </span>
+          </div>
           <div v-if="instance.endpoint_url" class="col-span-2">
             <span class="text-muted-foreground">{{ t('instanceDetail.endpointUrl') }}</span>
             <a
@@ -422,7 +448,7 @@ async function handleDelete() {
       <div v-else-if="restarting" class="p-4 rounded-xl border border-amber-500/20 bg-amber-500/5">
         <div class="flex items-center gap-2 text-sm text-amber-400">
           <Loader2 class="w-4 h-4 animate-spin" />
-          AI 员工正在重启，等待新 Pod 启动...
+          {{ t('displayStatus.restarting_desc') }}
         </div>
       </div>
 

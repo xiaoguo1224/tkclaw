@@ -19,4 +19,4 @@ class WorkspaceFile(BaseModel):
     original_name: Mapped[str] = mapped_column(String(255), nullable=False)
     file_size: Mapped[int] = mapped_column(Integer, nullable=False)
     content_type: Mapped[str] = mapped_column(String(128), nullable=False)
-    tos_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    storage_key: Mapped[str] = mapped_column(String(512), nullable=False)

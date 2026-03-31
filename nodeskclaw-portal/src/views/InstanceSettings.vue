@@ -8,6 +8,11 @@ import ModelSelect from '@/components/shared/ModelSelect.vue'
 import type { ModelItem } from '@/components/shared/ModelSelect.vue'
 import api from '@/services/api'
 import { getRuntimeCaps } from '@/utils/runtimeCapabilities'
+import {
+  PROVIDERS, PROVIDER_LABELS, PROVIDER_DEFAULT_URLS,
+  BUILTIN_PROVIDERS, WORKING_PLAN_PROVIDERS, ALL_KNOWN_PROVIDERS,
+  isCodexProvider, defaultModelForProvider,
+} from '@/utils/llmProviders'
 
 const instanceId = inject<ComputedRef<string>>('instanceId')!
 const instanceRuntime = inject<ComputedRef<string>>('instanceRuntime', computed(() => 'openclaw'))
@@ -81,9 +86,6 @@ interface ProviderConfig {
   selectedModel: ModelItem | null
 }
 
-const BUILTIN_PROVIDERS = new Set(['openai', 'anthropic', 'gemini', 'openrouter'])
-const WORKING_PLAN_PROVIDERS = new Set(['minimax-openai', 'minimax-anthropic'])
-const ALL_KNOWN_PROVIDERS: Set<string> = new Set([...PROVIDERS])
 const orgKeyProviders = ref<Set<string>>(new Set())
 
 const isWorkingPlanAvailable = (provider: string) =>
@@ -143,8 +145,10 @@ async function loadAll() {
       personalKeys.value = keysResult.value.data.data ?? []
     }
 
-    const podConfigs: { provider: string; key_source: string; selected_models?: any[]; personal_key_masked?: string }[] =
-      configsResult.status === 'fulfilled' ? (configsResult.value.data.data ?? []) : []
+    const podConfigs: {
+      provider: string; key_source: string; selected_models?: any[];
+      personal_key_masked?: string; base_url?: string | null; api_type?: string | null;
+    }[] = configsResult.status === 'fulfilled' ? (configsResult.value.data.data ?? []) : []
 
     const configs: ProviderConfig[] = []
     for (const c of podConfigs) {
@@ -152,15 +156,17 @@ async function loadAll() {
       const isCustom = !ALL_KNOWN_PROVIDERS.has(c.provider)
       configs.push({
         provider: c.provider,
-        keySource: (c.key_source === 'org' || c.key_source === 'personal') ? c.key_source : 'org',
+        keySource: isCodexProvider(c.provider)
+          ? 'personal'
+          : ((c.key_source === 'org' || c.key_source === 'personal') ? c.key_source : 'org'),
         personalKeyNew: '',
         personalKeyMasked: pk?.api_key_masked ?? c.personal_key_masked ?? '',
         hasExistingPersonalKey: !!pk,
-        baseUrl: pk?.base_url ?? '',
-        apiType: pk?.api_type ?? (isCustom ? 'openai-completions' : ''),
+        baseUrl: c.base_url ?? pk?.base_url ?? '',
+        apiType: c.api_type ?? pk?.api_type ?? (isCustom ? 'openai-completions' : ''),
         isCustom,
-        showBaseUrl: !!pk?.base_url,
-        selectedModel: (c.selected_models ?? [])[0] ?? null,
+        showBaseUrl: isCustom || !!(c.base_url || pk?.base_url),
+        selectedModel: (c.selected_models ?? [])[0] ?? defaultModelForProvider(c.provider),
       })
     }
 
@@ -186,7 +192,9 @@ function addProvider(provider: string) {
   const isCustom = !ALL_KNOWN_PROVIDERS.has(provider)
   providerConfigs.value.push({
     provider,
-    keySource: isCustom ? 'personal' : (isWorkingPlanAvailable(provider) ? 'org' : 'personal'),
+    keySource: isCodexProvider(provider)
+      ? 'personal'
+      : (isCustom ? 'personal' : (isWorkingPlanAvailable(provider) ? 'org' : 'personal')),
     personalKeyNew: '',
     personalKeyMasked: pk?.api_key_masked ?? '',
     hasExistingPersonalKey: !!pk,
@@ -194,7 +202,7 @@ function addProvider(provider: string) {
     apiType: pk?.api_type ?? (isCustom ? 'openai-completions' : ''),
     isCustom,
     showBaseUrl: isCustom || !!pk?.base_url,
-    selectedModel: null,
+    selectedModel: defaultModelForProvider(provider),
   })
   newProviderOpen.value = false
   dirty.value = true
@@ -289,7 +297,7 @@ function validateConfigs(): string | null {
     if (cfg.isCustom && !cfg.baseUrl) {
       return `${label}: Base URL ${t('common.noData')}`
     }
-    if (cfg.keySource === 'personal') {
+    if (cfg.keySource === 'personal' && !isCodexProvider(cfg.provider)) {
       if (!cfg.personalKeyNew && !cfg.hasExistingPersonalKey) {
         return `${label}: 请输入个人 API Key`
       }
@@ -323,12 +331,12 @@ async function handleSave() {
     // 1. Upsert personal keys (new key, or base_url/api_type update for existing key)
     for (const cfg of providerConfigs.value) {
       if (cfg.keySource !== 'personal') continue
-      const needsUpsert = cfg.personalKeyNew || cfg.baseUrl || cfg.isCustom
+      const needsUpsert = isCodexProvider(cfg.provider) || cfg.personalKeyNew || cfg.baseUrl || cfg.isCustom
       if (!needsUpsert) continue
       await api.post('/users/me/llm-keys', {
         provider: cfg.provider,
-        api_key: cfg.personalKeyNew || undefined,
-        base_url: cfg.baseUrl || null,
+        api_key: isCodexProvider(cfg.provider) ? undefined : (cfg.personalKeyNew || undefined),
+        base_url: isCodexProvider(cfg.provider) ? null : (cfg.baseUrl || null),
         api_type: cfg.isCustom ? cfg.apiType : null,
       })
       if (cfg.personalKeyNew) {
@@ -336,17 +344,24 @@ async function handleSave() {
           ? cfg.personalKeyNew.slice(0, 6) + '***' + cfg.personalKeyNew.slice(-3)
           : cfg.personalKeyNew.slice(0, 2) + '***'
         cfg.personalKeyNew = ''
+      } else if (isCodexProvider(cfg.provider)) {
+        cfg.personalKeyMasked = t('llm.codexCliLabel')
       }
       cfg.hasExistingPersonalKey = true
     }
 
     // 2. Write configs directly to Pod file
     await api.put(`/instances/${instanceId.value}/llm-configs`, {
-      configs: providerConfigs.value.map(c => ({
-        provider: c.provider,
-        key_source: c.keySource,
-        selected_models: c.selectedModel ? [c.selectedModel] : undefined,
-      })),
+      configs: providerConfigs.value.map(c => {
+        const selectedModel = c.selectedModel ?? defaultModelForProvider(c.provider)
+        return {
+          provider: c.provider,
+          key_source: c.keySource,
+          selected_models: selectedModel ? [selectedModel] : undefined,
+          base_url: isCodexProvider(c.provider) ? null : (c.baseUrl || null),
+          api_type: c.isCustom ? c.apiType : null,
+        }
+      }),
     })
 
     // 3. Restart runtime
@@ -520,7 +535,7 @@ watch(() => instanceId.value, (val) => {
 
             <!-- Key source selection -->
             <div class="space-y-2">
-              <div v-if="!cfg.isCustom" class="flex gap-4 text-sm">
+              <div v-if="!cfg.isCustom && !isCodexProvider(cfg.provider)" class="flex gap-4 text-sm">
                 <span class="relative group">
                   <label
                     class="flex items-center gap-1.5"
@@ -557,6 +572,10 @@ watch(() => instanceId.value, (val) => {
                 </label>
               </div>
 
+              <p v-else-if="isCodexProvider(cfg.provider)" class="text-xs text-muted-foreground pl-0.5">
+                {{ t('llm.codexCliHint') }}
+              </p>
+
               <!-- Working Plan hint -->
               <p v-if="!cfg.isCustom && cfg.keySource === 'org'" class="text-xs text-muted-foreground pl-0.5">
                 使用组织统一配置的 Key，无需自行输入
@@ -564,50 +583,61 @@ watch(() => instanceId.value, (val) => {
 
               <!-- Personal key -->
               <div v-if="cfg.keySource === 'personal'" class="space-y-1.5">
-                <div v-if="cfg.hasExistingPersonalKey" class="flex items-center gap-2 text-xs">
-                  <Check class="w-3 h-3 text-green-400" />
-                  <span class="text-muted-foreground">当前 Key:</span>
-                  <span class="font-mono">{{ cfg.personalKeyMasked }}</span>
-                </div>
-                <div class="relative">
-                  <Key class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                  <input
-                    v-model="cfg.personalKeyNew"
-                    type="password"
-                    :placeholder="cfg.hasExistingPersonalKey ? '输入新 Key 以替换' : '输入 API Key'"
-                    class="w-full pl-9 pr-3 py-1.5 rounded-md bg-background border border-border text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
-                    @input="markDirty"
-                  />
-                </div>
-
-                <!-- Base URL (collapsible for built-in, always visible for custom) -->
-                <div v-if="cfg.isCustom || cfg.showBaseUrl">
+                <template v-if="isCodexProvider(cfg.provider)">
+                  <div v-if="cfg.hasExistingPersonalKey" class="flex items-center gap-2 text-xs">
+                    <Check class="w-3 h-3 text-green-400" />
+                    <span class="text-muted-foreground">{{ t('llm.codexCliCurrentAuth') }}:</span>
+                    <span class="font-mono">{{ cfg.personalKeyMasked }}</span>
+                  </div>
+                  <div class="rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
+                    {{ t('llm.codexCliRuntimeHint') }}
+                  </div>
+                </template>
+                <template v-else>
+                  <div v-if="cfg.hasExistingPersonalKey" class="flex items-center gap-2 text-xs">
+                    <Check class="w-3 h-3 text-green-400" />
+                    <span class="text-muted-foreground">当前 Key:</span>
+                    <span class="font-mono">{{ cfg.personalKeyMasked }}</span>
+                  </div>
                   <div class="relative">
-                    <Link class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                    <Key class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
                     <input
-                      v-model="cfg.baseUrl"
-                      type="text"
-                      :placeholder="cfg.isCustom ? t('llm.baseUrlPlaceholder') : t('llm.defaultBaseUrl', { url: PROVIDER_DEFAULT_URLS[cfg.provider] || '' })"
-                      :class="cfg.isCustom ? 'pr-3' : 'pr-8'"
-                      class="w-full pl-9 py-1.5 rounded-md bg-background border border-border text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
+                      v-model="cfg.personalKeyNew"
+                      type="password"
+                      :placeholder="cfg.hasExistingPersonalKey ? '输入新 Key 以替换' : '输入 API Key'"
+                      class="w-full pl-9 pr-3 py-1.5 rounded-md bg-background border border-border text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
                       @input="markDirty"
                     />
-                    <button
-                      v-if="!cfg.isCustom"
-                      class="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                      @click="cfg.baseUrl = ''; cfg.showBaseUrl = false; markDirty()"
-                    >
-                      <X class="w-3.5 h-3.5" />
-                    </button>
                   </div>
-                </div>
-                <button
-                  v-if="!cfg.isCustom && !cfg.showBaseUrl"
-                  class="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                  @click="cfg.showBaseUrl = true"
-                >
-                  {{ t('llm.customBaseUrl') }}
-                </button>
+
+                  <div v-if="cfg.isCustom || cfg.showBaseUrl">
+                    <div class="relative">
+                      <Link class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                      <input
+                        v-model="cfg.baseUrl"
+                        type="text"
+                        :placeholder="cfg.isCustom ? t('llm.baseUrlPlaceholder') : t('llm.defaultBaseUrl', { url: PROVIDER_DEFAULT_URLS[cfg.provider] || '' })"
+                        :class="cfg.isCustom ? 'pr-3' : 'pr-8'"
+                        class="w-full pl-9 py-1.5 rounded-md bg-background border border-border text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
+                        @input="markDirty"
+                      />
+                      <button
+                        v-if="!cfg.isCustom"
+                        class="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                        @click="cfg.baseUrl = ''; cfg.showBaseUrl = false; markDirty()"
+                      >
+                        <X class="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                  <button
+                    v-if="!cfg.isCustom && !cfg.showBaseUrl"
+                    class="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    @click="cfg.showBaseUrl = true"
+                  >
+                    {{ t('llm.customBaseUrl') }}
+                  </button>
+                </template>
               </div>
             </div>
 
@@ -619,7 +649,7 @@ watch(() => instanceId.value, (val) => {
               @fetch-models="handleFetchModels"
               @update:model-value="markDirty"
             />
-            <p v-if="(cfg.isCustom || !BUILTIN_PROVIDERS.has(cfg.provider)) && !cfg.selectedModel" class="text-[10px] text-amber-500">
+            <p v-if="(cfg.isCustom || isCodexProvider(cfg.provider) || !BUILTIN_PROVIDERS.has(cfg.provider)) && !cfg.selectedModel" class="text-[10px] text-amber-500">
               {{ t('llm.modelRequired') }}
             </p>
           </div>
@@ -672,35 +702,36 @@ watch(() => instanceId.value, (val) => {
             </button>
           </div>
 
-          <!-- Custom Provider form -->
-          <div v-if="showCustomForm" class="rounded-lg border border-violet-400/30 bg-violet-500/5 p-4 space-y-3">
-            <div class="flex items-center justify-between">
-              <span class="font-medium text-sm text-violet-400">{{ t('llm.customProvider') }}</span>
-              <button class="text-muted-foreground hover:text-foreground text-xs" @click="newProviderOpen = false; showCustomForm = false; customSlug = ''; customSlugError = ''">
-                {{ t('common.cancel') }}
-              </button>
-            </div>
-            <div class="space-y-1.5">
-              <label class="text-xs text-muted-foreground">{{ t('llm.providerSlug') }}</label>
-              <input
-                v-model="customSlug"
-                type="text"
-                maxlength="32"
-                :placeholder="t('llm.providerSlugPlaceholder')"
-                class="w-full px-3 py-1.5 rounded-md bg-background border border-border text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
-                @keydown.enter="addCustomProvider"
-              />
-              <p v-if="customSlugError" class="text-[10px] text-destructive">{{ customSlugError }}</p>
-              <p v-else class="text-[10px] text-muted-foreground">{{ t('llm.providerSlugHint') }}</p>
-            </div>
-            <button
-              class="px-4 py-1.5 rounded-md bg-violet-500/10 text-violet-400 text-sm hover:bg-violet-500/20 transition-colors"
-              :disabled="!customSlug.trim()"
-              @click="addCustomProvider"
-            >
-              {{ t('common.add') }}
+        </div>
+
+        <!-- Custom Provider form -->
+        <div v-if="showCustomForm" class="rounded-lg border border-violet-400/30 bg-violet-500/5 p-4 space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="font-medium text-sm text-violet-400">{{ t('llm.customProvider') }}</span>
+            <button class="text-muted-foreground hover:text-foreground text-xs" @click="showCustomForm = false; customSlug = ''; customSlugError = ''">
+              {{ t('common.cancel') }}
             </button>
           </div>
+          <div class="space-y-1.5">
+            <label class="text-xs text-muted-foreground">{{ t('llm.providerSlug') }}</label>
+            <input
+              v-model="customSlug"
+              type="text"
+              maxlength="32"
+              :placeholder="t('llm.providerSlugPlaceholder')"
+              class="w-full px-3 py-1.5 rounded-md bg-background border border-border text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
+              @keydown.enter="addCustomProvider"
+            />
+            <p v-if="customSlugError" class="text-[10px] text-destructive">{{ customSlugError }}</p>
+            <p v-else class="text-[10px] text-muted-foreground">{{ t('llm.providerSlugHint') }}</p>
+          </div>
+          <button
+            class="px-4 py-1.5 rounded-md bg-violet-500/10 text-violet-400 text-sm hover:bg-violet-500/20 transition-colors"
+            :disabled="!customSlug.trim()"
+            @click="addCustomProvider"
+          >
+            {{ t('common.add') }}
+          </button>
         </div>
 
       </template>

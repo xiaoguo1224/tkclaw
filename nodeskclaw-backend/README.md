@@ -90,11 +90,11 @@ nodeskclaw-backend/
 │   │   ├── summary_job.py        # 自动摘要生成
 │   │   ├── runtime/              # 运行时平台 v2（五层架构）
 │   │   │   ├── registries/       # 六大注册表（NodeType/Transport/Runtime/Compute/ContextBridge/Channel）
-│   │   │   ├── adapters/         # Agent 运行时适配器（OpenClaw/ZeroClaw/Nanobot）
+│   │   │   ├── adapters/         # Agent 运行时适配器（OpenClaw/Nanobot）
 │   │   │   ├── config_adapter.py            # Channel 配置适配器（三引擎 read/write/translate/restart）
 │   │   │   ├── gene_install_adapter.py      # GeneInstallAdapter 抽象接口
 │   │   │   ├── openclaw_gene_install_adapter.py # OpenClaw 基因安装适配器
-│   │   │   ├── noop_gene_install_adapter.py     # ZeroClaw/NanoBot 空实现
+│   │   │   ├── noop_gene_install_adapter.py     # NanoBot 空实现
 │   │   │   ├── context_bridges/  # 上下文注入桥接（ChannelPlugin/SystemPrompt/MCP）
 │   │   │   ├── compute/          # 计算资源提供者（K8s/Docker/Process）
 │   │   │   ├── transport/        # 消息投递适配器（Agent/Channel）
@@ -178,7 +178,8 @@ API 路由同时挂载在两个前缀下：
 | `/api/v1/workspaces/templates` | 工作区模板 | 列表、创建、详情、删除、应用到工作区 |
 | `/api/v1/workspaces/{ws}/blackboard/posts` | 黑板讨论区 | 帖子 CRUD、置顶、已读标记、未读计数 |
 | `/api/v1/workspaces/{ws}/blackboard/posts/{id}/replies` | 黑板讨论区 | 帖子回复 |
-| `/api/v1/workspaces/{ws}/blackboard/files` | 共享文件 | TOS 共享文件列表、上传、下载、删除、创建目录 |
+| `/api/v1/workspaces/{ws}/blackboard/files` | 共享文件 | 共享文件列表、上传、下载、删除、创建目录（S3 或本地存储） |
+| `/api/v1/files/local/{key}` | 文件下载 | 本地存储模式的 HMAC 签名文件下载端点 |
 | `/api/v1/enterprise-files/agents` | 企业空间 | 列出可浏览的 Agent 实例 |
 | `/api/v1/enterprise-files/agents/{id}/files` | 企业空间 | 列出 Agent 目录文件（query: path） |
 | `/api/v1/enterprise-files/agents/{id}/files/content` | 企业空间 | 读取文件内容（仅文本） |
@@ -196,13 +197,12 @@ API 路由同时挂载在两个前缀下：
 | 配置键 | 引擎 | 说明 |
 |--------|------|------|
 | `image_registry` | OpenClaw | 全局默认，向后兼容 |
-| `image_registry_zeroclaw` | ZeroClaw | ZeroClaw 独立仓库 |
 | `image_registry_nanobot` | Nanobot | Nanobot 独立仓库 |
 
 - **启动时自动内置默认值**：`seed.py` 中 `_seed_default_registry_configs()` 在每次启动时幂等写入上述三个 key 的默认公共仓库地址（仅在 key 不存在时写入，不覆盖管理员修改）
 - 部署和配置更新时通过 `resolve_image_registry(db, runtime)` 自动解析
 - 未配置引擎专属仓库时回退到全局 `image_registry`
-- `GET /registry/tags?runtime=zeroclaw` 按引擎查询对应仓库的 Tag 列表
+- `GET /registry/tags?runtime=nanobot` 按引擎查询对应仓库的 Tag 列表
 - Settings API 动态支持 `image_registry_{runtime_id}` 键，新增引擎自动生效
 
 ### StorageClass 配置
@@ -298,7 +298,9 @@ MessageEnvelope 遵循 CloudEvents 1.0 规范，扩展字段：
 ### 可靠性
 
 - **PGMQ**: PostgreSQL 消息队列 + WFQ 虚拟时间调度防饥饿 + PG NOTIFY 驱动即时消费 + 5s 轮询兜底
-- **ACK/Retry/DLQ**: 指数退避 + jitter 抖动重试（max 3 次），不可恢复错误（node_card_not_found 等）直接进 DLQ
+- **ACK/Retry/DLQ**: 指数退避 + jitter 抖动重试（max 3 次），不可恢复错误直接进 DLQ
+- **NO_RETRY_ERRORS**: `node_card_not_found` / `instance_not_found` / `workspace_isolation_violation` / `instance_not_connected_locally` — 这些错误在 TransportMiddleware 中跳过入队直接写 DLQ（`recoverable=False`），在 QueueConsumer nack 时也直接进 DLQ 不做退避重试
+- **离线投递反馈**: Agent 未通过隧道连接（`instance_not_connected_locally`）时，TransportMiddleware 在写 DLQ 的同时通过 SSE 广播 `agent:error` 事件（含 `instance_id`、`agent_name`、`error`），前端立刻展示错误而非静默等待
 - **熔断器**: 三态（CLOSED/OPEN/HALF_OPEN），恢复时自动重投 recoverable 死信
 - **背压**: 按队列深度分级（FULL/NORMAL_ONLY/CRITICAL_ONLY/NONE）
 - **幂等**: INSERT ON CONFLICT DO NOTHING 原子去重
@@ -430,6 +432,20 @@ CE/EE 模式覆盖：
 
 支持的 adapter 类型：`genehub`（GeneHub/DeskHub 协议）、`clawhub`（ClawHub，当前 stub）。系统始终包含本地 LocalAdapter，无外部 Registry 时纯本地运行。
 
+文件存储配置：
+
+| 变量 | 说明 |
+|------|------|
+| `S3_ENDPOINT` | S3 兼容对象存储 Endpoint（支持 AWS S3、MinIO、阿里云 OSS、火山云 TOS 等）。与 `S3_BUCKET` 同时配置后启用 |
+| `S3_BUCKET` | S3 Bucket 名称 |
+| `S3_REGION` | S3 Region（可选） |
+| `S3_ACCESS_KEY_ID` | S3 Access Key |
+| `S3_SECRET_ACCESS_KEY` | S3 Secret Key |
+| `S3_KEY_PREFIX` | 对象 key 前缀（本地开发可设为 dev，生产留空） |
+| `LOCAL_STORAGE_DIR` | 本地文件存储目录。S3 未配置时自动启用本地存储：Docker 容器内默认 `/nodeskclaw-data/shared-files`，本地开发默认 `~/.nodeskclaw/shared-files` |
+
+S3 未配置时系统自动 fallback 到本地文件系统存储，无需额外配置即可使用共享文件和聊天附件功能。
+
 ### 启动
 
 推荐使用项目根目录的一键启动脚本（同时启动后端和前端）：
@@ -468,8 +484,8 @@ Docker Compose 部署注意事项：
 Docker Compose 部署默认支持创建 Docker 类型集群（后端镜像内置 Docker CLI）。关键配置：
 
 - **Docker socket 挂载**：`docker-compose.yml` 已配置 `/var/run/docker.sock` 挂载，后端容器通过宿主机 Docker daemon 管理 AI 实例容器
-- **数据目录映射**：`DOCKER_DATA_DIR` 环境变量指定实例数据目录，默认为 `$HOME/.nodeskclaw/docker-instances`（宿主机路径）。容器内外使用同一路径，确保生成的 compose volume 映射正确
-- **自定义数据目录**：如需修改，在 `.env` 中设置 `DOCKER_DATA_DIR=/your/path`，并同步修改 `docker-compose.yml` 中的 volumes 映射为 `$DOCKER_DATA_DIR:$DOCKER_DATA_DIR`
+- **数据目录映射**：Docker Compose 部署时，Mac/Linux 默认使用 `$HOME/.nodeskclaw/docker-instances`；Windows 必须显式设置 `NODESKCLAW_DATA_DIR`；后端容器内固定挂载到 `/nodeskclaw-data`，并通过 `DOCKER_HOST_DATA_DIR` 保存宿主机原始路径
+- **自定义数据目录**：如需修改，在项目根目录 `.env` 中设置 `NODESKCLAW_DATA_DIR=/your/path`。Mac/Linux 可直接使用 POSIX 路径，Windows 使用完整宿主机绝对路径
 - **CE/EE 模式**：`docker-compose.yml` 默认设置 `NODESKCLAW_EDITION=ce`；EE 部署使用 `docker compose -f docker-compose.yml -f docker-compose.ee.yml up -d`
 
 ### Docker 构建（单独构建镜像）
@@ -641,7 +657,6 @@ Admin 后台权限**仅依赖 AdminMembership**，`is_super_admin` 不作为 Adm
 
 各 runtime 的 tunnel 客户端收到 `no_reply: true` 后：
 - **OpenClaw**：`max_tokens: 1` fire-and-forget，立即返回 `chat.response.done`
-- **ZeroClaw**：`POST /webhook` 后丢弃响应
 - **NanoBot**：注入消息到 AgentLoop 后丢弃回复
 
 无人被 @提及时，`no_reply` 不发送（保持默认行为，所有 agent 正常响应）。

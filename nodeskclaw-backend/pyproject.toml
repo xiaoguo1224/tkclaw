@@ -28,12 +28,10 @@ dependencies = [
     "lark-oapi>=1.5.3",
     # Email (SMTP)
     "aiosmtplib>=3.0.0",
-    # Object Storage (Volcengine TOS)
-    "tos>=2.7.0",
+    # Object Storage (S3 compatible)
+    "boto3>=1.35.0",
     # Database migrations
     "alembic>=1.13.0",
-    # TOML write support (ZeroClaw config)
-    "tomli_w>=1.0.0",
 ]
 
 [dependency-groups]

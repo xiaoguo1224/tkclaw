@@ -24,6 +24,7 @@ async def list_engines(_user: User = Depends(get_current_user)):
             "order": spec.order,
             "image_registry_key": spec.image_registry_key,
             "default_registry_url": DEFAULT_REGISTRY_CONFIGS.get(spec.image_registry_key, ""),
+            "available": spec.available,
         })
     engines.sort(key=lambda r: r["order"])
     return ApiResponse(data=engines)

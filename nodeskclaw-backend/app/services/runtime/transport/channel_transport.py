@@ -251,7 +251,6 @@ class ChannelTransportAdapter:
         source_name = data.sender.name if data else "System"
         content = data.content if data else ""
 
-        from app.models.node_card import NodeCard
 
         if db is None:
             from app.core.deps import async_session_factory

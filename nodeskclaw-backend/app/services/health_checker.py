@@ -8,9 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.models.cluster import Cluster, ClusterStatus
-from app.services.k8s.client_manager import k8s_manager
 from app.services.k8s.event_bus import event_bus
-from app.services.k8s.k8s_client import K8sClient
 
 logger = logging.getLogger(__name__)
 

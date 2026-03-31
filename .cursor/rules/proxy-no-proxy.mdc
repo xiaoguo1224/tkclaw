@@ -1,0 +1,66 @@
+---
+description: 代理与 no_proxy 配置规范：拉取外部制品走代理，内网流量绕过代理
+alwaysApply: true
+---
+
+# 代理与 no_proxy 配置
+
+## 背景
+
+开发机和部署环境通过 HTTP 代理加速拉取外部制品（Docker 镜像、npm 包、pip 包等），同时通过 OpenVPN 访问内网资源（火山云 VKE 集群、RDS、NAS 等）。**内网流量必须绕过代理，否则会被代理服务器拦截或路由错误，导致连接超时 / 拒绝。**
+
+## 标准 no_proxy 配置
+
+```bash
+export no_proxy="10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,localhost,127.0.0.1"
+export NO_PROXY="$no_proxy"
+```
+
+覆盖范围：
+
+| CIDR | 说明 |
+|---|---|
+| `10.0.0.0/8` | 火山云 VPC 内网、VKE 节点、RDS、NAS 等 |
+| `172.16.0.0/12` | Docker 默认网桥、部分云内网段 |
+| `192.168.0.0/16` | 本地局域网、VPN 分配地址 |
+| `localhost` / `127.0.0.1` | 本地回环 |
+
+## 使用场景
+
+### 终端命令
+
+当用户遇到 `docker pull` 超时、`kubectl` 连接失败、`pip install` / `npm install` 慢等网络问题时，先确认代理配置：
+
+- **外部制品拉取慢/超时** → 检查是否设置了 `http_proxy` / `https_proxy`，没设就建议加上
+- **内网资源连接失败**（kubectl、数据库、NFS）→ 检查 `no_proxy` 是否包含目标 IP 段，没有就补上述配置
+
+### Docker 构建
+
+Dockerfile 中需要拉取外部依赖时，通过 `--build-arg` 传入代理，同时 `no_proxy` 必须一起传：
+
+```bash
+docker build --platform linux/amd64 \
+  --build-arg http_proxy="$http_proxy" \
+  --build-arg https_proxy="$https_proxy" \
+  --build-arg no_proxy="$no_proxy" \
+  -t my-image:latest .
+```
+
+### K8s Pod 内
+
+Pod 如果需要访问外部 API（如 LLM Provider），可在 Deployment env 中注入代理变量；同时 `NO_PROXY` 必须包含集群内部 Service CIDR 和 Pod CIDR，避免 Service 间调用被代理。
+
+## 排查清单
+
+用户反馈网络问题时，按以下顺序排查：
+
+1. `echo $http_proxy $https_proxy` — 代理是否设置
+2. `echo $no_proxy` — 内网段是否已排除
+3. 目标地址是内网还是外网 — 判断该走代理还是绕过
+4. `curl -v <target>` — 确认实际连接行为
+
+## 禁止
+
+- **禁止在代理环境下不设 `no_proxy`** — 会导致内网流量（kubectl、数据库、NFS）全部走代理然后失败
+- **禁止 `no_proxy="*"`** — 等于关闭代理，外部制品拉取会回退到直连（可能很慢或不通）
+- **禁止只设 `no_proxy` 不设 `NO_PROXY`** — 部分工具只认大写变量，两个都要设

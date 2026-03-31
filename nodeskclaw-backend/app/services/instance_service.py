@@ -18,6 +18,7 @@ from app.models.deploy_record import DeployAction, DeployRecord, DeployStatus
 from app.models.instance import Instance, InstanceStatus
 from app.schemas.deploy import DeployRecordInfo
 from app.schemas.instance import InstanceDetail, InstanceInfo, UpdateConfigRequest, WorkspaceBrief
+from app.utils.display_status import compute_display_status
 from app.services.k8s.client_manager import k8s_manager
 from app.services.k8s.k8s_client import K8sClient
 from app.services.k8s.resource_builder import build_configmap, build_labels
@@ -78,7 +79,6 @@ def _k8s_name(instance: Instance) -> str:
 
 def _build_docker_handle(instance: Instance) -> "ComputeHandle":
     from app.services.runtime.compute.base import ComputeHandle
-    env_vars = json.loads(instance.env_vars) if instance.env_vars else {}
     advanced = json.loads(instance.advanced_config) if instance.advanced_config else {}
     return ComputeHandle(
         provider="docker", instance_id=instance.id,
@@ -104,6 +104,7 @@ async def _in_deploy_grace(instance_id: str, db: AsyncSession, grace_seconds: in
         .where(
             DeployRecord.instance_id == instance_id,
             DeployRecord.status == DeployStatus.success,
+            DeployRecord.deleted_at.is_(None),
         )
         .order_by(DeployRecord.finished_at.desc())
         .limit(1)
@@ -331,16 +332,41 @@ async def get_instance_detail(instance_id: str, db: AsyncSession) -> InstanceDet
                 if instance.id in tunnel_adapter.connected_instances:
                     detail.health_status = "healthy"
                 elif pods:
-                    detail.health_status = "unhealthy"
+                    has_ready_pod = any(
+                        all(c.get("ready", False) for c in p.get("containers", []))
+                        and len(p.get("containers", [])) > 0
+                        for p in pods
+                    )
+                    detail.health_status = "healthy" if has_ready_pod else "unhealthy"
                 else:
                     detail.health_status = "unknown"
         except Exception as e:
             logger.warning("Failed to fetch pods for instance %s: %s", instance_id, e)
 
+    if (
+        not instance.ingress_domain
+        and instance.compute_provider != "docker"
+        and cluster
+        and cluster.is_k8s
+        and cluster.credentials_encrypted
+    ):
+        try:
+            from app.services.runtime.registries.compute_registry import require_k8s_client
+            _heal_k8s = await require_k8s_client(cluster)
+            _ing = await _heal_k8s.get_ingress(instance.namespace, _k8s_name(instance))
+            if _ing.spec and _ing.spec.rules and _ing.spec.rules[0].host:
+                instance.ingress_domain = _ing.spec.rules[0].host
+                await db.commit()
+                detail.ingress_domain = instance.ingress_domain
+                detail.endpoint_url = _compute_endpoint_url(instance)
+        except Exception:
+            pass
+
     if instance.status == InstanceStatus.running and detail.health_status != instance.health_status:
         instance.health_status = detail.health_status
         await db.commit()
 
+    detail.display_status = compute_display_status(detail.status, detail.health_status)
     return detail
 
 
@@ -359,8 +385,6 @@ async def delete_instance(instance_id: str, db: AsyncSession, delete_k8s: bool =
             message="该实例已加入办公室，请先从办公室中移除",
             message_key="errors.instance.still_in_workspace",
         )
-
-    ws_ids = await _get_instance_workspace_ids(db, instance_id)
 
     if delete_k8s:
         if instance.compute_provider == "docker":
@@ -526,7 +550,12 @@ async def _monitor_restart(
             )
             if has_ready:
                 async with async_session_factory() as db:
-                    result = await db.execute(select(Instance).where(Instance.id == instance_id))
+                    result = await db.execute(
+                        select(Instance).where(
+                            Instance.id == instance_id,
+                            Instance.deleted_at.is_(None),
+                        )
+                    )
                     inst = result.scalar_one_or_none()
                     if inst and inst.status == InstanceStatus.restarting:
                         inst.status = InstanceStatus.running
@@ -544,7 +573,12 @@ async def _monitor_restart(
     logger.warning("重启监控超时 (%ds)，强制恢复状态: instance=%s", _RESTART_TIMEOUT, instance_id)
     try:
         async with async_session_factory() as db:
-            result = await db.execute(select(Instance).where(Instance.id == instance_id))
+            result = await db.execute(
+                select(Instance).where(
+                    Instance.id == instance_id,
+                    Instance.deleted_at.is_(None),
+                )
+            )
             inst = result.scalar_one_or_none()
             if inst and inst.status == InstanceStatus.restarting:
                 inst.status = InstanceStatus.running
@@ -955,7 +989,7 @@ async def rollback_instance(
     instance_id: str, target_revision: int, user_id: str, db: AsyncSession
 ) -> InstanceInfo:
     """回滚实例到指定版本。"""
-    instance = await get_instance(instance_id, db)
+    await get_instance(instance_id, db)
 
     # 查找目标版本记录
     result = await db.execute(

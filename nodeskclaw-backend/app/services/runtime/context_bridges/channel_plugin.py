@@ -30,7 +30,12 @@ class ChannelPluginBridge:
                 from app.models.instance import Instance
                 from sqlalchemy import select
 
-                result = await db.execute(select(Instance).where(Instance.id == instance_id))
+                result = await db.execute(
+                    select(Instance).where(
+                        Instance.id == instance_id,
+                        Instance.deleted_at.is_(None),
+                    )
+                )
                 inst = result.scalar_one_or_none()
                 if inst:
                     await deploy_nodeskclaw_channel_plugin(inst, db, workspace_id)

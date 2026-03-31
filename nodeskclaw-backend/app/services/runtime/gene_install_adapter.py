@@ -1,6 +1,6 @@
 """GeneInstallAdapter -- abstract interface for runtime-specific gene installation logic.
 
-Each AI runtime (OpenClaw, ZeroClaw, NanoBot) implements its own adapter to handle:
+Each AI runtime (OpenClaw, NanoBot) implements its own adapter to handle:
 - Skill file deployment
 - Tool availability (e.g. OpenClaw's tool_allow whitelist)
 - Python script deployment

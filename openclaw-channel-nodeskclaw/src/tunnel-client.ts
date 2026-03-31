@@ -43,6 +43,33 @@ function deriveTunnelUrl(apiUrl: string): string {
   return `${wsUrl}/tunnel/connect`;
 }
 
+const LOCAL_GATEWAY_MODELS = ["openclaw", "openclaw/default", "openclaw/main"];
+
+function deriveDefaultChatModel(cfg: OpenClawConfig): string {
+  const agents = (cfg as Record<string, unknown>).agents as Record<string, unknown> | undefined;
+  const defaults = agents?.defaults as Record<string, unknown> | undefined;
+  const model = defaults?.model;
+
+  let modelName = "";
+  if (typeof model === "string" && model.trim()) {
+    modelName = model.trim();
+  } else if (model && typeof model === "object") {
+    const primary = (model as Record<string, unknown>).primary;
+    if (typeof primary === "string" && primary.trim()) {
+      modelName = primary.trim();
+    }
+  }
+
+  // If model contains "/" it's provider/model format (e.g. "minimax-anthropic/MiniMax-M2.7")
+  // which is not valid for local OpenClaw Gateway - map to openclaw/main
+  if (modelName && (!LOCAL_GATEWAY_MODELS.includes(modelName))) {
+    console.log("[tunnel] Model '%s' not in local gateway models, using 'openclaw/main'", modelName);
+    return "openclaw/main";
+  }
+
+  return modelName || process.env.OPENCLAW_DEFAULT_MODEL || "openclaw/main";
+}
+
 export function startTunnelClient(cfg: OpenClawConfig, callbacks?: TunnelCallbacks): TunnelClient {
   if (_instance) {
     console.log("[tunnel] Shutting down previous TunnelClient before re-init");
@@ -66,6 +93,7 @@ export function startTunnelClient(cfg: OpenClawConfig, callbacks?: TunnelCallbac
 
   const instanceId = defaultAccount?.instanceId ?? "";
   const token = defaultAccount?.apiToken ?? "";
+  const defaultChatModel = deriveDefaultChatModel(cfg);
 
   if (!tunnelUrl || !instanceId || !token) {
     console.warn(
@@ -74,7 +102,13 @@ export function startTunnelClient(cfg: OpenClawConfig, callbacks?: TunnelCallbac
       instanceId ? "set" : "MISSING",
       token ? "set" : "MISSING",
     );
-    _instance = new TunnelClient(tunnelUrl, instanceId, token, callbacks);
+    _instance = new TunnelClient(
+      tunnelUrl,
+      instanceId,
+      token,
+      defaultChatModel,
+      callbacks,
+    );
     return _instance;
   }
 
@@ -82,7 +116,13 @@ export function startTunnelClient(cfg: OpenClawConfig, callbacks?: TunnelCallbac
     console.log("[tunnel] Derived tunnelUrl from apiUrl: %s", tunnelUrl);
   }
 
-  _instance = new TunnelClient(tunnelUrl, instanceId, token, callbacks);
+  _instance = new TunnelClient(
+    tunnelUrl,
+    instanceId,
+    token,
+    defaultChatModel,
+    callbacks,
+  );
   _instance.connect();
   return _instance;
 }
@@ -105,6 +145,7 @@ export class TunnelClient {
     private backendUrl: string,
     private instanceId: string,
     private token: string,
+    private defaultChatModel: string,
     private callbacks?: TunnelCallbacks,
   ) {}
 
@@ -286,7 +327,7 @@ export class TunnelClient {
           ...(sessionKey ? { "X-OpenClaw-Session-Key": sessionKey } : {}),
         },
         body: JSON.stringify({
-          model: "gpt-4",
+          model: this.defaultChatModel,
           messages,
           stream: false,
           max_tokens: 1,
@@ -316,7 +357,7 @@ export class TunnelClient {
             : {}),
         },
         body: JSON.stringify({
-          model: "gpt-4",
+          model: this.defaultChatModel,
           messages,
           stream: true,
         }),
@@ -340,6 +381,29 @@ export class TunnelClient {
       const decoder = new TextDecoder();
       let buffer = "";
       let dataAccum = "";
+      let hasContent = false;
+
+      const sendDoneOrError = () => {
+        if (hasContent) {
+          this.send({
+            id: crypto.randomUUID(),
+            type: "chat.response.done",
+            replyTo: msg.id,
+            traceId: msg.traceId,
+            payload: {},
+            ts: Date.now(),
+          });
+        } else {
+          this.send({
+            id: crypto.randomUUID(),
+            type: "chat.response.error",
+            replyTo: msg.id,
+            traceId: msg.traceId,
+            payload: { error: "empty_response" },
+            ts: Date.now(),
+          });
+        }
+      };
 
       while (true) {
         const { done, value } = await reader.read();
@@ -357,14 +421,7 @@ export class TunnelClient {
           }
           if (line.trim() === "" && dataAccum) {
             if (dataAccum === "[DONE]") {
-              this.send({
-                id: crypto.randomUUID(),
-                type: "chat.response.done",
-                replyTo: msg.id,
-                traceId: msg.traceId,
-                payload: {},
-                ts: Date.now(),
-              });
+              sendDoneOrError();
               return;
             }
             try {
@@ -372,6 +429,7 @@ export class TunnelClient {
               const content =
                 chunk?.choices?.[0]?.delta?.content ?? "";
               if (content) {
+                hasContent = true;
                 this.send({
                   id: crypto.randomUUID(),
                   type: "chat.response.chunk",
@@ -394,6 +452,7 @@ export class TunnelClient {
           const chunk = JSON.parse(dataAccum);
           const content = chunk?.choices?.[0]?.delta?.content ?? "";
           if (content) {
+            hasContent = true;
             this.send({
               id: crypto.randomUUID(),
               type: "chat.response.chunk",
@@ -408,14 +467,7 @@ export class TunnelClient {
         }
       }
 
-      this.send({
-        id: crypto.randomUUID(),
-        type: "chat.response.done",
-        replyTo: msg.id,
-        traceId: msg.traceId,
-        payload: {},
-        ts: Date.now(),
-      });
+      sendDoneOrError();
     } catch (err) {
       console.error("[tunnel] chat.request failed:", err);
       this.send({

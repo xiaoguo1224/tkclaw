@@ -29,7 +29,6 @@ async def run_seed(
 
 DEFAULT_REGISTRY_CONFIGS: dict[str, str] = {
     "image_registry": "nodesk-center-cn-beijing.cr.volces.com/public/deskclaw-openclaw",
-    "image_registry_zeroclaw": "nodesk-center-cn-beijing.cr.volces.com/public/deskclaw-zeroclaw",
     "image_registry_nanobot": "nodesk-center-cn-beijing.cr.volces.com/public/deskclaw-nanobot",
 }
 
@@ -366,6 +365,76 @@ async def _seed_ee_platform_admin(
         return None
 
 
+DEFAULT_REQUIRED_GENE_SLUGS: list[str] = [
+    "nodeskclaw-blackboard-tools",
+    "nodeskclaw-topology-awareness",
+    "nodeskclaw-performance-reader",
+    "nodeskclaw-proposals",
+    "nodeskclaw-gene-discovery",
+    "nodeskclaw-shared-files",
+]
+
+
+async def seed_default_required_genes(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """为没有任何默认工作基因的组织补建 ai-employee-basics 基因组。
+
+    保护逻辑：仅当组织的 OrgRequiredGene 记录数为 0 时才填充。
+    管理员已手动配置过（即使只配了 1 个）的组织不受影响。
+    """
+    from app.models.gene import Gene
+    from app.models.org_required_gene import OrgRequiredGene
+    from app.models.organization import Organization
+
+    async with session_factory() as db:
+        gene_rows = (await db.execute(
+            select(Gene.id, Gene.slug).where(
+                Gene.slug.in_(DEFAULT_REQUIRED_GENE_SLUGS),
+                Gene.org_id.is_(None),
+                Gene.deleted_at.is_(None),
+            )
+        )).all()
+        slug_to_id = {row.slug: row.id for row in gene_rows}
+
+        missing_slugs = set(DEFAULT_REQUIRED_GENE_SLUGS) - slug_to_id.keys()
+        if missing_slugs:
+            logger.warning("默认工作基因 seed 跳过缺失的 slug: %s", missing_slugs)
+
+        if not slug_to_id:
+            logger.warning("默认工作基因 seed 跳过：genes 表中未找到任何目标基因")
+            return
+
+        orgs = (await db.execute(
+            select(Organization).where(Organization.deleted_at.is_(None))
+        )).scalars().all()
+
+        seeded_orgs = 0
+        for org in orgs:
+            count = (await db.execute(
+                select(func.count()).select_from(OrgRequiredGene).where(
+                    OrgRequiredGene.org_id == org.id,
+                    OrgRequiredGene.deleted_at.is_(None),
+                )
+            )).scalar_one()
+
+            if count > 0:
+                continue
+
+            for slug, gene_id in slug_to_id.items():
+                db.add(OrgRequiredGene(org_id=org.id, gene_id=gene_id))
+            seeded_orgs += 1
+
+        if seeded_orgs:
+            await db.commit()
+            logger.info(
+                "默认工作基因 seed 完成：为 %d 个组织添加了 %d 个默认基因",
+                seeded_orgs, len(slug_to_id),
+            )
+        else:
+            logger.info("默认工作基因检查完成，所有组织已有配置")
+
+
 async def _ensure_workspace_schedules(session_factory: async_sessionmaker[AsyncSession]) -> None:
     async with session_factory() as db:
         from app.models.workspace import Workspace
@@ -381,7 +450,7 @@ async def _ensure_workspace_schedules(session_factory: async_sessionmaker[AsyncS
                     WorkspaceSchedule.workspace_id == ws.id,
                     WorkspaceSchedule.name.in_(["任务巡检", "定时巡检"]),
                     WorkspaceSchedule.deleted_at.is_(None),
-                )
+                ).order_by(WorkspaceSchedule.created_at.desc())
             )).scalars().first()
             if existing is None:
                 db.add(WorkspaceSchedule(

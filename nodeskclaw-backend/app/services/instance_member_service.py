@@ -4,7 +4,6 @@ import logging
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.core.exceptions import BadRequestError, ConflictError, ForbiddenError, NotFoundError
 from app.models.admin_membership import AdminMembership
@@ -118,7 +117,7 @@ def apply_accessible_filter(query, user_id: str, org_id: str | None, db: AsyncSe
         )
     )
 
-    from sqlalchemy import case, or_
+    from sqlalchemy import or_
     query = query.where(
         or_(
             org_admin_subq,
@@ -245,7 +244,14 @@ async def update_member(
     await db.commit()
     await db.refresh(member)
 
-    user = (await db.execute(select(User).where(User.id == member.user_id))).scalar_one()
+    user = (
+        await db.execute(
+            select(User).where(
+                User.id == member.user_id,
+                User.deleted_at.is_(None),
+            )
+        )
+    ).scalar_one()
     return {
         "id": member.id,
         "instance_id": member.instance_id,

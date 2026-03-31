@@ -269,6 +269,7 @@ log "启动服务..."
 export NODESKCLAW_EDITION="$MODE"
 export LLM_PROXY_URL="http://localhost:4511"
 export LLM_PROXY_INTERNAL_URL="http://localhost:4511"
+export CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
 
 if [ -z "${DATABASE_URL:-}" ]; then
   DATABASE_URL=$(grep '^DATABASE_URL=' "$BACKEND_DIR/.env" | head -1 | cut -d= -f2-)

@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import hooks
 from app.core.deps import get_db, require_org_admin, require_org_member
-from app.core.exceptions import NotFoundError
+from app.core.exceptions import BadRequestError, NotFoundError
 from app.core.security import get_current_user
 from app.models.base import not_deleted
 from app.models.instance import Instance, InstanceStatus
@@ -34,17 +34,21 @@ from app.schemas.llm import (
     UserLlmKeyCreate,
     UserLlmKeyInfo,
 )
+from app.services.codex_provider import (
+    CODEX_CLI_SENTINEL,
+    is_codex_provider,
+    mask_personal_key,
+    normalize_codex_api_key,
+    normalize_selected_models,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
-def _mask_key(key: str) -> str:
-    """Mask API key keeping prefix and last 3 chars."""
-    if len(key) <= 8:
-        return key[:2] + "***"
-    return key[:6] + "***" + key[-3:]
+def _mask_key(key: str, provider: str = "") -> str:
+    return mask_personal_key(provider, key)
 
 
 # ══════════════════════════════════════════════════════════
@@ -85,7 +89,7 @@ async def list_org_llm_keys(
             org_id=k.org_id,
             provider=k.provider,
             label=k.label,
-            api_key_masked=_mask_key(k.api_key),
+            api_key_masked=_mask_key(k.api_key, k.provider),
             base_url=k.base_url,
             org_token_limit=k.org_token_limit,
             system_token_limit=k.system_token_limit,
@@ -105,6 +109,9 @@ async def create_org_llm_key(
     db: AsyncSession = Depends(get_db),
     _auth: tuple = Depends(require_org_admin),
 ):
+    if is_codex_provider(body.provider):
+        raise BadRequestError("Codex 仅支持个人配置，不支持 Working Plan")
+
     user, _org = _auth
     key = OrgLlmKey(
         org_id=org_id,
@@ -123,7 +130,7 @@ async def create_org_llm_key(
     await hooks.emit("operation_audit", action="llm_key.created", target_type="llm_key", target_id=key.id, actor_id=user.id, org_id=org_id)
     return ApiResponse(data=OrgLlmKeyInfo(
         id=key.id, org_id=key.org_id, provider=key.provider, label=key.label,
-        api_key_masked=_mask_key(key.api_key), base_url=key.base_url,
+        api_key_masked=_mask_key(key.api_key, key.provider), base_url=key.base_url,
         org_token_limit=key.org_token_limit, system_token_limit=key.system_token_limit,
         is_active=key.is_active, created_by=key.created_by,
     ))
@@ -145,6 +152,8 @@ async def update_org_llm_key(
     key = result.scalar_one_or_none()
     if key is None:
         raise NotFoundError("组织 LLM Key 不存在")
+    if is_codex_provider(key.provider):
+        raise BadRequestError("Codex 仅支持个人配置，不支持 Working Plan")
 
     for field, val in body.model_dump(exclude_unset=True).items():
         setattr(key, field, val)
@@ -153,7 +162,7 @@ async def update_org_llm_key(
     await hooks.emit("operation_audit", action="llm_key.updated", target_type="llm_key", target_id=key_id, actor_id=_auth[0].id, org_id=org_id)
     return ApiResponse(data=OrgLlmKeyInfo(
         id=key.id, org_id=key.org_id, provider=key.provider, label=key.label,
-        api_key_masked=_mask_key(key.api_key), base_url=key.base_url,
+        api_key_masked=_mask_key(key.api_key, key.provider), base_url=key.base_url,
         org_token_limit=key.org_token_limit, system_token_limit=key.system_token_limit,
         is_active=key.is_active, created_by=key.created_by,
     ))
@@ -199,7 +208,7 @@ async def list_available_llm_keys(
     return ApiResponse(data=[
         AvailableLlmKey(
             id=k.id, provider=k.provider, label=k.label,
-            api_key_masked=_mask_key(k.api_key), is_active=k.is_active,
+            api_key_masked=_mask_key(k.api_key, k.provider), is_active=k.is_active,
         )
         for k in keys
     ])
@@ -224,7 +233,7 @@ async def list_user_llm_keys(
     return ApiResponse(data=[
         UserLlmKeyInfo(
             id=k.id, provider=k.provider,
-            api_key_masked=_mask_key(k.api_key), base_url=k.base_url,
+            api_key_masked=_mask_key(k.api_key, k.provider), base_url=k.base_url,
             api_type=k.api_type, is_active=k.is_active,
         )
         for k in keys
@@ -246,19 +255,22 @@ async def upsert_user_llm_key(
         )
     )
     key = result.scalar_one_or_none()
+    normalized_api_key = normalize_codex_api_key(body.api_key) if is_codex_provider(body.provider) else body.api_key
     if key is None:
-        if not body.api_key:
+        if not normalized_api_key:
             return ApiResponse(code=400, message="新建 Key 时 api_key 不能为空")
         key = UserLlmKey(
             user_id=current_user.id,
             provider=body.provider,
-            api_key=body.api_key,
+            api_key=normalized_api_key,
             base_url=body.base_url,
             api_type=body.api_type,
         )
         db.add(key)
     else:
-        if body.api_key is not None:
+        if is_codex_provider(body.provider):
+            key.api_key = normalize_codex_api_key(body.api_key)
+        elif body.api_key is not None:
             key.api_key = body.api_key
         key.base_url = body.base_url
         key.api_type = body.api_type
@@ -266,7 +278,7 @@ async def upsert_user_llm_key(
     await db.refresh(key)
     return ApiResponse(data=UserLlmKeyInfo(
         id=key.id, provider=key.provider,
-        api_key_masked=_mask_key(key.api_key), base_url=key.base_url,
+        api_key_masked=_mask_key(key.api_key, key.provider), base_url=key.base_url,
         api_type=key.api_type, is_active=key.is_active,
     ))
 
@@ -312,6 +324,12 @@ async def list_provider_models(
     - Otherwise, look up an active org key for the given (org_id, provider).
     - base_url: optional override for custom providers.
     """
+    from app.services.model_catalog_service import fetch_provider_models
+
+    if is_codex_provider(provider):
+        models = await fetch_provider_models(provider, CODEX_CLI_SENTINEL)
+        return ApiResponse(data=ProviderModelsResponse(provider=provider, models=models))
+
     resolved_key = api_key
     resolved_base_url = base_url
     if not resolved_key:
@@ -345,7 +363,6 @@ async def list_provider_models(
         return ApiResponse(data=ProviderModelsResponse(provider=provider, models=[]),
                            message=f"无可用的 {provider} Key，请先配置个人 Key 或 Working Plan")
 
-    from app.services.model_catalog_service import fetch_provider_models
     try:
         models = await fetch_provider_models(provider, resolved_key, base_url=resolved_base_url)
     except ValueError as e:
@@ -417,18 +434,19 @@ async def update_user_llm_configs(
     new_providers = {c.provider for c in body.configs}
 
     for item in body.configs:
+        selected_models = normalize_selected_models(item.provider, item.selected_models)
         existing = old_map.get(item.provider)
         if existing:
             existing.key_source = item.key_source
             existing.org_llm_key_id = None
-            existing.selected_models = item.selected_models
+            existing.selected_models = selected_models
         else:
             db.add(UserLlmConfig(
                 user_id=current_user.id,
                 org_id=body.org_id,
                 provider=item.provider,
                 key_source=item.key_source,
-                selected_models=item.selected_models,
+                selected_models=selected_models,
             ))
 
     if body.instance_id:
@@ -552,17 +570,18 @@ async def update_instance_llm_configs(
     existing_map = {c.provider: c for c in existing_result.scalars().all()}
 
     for cfg in body.configs:
+        selected_models = normalize_selected_models(cfg.provider, cfg.selected_models)
         existing = existing_map.get(cfg.provider)
         if existing:
             existing.key_source = cfg.key_source
-            existing.selected_models = cfg.selected_models
+            existing.selected_models = selected_models
         else:
             db.add(UserLlmConfig(
                 user_id=owner_id,
                 org_id=instance.org_id,
                 provider=cfg.provider,
                 key_source=cfg.key_source,
-                selected_models=cfg.selected_models,
+                selected_models=selected_models,
             ))
 
     instance.llm_providers = [c.provider for c in body.configs]
@@ -652,7 +671,7 @@ async def get_instance_llm_config(
         if c.key_source == "personal":
             uk = user_keys.get(c.provider)
             if uk:
-                masked = _mask_key(uk.api_key)
+                masked = _mask_key(uk.api_key, uk.provider)
 
         items.append(InstanceLlmConfigInfo(
             provider=c.provider, key_source=c.key_source,

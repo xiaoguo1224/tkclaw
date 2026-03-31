@@ -24,6 +24,7 @@ import api from '@/services/api'
 import { resolveApiErrorMessage } from '@/i18n/error'
 import { useToast } from '@/composables/useToast'
 import { useConfirm } from '@/composables/useConfirm'
+import { copyToClipboard } from '@/utils/clipboard'
 import CustomSelect from '@/components/shared/CustomSelect.vue'
 
 const orgStore = useOrgStore()
@@ -313,12 +314,12 @@ function closeInviteDialog() {
 }
 
 async function copyInviteUrl(url: string) {
-  try {
-    await navigator.clipboard.writeText(url)
+  const ok = await copyToClipboard(url)
+  if (ok) {
     copiedUrl.value = url
     setTimeout(() => { copiedUrl.value = null }, 2000)
-  } catch {
-    toast.error('Copy failed')
+  } else {
+    toast.error(t('common.copyFailed'))
   }
 }
 
@@ -423,12 +424,12 @@ async function handleResetPassword(member: MemberInfo) {
 }
 
 async function copyPassword() {
-  try {
-    await navigator.clipboard.writeText(resetResultPassword.value)
+  const ok = await copyToClipboard(resetResultPassword.value)
+  if (ok) {
     resetCopied.value = true
     setTimeout(() => { resetCopied.value = false }, 2000)
-  } catch {
-    toast.error('Copy failed')
+  } else {
+    toast.error(t('common.copyFailed'))
   }
 }
 </script>

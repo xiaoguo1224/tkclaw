@@ -818,7 +818,7 @@ async def upload_workspace_file(
     from app.models.workspace_file import WorkspaceFile
 
     if not storage_service.is_configured():
-        raise _error(503, 50301, "errors.storage.not_configured", "TOS 对象存储未配置")
+        raise _error(503, 50301, "errors.storage.not_configured", "对象存储未配置")
 
     await wm_service.check_workspace_access(workspace_id, user, "send_chat", db)
 
@@ -826,7 +826,7 @@ async def upload_workspace_file(
     if len(content) > MAX_UPLOAD_SIZE:
         raise _error(400, 40002, "errors.file.too_large", "文件大小超过限制（最大 20MB）")
 
-    tos_key = await storage_service.upload_file(
+    storage_key = await storage_service.upload_file(
         file_content=content,
         filename=file.filename or "unnamed",
         content_type=file.content_type or "application/octet-stream",
@@ -839,7 +839,7 @@ async def upload_workspace_file(
         original_name=file.filename or "unnamed",
         file_size=len(content),
         content_type=file.content_type or "application/octet-stream",
-        tos_key=tos_key,
+        storage_key=storage_key,
     )
     db.add(wf)
     await db.commit()
@@ -865,7 +865,7 @@ async def get_file_presigned_url(
     from app.models.workspace_file import WorkspaceFile
 
     if not storage_service.is_configured():
-        raise _error(503, 50301, "errors.storage.not_configured", "TOS 对象存储未配置")
+        raise _error(503, 50301, "errors.storage.not_configured", "对象存储未配置")
 
     await wm_service.check_workspace_member(workspace_id, user, db)
 
@@ -881,7 +881,7 @@ async def get_file_presigned_url(
         raise _error(404, 40431, "errors.file.not_found", "文件不存在")
 
     try:
-        url = await storage_service.get_presigned_url(wf.tos_key, expires=900)
+        url = await storage_service.get_presigned_url(wf.storage_key, expires=900)
     except Exception:
         logger.warning("生成文件 %s presigned URL 失败", wf.original_name, exc_info=True)
         raise _error(502, 50201, "errors.storage.presign_failed", "生成文件下载链接失败，请稍后重试")
@@ -938,7 +938,7 @@ async def workspace_chat(
         from app.services import storage_service
         for f in attachment_files:
             try:
-                url = await storage_service.get_presigned_url(f.tos_key, expires=3600)
+                url = await storage_service.get_presigned_url(f.storage_key, expires=3600)
                 attachments_with_urls.append({
                     "id": f.id, "name": f.original_name,
                     "size": f.file_size, "content_type": f.content_type,
@@ -979,6 +979,68 @@ class SystemMessageRequest(BaseModel):
     content: str
 
 
+@router.post("/{workspace_id}/messages/clear")
+async def clear_workspace_messages(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(_get_current_user_dep()),
+):
+    await wm_service.check_workspace_access(workspace_id, user, "manage_settings", db)
+
+    cleared_count = await msg_service.clear_workspace_messages(db, workspace_id)
+
+    repaired_instances: list[str] = []
+    restart_failures: list[str] = []
+
+    result = await db.execute(
+        sa_select(Instance)
+        .join(
+            WorkspaceAgent,
+            (WorkspaceAgent.instance_id == Instance.id) & (WorkspaceAgent.deleted_at.is_(None)),
+        )
+        .where(
+            WorkspaceAgent.workspace_id == workspace_id,
+            Instance.deleted_at.is_(None),
+            Instance.runtime == "openclaw",
+        )
+    )
+    instances = list(result.scalars().all())
+
+    if instances:
+        from app.services.llm_config_service import restart_runtime
+        from app.services.nfs_mount import remote_fs
+        from app.services.openclaw_session import clear_main_session
+
+        for instance in instances:
+            try:
+                async with remote_fs(instance, db) as fs:
+                    await clear_main_session(fs)
+                repaired_instances.append(instance.id)
+            except Exception:
+                logger.warning("clear_workspace_messages: failed to clear session for %s", instance.id, exc_info=True)
+                restart_failures.append(instance.id)
+                continue
+
+            try:
+                restart_result = await restart_runtime(instance, db)
+                if restart_result.get("status") != "ok":
+                    restart_failures.append(instance.id)
+            except Exception:
+                logger.warning("clear_workspace_messages: failed to restart runtime for %s", instance.id, exc_info=True)
+                restart_failures.append(instance.id)
+
+    broadcast_event(workspace_id, "chat:cleared", {
+        "cleared_count": cleared_count,
+        "repaired_instances": repaired_instances,
+        "restart_failures": restart_failures,
+    })
+    return _ok({
+        "cleared_count": cleared_count,
+        "repaired_instances": repaired_instances,
+        "restart_failures": restart_failures,
+    })
+
+
 @router.post("/{workspace_id}/system-message")
 async def post_system_message(
     workspace_id: str,
@@ -1013,12 +1075,45 @@ async def post_system_message(
 async def list_workspace_messages(
     workspace_id: str,
     limit: int = Query(default=50, le=200),
+    q: str | None = Query(default=None),
+    from_at: str | None = Query(default=None),
+    to_at: str | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
     user=Depends(_get_current_user_dep()),
 ):
     """List recent workspace messages for chat history."""
     await wm_service.check_workspace_member(workspace_id, user, db)
-    messages = await msg_service.get_recent_messages(db, workspace_id, limit)
+    from datetime import datetime as dt, timezone
+
+    def _parse_dt(value: str | None):
+        if not value:
+            return None
+        normalized = value.replace("Z", "+00:00") if value.endswith("Z") else value
+        try:
+            parsed = dt.fromisoformat(normalized)
+        except (ValueError, TypeError):
+            raise _error(400, 40003, "errors.validation.invalid_date", "Invalid date format")
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
+
+    from_dt = _parse_dt(from_at)
+    to_dt = _parse_dt(to_at)
+
+    if from_dt and to_dt and from_dt > to_dt:
+        raise _error(400, 40003, "errors.validation.invalid_date", "Invalid date range")
+
+    if (q and q.strip()) or from_dt or to_dt:
+        messages = await msg_service.search_messages(
+            db,
+            workspace_id,
+            q=q,
+            from_at=from_dt,
+            to_at=to_dt,
+            limit=limit,
+        )
+    else:
+        messages = await msg_service.get_recent_messages(db, workspace_id, limit)
     return _ok([
         {
             "id": m.id,
@@ -1045,14 +1140,16 @@ async def list_collaboration_timeline(
 ):
     """List all collaboration messages in a workspace as a timeline."""
     await wm_service.check_workspace_member(workspace_id, user, db)
-    from datetime import datetime as dt
+    from datetime import datetime as dt, timezone
+    since_dt = None
     if since:
+        normalized = since.replace("Z", "+00:00") if since.endswith("Z") else since
         try:
-            since_dt = dt.fromisoformat(since)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="since 参数格式无效，请使用 ISO 8601 格式")
-    else:
-        since_dt = None
+            since_dt = dt.fromisoformat(normalized)
+        except (ValueError, TypeError):
+            raise _error(400, 40003, "errors.validation.invalid_date", "Invalid date format")
+        if since_dt.tzinfo is None:
+            since_dt = since_dt.replace(tzinfo=timezone.utc)
     messages = await msg_service.get_collaboration_timeline(
         db, workspace_id, limit, since_dt,
     )
@@ -1292,7 +1389,7 @@ async def workspace_events(
                     await sse_registry.unregister_connection(cleanup_db, conn_id)
                     await cleanup_db.commit()
             except Exception:
-                pass
+                logger.warning("SSE cleanup failed for conn %s", conn_id, exc_info=True)
 
     return StreamingResponse(stream(), media_type="text/event-stream")
 
@@ -1442,11 +1539,13 @@ async def _stream_agent_response(
         )
         async for chunk_msg in chat_stream:
             if chunk_msg.type == TunnelMessageType.CHAT_RESPONSE_ERROR:
-                logger.error("Agent %s returned error: %s", agent_name, chunk_msg.payload.get("error"))
+                raw_error = chunk_msg.payload.get("error", "unknown")
+                logger.error("Agent %s returned error: %s", agent_name, raw_error)
                 broadcast_event(workspace_id, "agent:error", {
                     "instance_id": instance_id,
                     "agent_name": agent_name,
-                    "error": chunk_msg.payload.get("error", "unknown"),
+                    "error": "stream_error",
+                    "error_detail": str(raw_error)[:256],
                 })
                 return
             if chunk_msg.type == TunnelMessageType.CHAT_RESPONSE_DONE:
@@ -1484,7 +1583,8 @@ async def _stream_agent_response(
         broadcast_event(workspace_id, "agent:error", {
             "instance_id": instance_id,
             "agent_name": agent_name,
-            "error": str(e),
+            "error": "stream_error",
+            "error_detail": str(e)[:256],
         })
         return
 
@@ -1518,6 +1618,12 @@ async def _stream_agent_response(
                 sender_name=agent_name,
                 content=full_response,
             )
+    elif not full_response:
+        broadcast_event(workspace_id, "agent:error", {
+            "instance_id": instance_id,
+            "agent_name": agent_name,
+            "error": "empty_response",
+        })
     else:
         broadcast_event(workspace_id, "agent:done", {
             "instance_id": instance_id,

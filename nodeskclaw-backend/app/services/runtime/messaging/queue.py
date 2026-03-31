@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import math
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select, text, update
@@ -53,9 +52,9 @@ async def enqueue(
 
     try:
         payload = json.dumps({"target_node_id": target_node_id})
-        await db.execute(text(f"SELECT pg_notify('message_enqueued', :payload)"), {"payload": payload})
+        await db.execute(text("SELECT pg_notify('message_enqueued', :payload)"), {"payload": payload})
     except Exception:
-        pass
+        logger.warning("pg_notify for message_enqueued failed (node=%s)", target_node_id, exc_info=True)
 
     return item
 
@@ -72,7 +71,7 @@ async def dequeue(
     Lower virtual_time = higher effective priority, preventing starvation
     because old low-priority messages eventually gain precedence.
     """
-    from sqlalchemy import case, extract, func
+    from sqlalchemy import case, extract
 
     weight_expr = case(
         (MessageQueueItem.priority == PRIORITY_WEIGHT[Priority.CRITICAL], 8),
@@ -116,6 +115,7 @@ NO_RETRY_ERRORS = frozenset({
     "node_card_not_found",
     "instance_not_found",
     "workspace_isolation_violation",
+    "instance_not_connected_locally",
 })
 
 

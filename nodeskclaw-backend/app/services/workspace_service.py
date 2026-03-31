@@ -653,6 +653,19 @@ async def update_agent(
     elif data.hex_r is not None:
         wa.hex_r = data.hex_r
 
+    card = await node_card_service.get_node_card(
+        db, node_id=inst.id, workspace_id=workspace_id,
+    )
+    if card:
+        card_updates: dict = {}
+        if position_changed:
+            card_updates["hex_q"] = wa.hex_q
+            card_updates["hex_r"] = wa.hex_r
+        if data.display_name is not None:
+            card_updates["name"] = wa.display_name or inst.name
+        if card_updates:
+            await node_card_service.update_node_card(db, card, **card_updates)
+
     await db.commit()
 
     if position_changed:
@@ -931,7 +944,10 @@ async def get_blackboard(db: AsyncSession, workspace_id: str) -> BlackboardInfo 
     assignee_map: dict[str, str] = {}
     if instance_ids:
         insts = (await db.execute(
-            select(Instance.id, Instance.name).where(Instance.id.in_(instance_ids))
+            select(Instance.id, Instance.name).where(
+                Instance.id.in_(instance_ids),
+                Instance.deleted_at.is_(None),
+            )
         )).all()
         assignee_map = {r.id: r.name for r in insts}
 
@@ -1039,7 +1055,10 @@ async def list_tasks(
     assignee_map: dict[str, str] = {}
     if instance_ids:
         insts = (await db.execute(
-            select(Instance.id, Instance.name).where(Instance.id.in_(instance_ids))
+            select(Instance.id, Instance.name).where(
+                Instance.id.in_(instance_ids),
+                Instance.deleted_at.is_(None),
+            )
         )).all()
         assignee_map = {r.id: r.name for r in insts}
 
@@ -1066,7 +1085,10 @@ async def create_task(
     assignee_name = None
     if task.assignee_instance_id:
         inst = (await db.execute(
-            select(Instance.name).where(Instance.id == task.assignee_instance_id)
+            select(Instance.name).where(
+                Instance.id == task.assignee_instance_id,
+                Instance.deleted_at.is_(None),
+            )
         )).scalar_one_or_none()
         assignee_name = inst
     return _task_to_info(task, assignee_name)
@@ -1119,7 +1141,10 @@ async def update_task(
     assignee_name = None
     if task.assignee_instance_id:
         inst = (await db.execute(
-            select(Instance.name).where(Instance.id == task.assignee_instance_id)
+            select(Instance.name).where(
+                Instance.id == task.assignee_instance_id,
+                Instance.deleted_at.is_(None),
+            )
         )).scalar_one_or_none()
         assignee_name = inst
 
@@ -1236,6 +1261,7 @@ async def list_workspace_members(db: AsyncSession, workspace_id: str) -> list[Wo
         select(WorkspaceMember, User).join(User, WorkspaceMember.user_id == User.id).where(
             WorkspaceMember.workspace_id == workspace_id,
             WorkspaceMember.deleted_at.is_(None),
+            User.deleted_at.is_(None),
         )
     )
     rows = result.all()
@@ -1326,7 +1352,9 @@ async def add_workspace_member(
     db.add(wm)
     await db.commit()
 
-    user_result = await db.execute(select(User).where(User.id == user_id))
+    user_result = await db.execute(
+        select(User).where(User.id == user_id, User.deleted_at.is_(None))
+    )
     user = user_result.scalar_one()
     department_memberships = await department_service.list_user_department_memberships(workspace.org_id, [user.id], db)
     _primary_id, primary_name, _secondary_ids, secondary_names, _is_department_manager = (
@@ -1460,6 +1488,7 @@ def _reply_to_info(r: BlackboardReply) -> ReplyInfo:
     return ReplyInfo(
         id=r.id,
         post_id=r.post_id,
+        floor_number=r.floor_number,
         content=r.content,
         author_type=r.author_type,
         author_id=r.author_id,
@@ -1648,8 +1677,17 @@ async def create_reply(
     if post is None:
         return None
 
+    floor_result = await db.execute(
+        select(func.max(BlackboardReply.floor_number)).where(
+            BlackboardReply.post_id == post_id,
+            BlackboardReply.deleted_at.is_(None),
+        )
+    )
+    next_floor_number = (floor_result.scalar_one_or_none() or 0) + 1
+
     reply = BlackboardReply(
         post_id=post_id,
+        floor_number=next_floor_number,
         content=data.content,
         author_type=author_type,
         author_id=author_id,
@@ -1829,7 +1867,7 @@ async def upload_shared_file(
 ) -> FileInfo:
     parent_path = _validate_path(data.parent_path)
     file_bytes = base64.b64decode(data.content)
-    tos_key = await storage_service.upload_file(
+    storage_key = await storage_service.upload_file(
         file_bytes, data.filename, data.content_type,
         workspace_id,
     )
@@ -1843,9 +1881,9 @@ async def upload_shared_file(
     )).scalar_one_or_none()
 
     if existing is not None:
-        if existing.tos_key:
-            await storage_service.delete_file(existing.tos_key)
-        existing.tos_key = tos_key
+        if existing.storage_key:
+            await storage_service.delete_file(existing.storage_key)
+        existing.storage_key = storage_key
         existing.file_size = len(file_bytes)
         existing.content_type = data.content_type
         existing.uploader_type = uploader_type
@@ -1862,7 +1900,7 @@ async def upload_shared_file(
         is_directory=False,
         file_size=len(file_bytes),
         content_type=data.content_type,
-        tos_key=tos_key,
+        storage_key=storage_key,
         uploader_type=uploader_type,
         uploader_id=uploader_id,
         uploader_name=uploader_name,
@@ -1885,9 +1923,9 @@ async def get_shared_file_url(
         )
     )
     f = result.scalar_one_or_none()
-    if f is None or not f.tos_key:
+    if f is None or not f.storage_key:
         return None
-    return await storage_service.get_presigned_url(f.tos_key)
+    return await storage_service.get_presigned_url(f.storage_key)
 
 
 async def read_shared_file(
@@ -1903,15 +1941,11 @@ async def read_shared_file(
         )
     )
     f = result.scalar_one_or_none()
-    if f is None or not f.tos_key:
+    if f is None or not f.storage_key:
         return None
 
-    url = await storage_service.get_presigned_url(f.tos_key, expires=300)
-    import httpx
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(url)
-        resp.raise_for_status()
-    return base64.b64encode(resp.content).decode(), f.content_type
+    content = await storage_service.download_file(f.storage_key)
+    return base64.b64encode(content).decode(), f.content_type
 
 
 async def delete_shared_file(
@@ -1936,12 +1970,12 @@ async def delete_shared_file(
             )
         )).scalars().all()
         for child in children:
-            if child.tos_key:
-                await storage_service.delete_file(child.tos_key)
+            if child.storage_key:
+                await storage_service.delete_file(child.storage_key)
             child.soft_delete()
     else:
-        if f.tos_key:
-            await storage_service.delete_file(f.tos_key)
+        if f.storage_key:
+            await storage_service.delete_file(f.storage_key)
     f.soft_delete()
     await db.commit()
     return True

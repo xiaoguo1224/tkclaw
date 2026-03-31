@@ -2,7 +2,9 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+from app.utils.display_status import compute_display_status
 
 
 class WorkspaceBrief(BaseModel):
@@ -22,6 +24,7 @@ class InstanceInfo(BaseModel):
     available_replicas: int = 0
     status: str
     health_status: str = "unknown"
+    display_status: str = ""
     service_type: str
     ingress_domain: str | None = None
     compute_provider: str = "k8s"
@@ -38,6 +41,12 @@ class InstanceInfo(BaseModel):
     workspaces: list[WorkspaceBrief] = []
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="after")
+    def _fill_display_status(self) -> "InstanceInfo":
+        if not self.display_status:
+            self.display_status = compute_display_status(self.status, self.health_status)
+        return self
 
 
 class UpdateConfigRequest(BaseModel):

@@ -126,7 +126,7 @@ class K8sClient:
                     "mem_used": _parse_memory(usage.get("memory", "0")),
                 }
         except Exception:
-            pass  # metrics-server may not be available
+            logger.debug("metrics-server not available, skipping node metrics", exc_info=True)
 
         results = []
         for n in nodes.items:

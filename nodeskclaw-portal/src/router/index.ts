@@ -62,6 +62,7 @@ const ceRoutes: RouteRecordRaw[] = [
     component: () => import('@/views/InstanceLayout.vue'),
     children: [
       { path: '', name: 'InstanceDetail', component: () => import('@/views/InstanceDetail.vue') },
+      { path: 'runtime', name: 'InstanceRuntime', component: () => import('@/views/InstanceRuntime.vue') },
       { path: 'genes', name: 'InstanceGenes', component: () => import('@/views/InstanceGenes.vue') },
       { path: 'evolution', name: 'EvolutionLog', component: () => import('@/views/EvolutionLog.vue') },
 

@@ -1,7 +1,6 @@
 """Collaboration message handling — shared by tunnel and (legacy) webhook."""
 
 import asyncio
-import json
 import logging
 from typing import Coroutine
 
@@ -457,11 +456,13 @@ async def _invoke_target_agent(
         )
         async for chunk_msg in chat_stream:
             if chunk_msg.type == TunnelMessageType.CHAT_RESPONSE_ERROR:
-                logger.error("Target agent %s returned error: %s", agent_name, chunk_msg.payload.get("error"))
+                raw_error = chunk_msg.payload.get("error", "unknown")
+                logger.error("Target agent %s returned error: %s", agent_name, raw_error)
                 broadcast_event(workspace_id, "agent:error", {
                     "instance_id": instance_id,
                     "agent_name": agent_name,
-                    "error": chunk_msg.payload.get("error", "unknown"),
+                    "error": "stream_error",
+                    "error_detail": str(raw_error)[:256],
                 })
                 return False
             if chunk_msg.type == TunnelMessageType.CHAT_RESPONSE_DONE:
@@ -498,7 +499,8 @@ async def _invoke_target_agent(
         broadcast_event(workspace_id, "agent:error", {
             "instance_id": instance_id,
             "agent_name": agent_name,
-            "error": str(e),
+            "error": "stream_error",
+            "error_detail": str(e)[:256],
         })
         return False
 
@@ -534,6 +536,12 @@ async def _invoke_target_agent(
                 target_instance_id=source_instance_id,
                 depth=depth,
             )
+    elif not full_response:
+        broadcast_event(workspace_id, "agent:error", {
+            "instance_id": instance_id,
+            "agent_name": agent_name,
+            "error": "empty_response",
+        })
     else:
         broadcast_event(workspace_id, "agent:done", {
             "instance_id": instance_id,
@@ -548,6 +556,7 @@ async def send_system_message_to_agents(
     agent_ids: list[str],
     message: str,
     db: AsyncSession,
+    mention_targets: list[str] | None = None,
 ) -> None:
     """Send a system-generated message to specific agents via the MessageBus."""
     from app.services.runtime.messaging.bus import message_bus
@@ -558,6 +567,7 @@ async def send_system_message_to_agents(
         content=message,
         source_label="system_notify",
         targets=agent_ids,
+        mention_targets=mention_targets,
     )
 
     result = await message_bus.publish(envelope, db=db)

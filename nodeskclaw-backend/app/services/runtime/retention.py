@@ -8,7 +8,6 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import delete, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.base import not_deleted
 
 logger = logging.getLogger(__name__)
 

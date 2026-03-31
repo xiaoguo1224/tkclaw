@@ -40,8 +40,9 @@ async def _update_agent_health(db) -> None:
             is_healthy = await tunnel_adapter.health_check(card.node_id)
             new_status = "active" if is_healthy else "unhealthy"
             if card.status != new_status:
+                old_status = card.status
                 card.status = new_status
-                logger.info("Agent %s health updated: %s -> %s", card.node_id, card.status, new_status)
+                logger.info("Agent %s health updated: %s -> %s", card.node_id, old_status, new_status)
         await db.flush()
     except Exception as e:
         logger.warning("Agent health update failed: %s", e)

@@ -7,9 +7,8 @@ data into the unified node_cards table. Safe to run multiple times (idempotent).
 from __future__ import annotations
 
 import logging
-import uuid
 
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.base import not_deleted

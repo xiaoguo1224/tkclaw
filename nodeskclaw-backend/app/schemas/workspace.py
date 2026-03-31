@@ -257,6 +257,7 @@ class MentionInfo(BaseModel):
 class ReplyInfo(BaseModel):
     id: str
     post_id: str
+    floor_number: int
     content: str
     author_type: str
     author_id: str

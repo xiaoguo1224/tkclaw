@@ -3,7 +3,7 @@
 import logging
 from datetime import datetime
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.workspace_message import WorkspaceMessage
@@ -63,6 +63,46 @@ async def get_recent_messages(
     return messages
 
 
+async def search_messages(
+    db: AsyncSession,
+    workspace_id: str,
+    *,
+    q: str | None = None,
+    from_at: datetime | None = None,
+    to_at: datetime | None = None,
+    limit: int = 200,
+) -> list[WorkspaceMessage]:
+    stmt = (
+        select(WorkspaceMessage)
+        .where(
+            WorkspaceMessage.workspace_id == workspace_id,
+            WorkspaceMessage.deleted_at.is_(None),
+        )
+    )
+
+    keyword = (q or "").strip()
+    if keyword:
+        pattern = f"%{keyword}%"
+        stmt = stmt.where(
+            or_(
+                WorkspaceMessage.content.ilike(pattern),
+                WorkspaceMessage.sender_name.ilike(pattern),
+            )
+        )
+
+    if from_at:
+        stmt = stmt.where(WorkspaceMessage.created_at >= from_at)
+    if to_at:
+        stmt = stmt.where(WorkspaceMessage.created_at <= to_at)
+
+    result = await db.execute(
+        stmt.order_by(WorkspaceMessage.created_at.desc()).limit(limit)
+    )
+    messages = list(result.scalars().all())
+    messages.reverse()
+    return messages
+
+
 async def get_collaboration_timeline(
     db: AsyncSession,
     workspace_id: str,
@@ -110,6 +150,22 @@ async def get_agent_collaboration_messages(
     return messages
 
 
+async def clear_workspace_messages(
+    db: AsyncSession,
+    workspace_id: str,
+) -> int:
+    result = await db.execute(
+        update(WorkspaceMessage)
+        .where(
+            WorkspaceMessage.workspace_id == workspace_id,
+            WorkspaceMessage.deleted_at.is_(None),
+        )
+        .values(deleted_at=func.now())
+    )
+    await db.commit()
+    return result.rowcount or 0
+
+
 def build_context_prompt(
     workspace_name: str,
     agent_display_name: str,
@@ -155,12 +211,10 @@ def build_context_prompt(
 ---
 你可以直接回复参与讨论。如果当前话题与你无关或你没有要补充的，回复 NO_REPLY 即可。
 注意：办公室成员列表仅供了解同事身份，不代表你可以和所有人通讯。办公室使用过道系统连接工位，你只能联系通过过道与你相连的成员。
-如需确认你能联系谁，必须调用 nodeskclaw_topology 工具（action: get_my_neighbors, my_instance_id: 你的实例 ID）。未经工具确认，不要声称可以联系任何人。
-办公室设有中央黑板（get_my_neighbors 中 node_type=blackboard 的节点），通过 nodeskclaw_blackboard 工具读写任务和目标，不要用 send 命令发消息给黑板。
-""" + (
-    f"\n发送消息到本办公室的其他成员时，请使用 accountId={workspace_id}。"
-    if workspace_id else ""
-)
+如需确认你能联系谁，必须调用 nodeskclaw_topology 工具（action: get_reachable, my_instance_id: 你的实例 ID）。未经工具确认，不要声称可以联系任何人。
+当你需要联系其他成员（AI 员工或人类）时，在回复中直接 @{{name}} 即可（如"@test-2 你好"），系统会自动转发。不要用 send 命令。
+办公室设有中央黑板（get_reachable 中 node_type=blackboard 的节点），通过 nodeskclaw_blackboard 工具读写黑板内容，不要 @提及黑板。
+"""
 
 
 def is_no_reply(text: str) -> bool:

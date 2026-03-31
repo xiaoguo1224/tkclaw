@@ -9,11 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AppException, BadRequestError
 from app.models.instance import Instance
-from app.services.nfs_mount import RemoteFS, remote_fs
+from app.services.nfs_mount import remote_fs
 from app.services.runtime.config_adapter import get_config_adapter
 from app.services.unified_channel_schema import (
     UNIFIED_CHANNEL_REGISTRY,
-    get_channel_schema,
     get_legacy_channel_schemas,
 )
 
@@ -214,7 +213,7 @@ async def discover_available_channels(
     """Discover available channel plugins (runtime-aware).
 
     OpenClaw: Node.js exec scan of plugin directories.
-    NanoBot / ZeroClaw: return static list from adapter.supported_channels().
+    NanoBot: return static list from adapter.supported_channels().
 
     After collecting runtime-native channels, augment with UNIFIED_CHANNEL_REGISTRY
     entries to ensure a consistent view across all runtimes.
@@ -313,9 +312,6 @@ async def _discover_openclaw_channels(
         })
 
     channels.sort(key=lambda c: (c["order"], c["id"]))
-
-    for info in REPO_CHANNEL_PLUGINS.values():
-        pass
 
     return channels
 

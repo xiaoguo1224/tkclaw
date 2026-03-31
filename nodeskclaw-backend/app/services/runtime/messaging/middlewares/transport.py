@@ -152,10 +152,39 @@ class TransportMiddleware(MessageMiddleware):
         if db is None:
             return
 
+        from app.services.runtime.messaging.queue import NO_RETRY_ERRORS
+
         retried_targets: list[str] = ctx.extra.setdefault("retried_targets", [])
         dead_lettered_targets: list[str] = ctx.extra.setdefault("dead_lettered_targets", [])
 
         for result in failed:
+            if result.error in NO_RETRY_ERRORS:
+                try:
+                    from app.models.dead_letter import DeadLetter
+
+                    dl = DeadLetter(
+                        message_id=ctx.envelope.id,
+                        target_node_id=result.target_node_id,
+                        workspace_id=ctx.workspace_id,
+                        envelope=ctx.envelope.to_dict(),
+                        last_error=result.error or "",
+                        attempt_count=0,
+                        recoverable=False,
+                    )
+                    db.add(dl)
+                    await db.flush()
+                    dead_lettered_targets.append(result.target_node_id)
+                    logger.warning(
+                        "Non-retriable error '%s', moved to DLQ: %s -> %s",
+                        result.error, ctx.envelope.id, result.target_node_id,
+                    )
+                except Exception as e:
+                    logger.error("Failed to write dead letter: %s", e)
+
+                if result.error == "instance_not_connected_locally":
+                    await self._broadcast_offline_error(db, ctx.workspace_id, result)
+                continue
+
             retry_count = ctx.extra.get(f"retry:{result.target_node_id}", 0)
             if retry_count < MAX_RETRY:
                 try:
@@ -199,3 +228,31 @@ class TransportMiddleware(MessageMiddleware):
                     )
                 except Exception as e:
                     logger.error("Failed to write dead letter: %s", e)
+
+    async def _broadcast_offline_error(
+        self, db, workspace_id: str, result: DeliveryResult,
+    ) -> None:
+        try:
+            from sqlalchemy import select
+
+            from app.models.base import not_deleted
+            from app.models.node_card import NodeCard
+
+            stmt = select(NodeCard).where(
+                NodeCard.node_id == result.target_node_id,
+                NodeCard.workspace_id == workspace_id,
+                not_deleted(NodeCard),
+            )
+            card = (await db.execute(stmt)).scalar_one_or_none()
+            agent_name = card.name if card else result.target_node_id
+
+            from app.api.workspaces import broadcast_event
+
+            broadcast_event(workspace_id, "agent:error", {
+                "instance_id": result.target_node_id,
+                "agent_name": agent_name,
+                "error": "instance_not_connected_locally",
+                "error_detail": None,
+            })
+        except Exception as e:
+            logger.error("Failed to broadcast offline error for %s: %s", result.target_node_id, e)

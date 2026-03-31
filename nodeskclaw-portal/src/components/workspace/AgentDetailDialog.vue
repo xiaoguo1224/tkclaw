@@ -12,6 +12,7 @@ import { useToast } from '@/composables/useToast'
 import { useConfirm } from '@/composables/useConfirm'
 import type { InstanceSkillItem, InstanceGeneItem, GenomeItem } from '@/stores/gene'
 import { getRuntimeCaps } from '@/utils/runtimeCapabilities'
+import { copyToClipboard } from '@/utils/clipboard'
 
 const props = defineProps<{
   visible: boolean
@@ -196,12 +197,14 @@ async function fetchGenes() {
 }
 
 async function copyToken() {
-  try {
-    await navigator.clipboard.writeText(gatewayToken.value)
+  const ok = await copyToClipboard(gatewayToken.value)
+  if (ok) {
     tokenCopied.value = true
     toast.success(t('agentDetailDialog.tokenCopied'))
     setTimeout(() => { tokenCopied.value = false }, 2000)
-  } catch { /* ignore */ }
+  } else {
+    toast.error(t('common.copyFailed'))
+  }
 }
 
 function stopPolling() {

@@ -34,16 +34,6 @@ export function createCorridorPath(
   group.position.set(x, 0.02, y)
   group.userData = { hexId, isHex: true, hexQ: q, hexR: r }
 
-  const railMat = new THREE.MeshStandardMaterial({
-    color: 0x1a2d4a,
-    emissive: new THREE.Color(0x38bdf8),
-    emissiveIntensity: 0.15,
-    metalness: 0.5,
-    roughness: 0.4,
-    transparent: true,
-    opacity: 0.7,
-  })
-
   const junctionMat = new THREE.MeshStandardMaterial({
     color: 0x1a2d4a,
     emissive: new THREE.Color(0x38bdf8),
@@ -55,26 +45,38 @@ export function createCorridorPath(
     side: THREE.DoubleSide,
   })
 
-  const activeDirs: number[] = []
+  const armMaterials: THREE.MeshStandardMaterial[] = []
+  const armNeighborKeys: string[] = []
+
   for (let i = 0; i < 6; i++) {
     const [dq, dr] = AXIAL_DIRS[i]
-    if (occupied.has(`${q + dq}:${r + dr}`)) activeDirs.push(i)
-  }
+    if (!occupied.has(`${q + dq}:${r + dr}`)) continue
 
-  for (const dirIdx of activeDirs) {
-    const [dx, dz] = DIR_UNIT_VECTORS[dirIdx]
+    const armMat = new THREE.MeshStandardMaterial({
+      color: 0x1a2d4a,
+      emissive: new THREE.Color(0x38bdf8),
+      emissiveIntensity: 0.15,
+      metalness: 0.5,
+      roughness: 0.4,
+      transparent: true,
+      opacity: 0.7,
+    })
+    armMaterials.push(armMat)
+    armNeighborKeys.push(`${q + dq},${r + dr}`)
+
+    const [dx, dz] = DIR_UNIT_VECTORS[i]
     const angle = Math.atan2(dx, dz)
     const midX = dx * ARM_LENGTH / 2
     const midZ = dz * ARM_LENGTH / 2
     const perpX = -dz
     const perpZ = dx
 
-    const rail1 = new THREE.Mesh(railStripGeo, railMat)
+    const rail1 = new THREE.Mesh(railStripGeo, armMat)
     rail1.position.set(midX + perpX * HALF_GAP, 0, midZ + perpZ * HALF_GAP)
     rail1.rotation.y = angle
     group.add(rail1)
 
-    const rail2 = new THREE.Mesh(railStripGeo, railMat)
+    const rail2 = new THREE.Mesh(railStripGeo, armMat)
     rail2.position.set(midX - perpX * HALF_GAP, 0, midZ - perpZ * HALF_GAP)
     rail2.rotation.y = angle
     group.add(rail2)
@@ -92,16 +94,17 @@ export function createCorridorPath(
   rayTarget.userData = { hexId, isHex: true }
   group.add(rayTarget)
 
-  group.userData.railMat = railMat
+  group.userData.armMaterials = armMaterials
+  group.userData.armNeighborKeys = armNeighborKeys
   group.userData.junctionMat = junctionMat
 
   return group
 }
 
 export function disposeCorridorPath(group: THREE.Group): void {
-  const railMat = group.userData.railMat as THREE.MeshStandardMaterial | undefined
+  const armMats = group.userData.armMaterials as THREE.MeshStandardMaterial[] | undefined
+  if (armMats) for (const m of armMats) m.dispose()
   const junctionMat = group.userData.junctionMat as THREE.MeshStandardMaterial | undefined
-  railMat?.dispose()
   junctionMat?.dispose()
 }
 

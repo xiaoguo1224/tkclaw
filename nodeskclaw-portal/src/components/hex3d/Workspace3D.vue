@@ -9,6 +9,7 @@ import { axialToWorld, HEX_SIZE } from '@/composables/useHexLayout'
 import { useTopologyBFS } from '@/composables/useTopologyBFS'
 import { createGrabby, animateGrabby, updateGrabbyTheme, disposeGrabby, disposeGrabbyShared, createPhoneStation, disposePhoneStation } from './Grabby'
 import { createCorridorPath, disposeCorridorPath, disposeCorridorPathShared } from './CorridorPath'
+import { heatColorRgb } from '@/composables/useHeatGradient'
 import type { AgentBrief, TopologyNode, TopologyEdge, MessageFlowPair } from '@/stores/workspace'
 
 const { t } = useI18n()
@@ -97,10 +98,6 @@ scene.add(dirLight)
 const hexGridGroup = createWorldHexGrid()
 scene.add(hexGridGroup)
 
-const heatmapGroup = new THREE.Group()
-heatmapGroup.name = 'heatmapLines'
-scene.add(heatmapGroup)
-
 scene.fog = new THREE.FogExp2(0x0a0a1a, 0.04)
 scene.background = new THREE.Color(0x0a0a1a)
 
@@ -125,17 +122,23 @@ const DISCONNECTED_COLOR = 0x555566
 const SHOW_AGENT_ROBOT = false
 const SHOW_AGENT_PHONE = false
 
+function getAgentBaseColor(agent: AgentBrief): number {
+  return agent.theme_color
+    ? parseInt(agent.theme_color.replace('#', ''), 16)
+    : (STATUS_COLORS_3D[agent.status] ?? 0xa78bfa)
+}
+
+const HEAT_EDGE_RADIUS_3D = HEX_SIZE * 0.9 * 1.08
+
 function createHexMesh(agent: AgentBrief): THREE.Group {
   const group = new THREE.Group()
   const { x, y } = axialToWorld(agent.hex_q, agent.hex_r)
   group.position.set(x, 0.04, y)
-  group.userData = { hexId: agent.instance_id, isHex: true, sseConnected: agent.sse_connected }
+  group.userData = { hexId: agent.instance_id, isHex: true, sseConnected: agent.sse_connected, hexQ: agent.hex_q, hexR: agent.hex_r }
 
-  const baseColor = STATUS_COLORS_3D[agent.status] ?? 0xa78bfa
+  const baseColor = getAgentBaseColor(agent)
   const color = agent.sse_connected ? baseColor : DISCONNECTED_COLOR
-  const bodyTheme = agent.theme_color
-    ? parseInt(agent.theme_color.replace('#', ''), 16)
-    : undefined
+  const bodyTheme = baseColor
 
   const baseMat = new THREE.MeshStandardMaterial({
     color,
@@ -152,6 +155,29 @@ function createHexMesh(agent: AgentBrief): THREE.Group {
 
   const edgeMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.5 })
   group.add(new THREE.LineSegments(AGENT_BASE_EDGE_GEO, edgeMat))
+
+  const heatEdgeMats: THREE.LineBasicMaterial[] = []
+  const heatEdgeLines: THREE.Line[] = []
+  for (let i = 0; i < 6; i++) {
+    const a1 = (Math.PI / 3) * i
+    const a2 = (Math.PI / 3) * ((i + 1) % 6)
+    const x1 = Math.sin(a1) * HEAT_EDGE_RADIUS_3D
+    const z1 = Math.cos(a1) * HEAT_EDGE_RADIUS_3D
+    const x2 = Math.sin(a2) * HEAT_EDGE_RADIUS_3D
+    const z2 = Math.cos(a2) * HEAT_EDGE_RADIUS_3D
+    const geo = new THREE.BufferGeometry().setFromPoints([
+      new THREE.Vector3(x1, 0.06, z1),
+      new THREE.Vector3(x2, 0.06, z2),
+    ])
+    const mat = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, linewidth: 2 })
+    const line = new THREE.Line(geo, mat)
+    line.visible = false
+    group.add(line)
+    heatEdgeMats.push(mat)
+    heatEdgeLines.push(line)
+  }
+  group.userData.heatEdgeMats = heatEdgeMats
+  group.userData.heatEdgeLines = heatEdgeLines
 
   if (SHOW_AGENT_ROBOT) {
     const robot = createGrabby(bodyTheme)
@@ -478,42 +504,133 @@ function syncScene() {
 
 watch([() => props.agents, () => props.topologyNodes], syncScene, { deep: true, immediate: true })
 
-const heatmapMaterials: THREE.LineBasicMaterial[] = []
+// ── Heat visualization (corridor + agent directional) ──
+const AXIAL_DIRS_3D: [number, number][] = [[1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1], [1, -1]]
 
-function syncHeatmap() {
-  for (const child of [...heatmapGroup.children]) {
-    heatmapGroup.remove(child)
-    if ((child as THREE.Line).geometry) (child as THREE.Line).geometry.dispose()
-  }
-  for (const mat of heatmapMaterials) mat.dispose()
-  heatmapMaterials.length = 0
+function axialDirIndex3d(dq: number, dr: number): number {
+  return AXIAL_DIRS_3D.findIndex(([aq, ar]) => aq === dq && ar === dr)
+}
 
+const edgeHeatMap3d = computed(() => {
   const stats = props.messageFlowStats
-  if (!stats || stats.length === 0) return
-  const maxCount = Math.max(...stats.map(s => s.count))
-  if (maxCount === 0) return
-
+  if (!stats?.length) return new Map<string, number>()
+  const raw = new Map<string, number>()
   for (const s of stats) {
     const [sq, sr] = s.sender_hex_key.split(',').map(Number)
     const [rq, rr] = s.receiver_hex_key.split(',').map(Number)
-    const from = axialToWorld(sq, sr)
-    const to = axialToWorld(rq, rr)
-    const ratio = s.count / maxCount
-    const geo = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(from.x, 0.01, from.y),
-      new THREE.Vector3(to.x, 0.01, to.y),
-    ])
-    const mat = new THREE.LineBasicMaterial({
-      color: 0xa78bfa,
-      transparent: true,
-      opacity: 0.15 + 0.45 * ratio,
-    })
-    heatmapMaterials.push(mat)
-    heatmapGroup.add(new THREE.Line(geo, mat))
+    const path = findPath3d(sq, sr, rq, rr)
+    if (!path || path.length < 2) continue
+    for (let i = 0; i < path.length - 1; i++) {
+      const a = path[i], b = path[i + 1]
+      const fwd = `${a.q},${a.r}>${b.q},${b.r}`
+      const bwd = `${b.q},${b.r}>${a.q},${a.r}`
+      raw.set(fwd, (raw.get(fwd) || 0) + s.count)
+      raw.set(bwd, (raw.get(bwd) || 0) + s.count)
+    }
+  }
+  const maxVal = Math.max(...raw.values(), 1)
+  const normalized = new Map<string, number>()
+  for (const [k, v] of raw) normalized.set(k, v / maxVal)
+  return normalized
+})
+
+const agentDirHeat3d = computed(() => {
+  const stats = props.messageFlowStats
+  if (!stats?.length) return new Map<string, number[]>()
+  const raw = new Map<string, number[]>()
+  for (const s of stats) {
+    const [sq, sr] = s.sender_hex_key.split(',').map(Number)
+    const [rq, rr] = s.receiver_hex_key.split(',').map(Number)
+    const path = findPath3d(sq, sr, rq, rr)
+    if (!path || path.length < 2) continue
+    const senderKey = `${sq},${sr}`
+    if (!raw.has(senderKey)) raw.set(senderKey, [0, 0, 0, 0, 0, 0])
+    const sDir = axialDirIndex3d(path[1].q - path[0].q, path[1].r - path[0].r)
+    if (sDir >= 0) raw.get(senderKey)![sDir] += s.count
+
+    const receiverKey = `${rq},${rr}`
+    if (!raw.has(receiverKey)) raw.set(receiverKey, [0, 0, 0, 0, 0, 0])
+    const last = path.length - 1
+    const rDir = axialDirIndex3d(path[last - 1].q - path[last].q, path[last - 1].r - path[last].r)
+    if (rDir >= 0) raw.get(receiverKey)![rDir] += s.count
+  }
+  const allMax = Math.max(...[...raw.values()].flatMap(v => v), 1)
+  const normalized = new Map<string, number[]>()
+  for (const [k, arr] of raw) normalized.set(k, arr.map(v => v / allMax))
+  return normalized
+})
+
+function heatToThreeColor(heat: number): THREE.Color {
+  const [r, g, b] = heatColorRgb(heat)
+  return new THREE.Color(r / 255, g / 255, b / 255)
+}
+
+function syncCorridorHeat() {
+  const heatMap = edgeHeatMap3d.value
+  for (const [id, group] of hexMeshes) {
+    if (!id.startsWith('corridor:')) continue
+    const armMats = group.userData.armMaterials as THREE.MeshStandardMaterial[] | undefined
+    const armKeys = group.userData.armNeighborKeys as string[] | undefined
+    if (!armMats || !armKeys) continue
+    const cq = group.userData.hexQ as number
+    const cr = group.userData.hexR as number
+    let maxHeat = 0
+    for (let i = 0; i < armMats.length; i++) {
+      const heat = heatMap.get(`${cq},${cr}>${armKeys[i]}`) || 0
+      if (heat > maxHeat) maxHeat = heat
+      if (heat > 0) {
+        const col = heatToThreeColor(heat)
+        armMats[i].color.copy(col)
+        armMats[i].emissive.copy(col)
+        armMats[i].emissiveIntensity = 0.15 + 0.35 * heat
+      } else {
+        armMats[i].color.set(0x1a2d4a)
+        armMats[i].emissive.set(0x38bdf8)
+        armMats[i].emissiveIntensity = 0.15
+      }
+    }
+    const jMat = group.userData.junctionMat as THREE.MeshStandardMaterial | undefined
+    if (jMat) {
+      if (maxHeat > 0) {
+        const col = heatToThreeColor(maxHeat)
+        jMat.color.copy(col)
+        jMat.emissive.copy(col)
+      } else {
+        jMat.color.set(0x1a2d4a)
+        jMat.emissive.set(0x38bdf8)
+      }
+    }
   }
 }
 
-watch(() => props.messageFlowStats, syncHeatmap, { deep: true })
+function syncAgentHeat() {
+  const dirHeatMap = agentDirHeat3d.value
+  for (const [id, group] of hexMeshes) {
+    const heatEdgeLines = group.userData.heatEdgeLines as THREE.Line[] | undefined
+    const heatEdgeMats = group.userData.heatEdgeMats as THREE.LineBasicMaterial[] | undefined
+    if (!heatEdgeLines || !heatEdgeMats) continue
+    const hq = group.userData.hexQ as number
+    const hr = group.userData.hexR as number
+    const dirHeats = dirHeatMap.get(`${hq},${hr}`)
+    for (let i = 0; i < 6; i++) {
+      const edgeIdx = (1 - i + 6) % 6
+      const heat = dirHeats ? dirHeats[i] : 0
+      if (heat > 0) {
+        const col = heatToThreeColor(heat)
+        heatEdgeMats[edgeIdx].color.copy(col)
+        heatEdgeMats[edgeIdx].opacity = 0.4 + 0.6 * heat
+        heatEdgeLines[edgeIdx].visible = true
+      } else {
+        heatEdgeLines[edgeIdx].visible = false
+      }
+    }
+  }
+}
+
+watch(() => props.messageFlowStats, () => {
+  syncCorridorHeat()
+  syncAgentHeat()
+}, { deep: true })
 
 // ── Flow animation (3D particles) ──────────────────────
 const storeNodes3d = computed(() => (props.topologyNodes || []) as TopologyNode[])
@@ -626,15 +743,18 @@ addToLoop(() => {
     }
 
     if (id.startsWith('corridor:')) {
-      const railMat = group.userData.railMat as THREE.MeshStandardMaterial | undefined
+      const armMats = group.userData.armMaterials as THREE.MeshStandardMaterial[] | undefined
       const junctionMat = group.userData.junctionMat as THREE.MeshStandardMaterial | undefined
-      if (!railMat) continue
+      if (!armMats) continue
       const isHovered = hoveredId.value === id
       const isSelectedHex = props.selectedHex?.q === group.userData.hexQ && props.selectedHex?.r === group.userData.hexR
       const targetY = isHovered ? 0.04 : isSelectedHex ? 0.03 : 0.02
       group.position.y += (targetY - group.position.y) * 0.1
-      railMat.emissiveIntensity = isSelectedHex ? 0.35 + Math.sin(t * 3) * 0.1 : isHovered ? 0.25 : 0.15
-      railMat.opacity = isSelectedHex ? 0.9 : isHovered ? 0.85 : 0.7
+      const extraIntensity = isSelectedHex ? 0.2 + Math.sin(t * 3) * 0.1 : isHovered ? 0.1 : 0
+      for (const am of armMats) {
+        am.emissiveIntensity += extraIntensity
+        am.opacity = isSelectedHex ? 0.9 : isHovered ? 0.85 : 0.7
+      }
       if (junctionMat) {
         junctionMat.emissiveIntensity = isSelectedHex ? 0.4 + Math.sin(t * 3) * 0.1 : isHovered ? 0.3 : 0.2
         junctionMat.opacity = isSelectedHex ? 0.95 : isHovered ? 0.9 : 0.8
@@ -671,7 +791,7 @@ addToLoop(() => {
       } else {
         const agent = props.agents.find(a => a.instance_id === id)
         if (agent) {
-          const baseColor = STATUS_COLORS_3D[agent.status] ?? 0xa78bfa
+          const baseColor = getAgentBaseColor(agent)
           mat.color.set(agent.sse_connected ? baseColor : DISCONNECTED_COLOR)
           mat.emissive.set(agent.sse_connected ? baseColor : DISCONNECTED_COLOR)
           mat.opacity = agent.sse_connected ? 0.9 : 0.5
@@ -757,7 +877,6 @@ onUnmounted(() => {
     flow.material.dispose()
   }
   activeFlows.length = 0
-  for (const mat of heatmapMaterials) mat.dispose()
   disposeGrabbyShared()
   disposeCorridorPathShared()
 })

@@ -52,7 +52,7 @@ const ingressClassOptions = computed(() => {
 onMounted(async () => {
   try {
     await clusterStore.fetchCluster(clusterId.value)
-    clusterStore.fetchOverview(clusterId.value)
+    await clusterStore.fetchOverview(clusterId.value)
   } finally {
     loading.value = false
   }

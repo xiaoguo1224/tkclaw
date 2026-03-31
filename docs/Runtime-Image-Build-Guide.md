@@ -11,7 +11,6 @@ NoDeskClaw runs AI agent instances on **runtime engines**. Each engine ships as 
 | Engine | Base Image | Install Source | Port | Use Case |
 |--------|-----------|---------------|------|----------|
 | **OpenClaw** | `node:22-bookworm-slim` | npm `openclaw` | 18789 | Full-featured AI Agent, TypeScript ecosystem |
-| **ZeroClaw** | `debian:bookworm-slim` | GitHub Releases (prebuilt binary) | 8080 | High-performance Rust engine |
 | **Nanobot** | `python:3.13-slim-bookworm` | PyPI `nanobot-ai` | 18790 | Lightweight Python engine |
 
 ### Relation to Platform Components
@@ -50,7 +49,7 @@ Each engine supports a Base + Security layered architecture:
 
 - Docker Desktop or Docker Engine (with BuildKit support)
 - Apple Silicon users: the script automatically sets `--platform linux/amd64` (target cluster architecture)
-- npm (OpenClaw version verification), gh CLI (ZeroClaw version detection), python3 (Nanobot version detection)
+- npm (OpenClaw version verification), python3 (Nanobot version detection)
 
 ### Unified Entry Point: `build.sh`
 
@@ -61,13 +60,11 @@ cd nodeskclaw-artifacts
 
 # Auto-detect latest version, build + push
 ./build.sh openclaw
-./build.sh zeroclaw
 ./build.sh nanobot
-./build.sh all                          # All three engines
+./build.sh all                          # All engines
 
 # Specify version
 ./build.sh openclaw --version 2026.3.13
-./build.sh zeroclaw --version v0.5.0
 ./build.sh nanobot --version 0.1.4
 
 # Build only, skip push
@@ -85,7 +82,6 @@ cd nodeskclaw-artifacts
 ```
 1. Version detection (when --version is omitted)
    ├── OpenClaw → npm view openclaw versions
-   ├── ZeroClaw → gh api repos/.../releases/latest
    └── Nanobot  → PyPI JSON API
         ↓
 2. Version verification (OpenClaw checks npm registry)
@@ -113,11 +109,6 @@ cd nodeskclaw-artifacts
 # Nanobot: same pattern
 ./build.sh nanobot --version 0.1.4 --build-only
 ./build.sh nanobot --with-security --base-tag v0.1.4 --build-only
-
-# ZeroClaw: security layer uses multi-stage Rust source build (slow)
-./build.sh zeroclaw --version v0.5.0 --build-only
-ZEROCLAW_REPO=https://github.com/zeroclaw-labs/zeroclaw.git ZEROCLAW_REF=master \
-  ./build.sh zeroclaw --with-security --base-tag v0.5.0 --build-only
 ```
 
 Security layer tag format: `v{VERSION}-sec` (e.g. `v2026.3.13-sec`).
@@ -148,31 +139,7 @@ Security layer tag format: `v{VERSION}-sec` (e.g. `v2026.3.13-sec`).
 
 **Security layer:** `Dockerfile.security` simply `FROM base` + COPY `openclaw-security-layer/` into the `extensions/` directory. OpenClaw natively supports auto-loading TypeScript plugins from extensions.
 
-### 3.2 ZeroClaw
-
-**Dockerfile key steps:**
-
-1. `debian:bookworm-slim` base image
-2. apt install ca-certificates, curl, python3
-3. COPY and pip install `nodeskclaw-tunnel-bridge`
-4. curl download prebuilt binary `zeroclaw-x86_64-unknown-linux-gnu.tar.gz` from GitHub Releases
-5. Extract to `/opt/zeroclaw/`
-
-**Build arguments:**
-
-| Argument | Description | Default |
-|----------|-------------|---------|
-| `ZEROCLAW_VERSION` | GitHub Release tag | `v0.5.0` |
-| `IMAGE_VERSION` | Image tag | `v0.5.0` |
-
-**Security layer:** `Dockerfile.security` is a multi-stage Rust source build — Stage 1 git clones the zeroclaw repository + COPY `zeroclaw-security-layer/` + `cargo build --release`. Stage 2 copies the binary to a debian slim runtime image. Source repo and branch are configurable:
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `ZEROCLAW_REPO` | ZeroClaw Git repository URL | `https://github.com/zeroclaw-labs/zeroclaw.git` |
-| `ZEROCLAW_REF` | Git branch/tag | `master` |
-
-### 3.3 Nanobot
+### 3.2 Nanobot
 
 **Dockerfile key steps:**
 
@@ -265,7 +232,6 @@ Version detection logic per engine:
 | Engine | Source | Stable Version Filter |
 |--------|--------|-----------------------|
 | OpenClaw | `npm view openclaw versions` | `YYYY.M.DD` format, excludes `-beta`, `-rc` suffixes |
-| ZeroClaw | GitHub Releases API | Latest release tag |
 | Nanobot | PyPI JSON API | `X.Y.Z` format, excludes pre-releases |
 
 ### Automated Version Detection (GitHub Actions)
@@ -297,7 +263,7 @@ Scheduled trigger → Read Dockerfile current version → Query upstream latest 
 
 | Parameter | Description | Example |
 |-----------|-------------|---------|
-| `<engine>` | Engine name | `openclaw` / `zeroclaw` / `nanobot` / `all` |
+| `<engine>` | Engine name | `openclaw` / `nanobot` / `all` |
 | `--version <ver>` | Specify version (auto-detect if omitted) | `--version 2026.3.13` |
 | `--build-only` | Build only, skip push | |
 | `--skip-verify` | Skip post-build verification | |
@@ -309,7 +275,6 @@ Scheduled trigger → Read Dockerfile current version → Query upstream latest 
 | Engine | Full Image Name |
 |--------|----------------|
 | OpenClaw | `{REGISTRY_HOST}/{NAMESPACE}/deskclaw-openclaw:{tag}` |
-| ZeroClaw | `{REGISTRY_HOST}/{NAMESPACE}/deskclaw-zeroclaw:{tag}` |
 | Nanobot | `{REGISTRY_HOST}/{NAMESPACE}/deskclaw-nanobot:{tag}` |
 
 Tag format: Base layer `v{version}`, Security layer `v{version}-sec`.
@@ -326,9 +291,6 @@ docker run --rm <image> node --version          # Node.js version
 docker run --rm <image> openclaw --version       # OpenClaw version
 docker run --rm <image> cat /root/.openclaw-version  # Version marker
 docker run --rm <image> ls /root/.openclaw/      # Directory structure
-
-# ZeroClaw
-docker run --rm <image> zeroclaw --version
 
 # Nanobot
 docker run --rm <image> python --version
@@ -350,12 +312,6 @@ nodeskclaw-artifacts/
 │   ├── init-container.sh            # K8s Init Container
 │   ├── openclaw.json.template       # Config template (envsubst)
 │   └── check-update.sh             # npm version detection
-├── zeroclaw-image/
-│   ├── Dockerfile                   # Base: prebuilt binary download
-│   ├── Dockerfile.security          # Security: multi-stage Rust source build
-│   ├── docker-entrypoint.sh
-│   ├── check-update.sh             # GitHub Releases version detection
-│   └── README.md
 └── nanobot-image/
     ├── Dockerfile                   # Base: pip install
     ├── Dockerfile.security          # Security: pip install + CMD wrapper
@@ -373,7 +329,6 @@ nodeskclaw-artifacts/
 
 The script forces `--platform linux/amd64` for cross-compilation. QEMU emulation of x86_64 significantly slows down builds. Recommendations:
 - Use `--skip-verify` to skip the verification step (which launches an amd64 container)
-- ZeroClaw security layer Rust compilation is particularly slow; BuildKit cache mounts (`--mount=type=cache`) help reduce incremental build times
 
 ### npm install fails during build
 

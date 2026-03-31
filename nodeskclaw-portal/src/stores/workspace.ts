@@ -210,6 +210,17 @@ export interface GroupChatMessage {
   intent?: string
   priority?: string
   envelope_id?: string
+  error?: {
+    code: string
+    detail?: string
+  }
+}
+
+export interface ChatHistoryQuery {
+  limit?: number
+  q?: string
+  fromAt?: string
+  toAt?: string
 }
 
 export interface ScheduleInfo {
@@ -220,6 +231,13 @@ export interface ScheduleInfo {
   message_template: string
   is_active: boolean
   created_at: string | null
+}
+
+export interface PresetTemplate {
+  name: string
+  label: string
+  cron_expr: string
+  message_template: string
 }
 
 export type ChatSSECallback = (event: string, data: Record<string, unknown>) => void
@@ -248,6 +266,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const currentWorkspace = ref<WorkspaceInfo | null>(null)
   const blackboard = ref<BlackboardInfo | null>(null)
   const schedules = ref<ScheduleInfo[]>([])
+  const schedulePresets = ref<PresetTemplate[]>([])
   const members = ref<WorkspaceMemberInfo[]>([])
   const loading = ref(false)
 
@@ -472,6 +491,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     try {
       const res = await api.get(`/workspaces/${workspaceId}/schedules`)
       schedules.value = (res.data.data?.schedules || []) as ScheduleInfo[]
+      schedulePresets.value = (res.data.data?.presets || []) as PresetTemplate[]
     } catch (e) {
       console.error('fetchSchedules error:', e)
     }
@@ -481,6 +501,25 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     await api.put(`/workspaces/${workspaceId}/schedules/${scheduleId}`, { is_active: isActive })
     const idx = schedules.value.findIndex(s => s.id === scheduleId)
     if (idx >= 0) schedules.value[idx].is_active = isActive
+  }
+
+  async function createSchedule(workspaceId: string, data: {
+    name: string; cron_expr: string; message_template: string; is_active?: boolean
+  }) {
+    await api.post(`/workspaces/${workspaceId}/schedules`, data)
+    await fetchSchedules(workspaceId)
+  }
+
+  async function updateSchedule(workspaceId: string, scheduleId: string, data: {
+    name?: string; cron_expr?: string; message_template?: string; is_active?: boolean
+  }) {
+    await api.put(`/workspaces/${workspaceId}/schedules/${scheduleId}`, data)
+    await fetchSchedules(workspaceId)
+  }
+
+  async function deleteSchedule(workspaceId: string, scheduleId: string) {
+    await api.delete(`/workspaces/${workspaceId}/schedules/${scheduleId}`)
+    await fetchSchedules(workspaceId)
   }
 
   // ── Performance ──────────────────────────────────────
@@ -547,11 +586,15 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     } catch { /* ignore */ }
   }
 
-  async function fetchChatHistory(workspaceId: string) {
+  async function fetchChatHistory(workspaceId: string, query?: ChatHistoryQuery) {
     try {
-      const res = await api.get(`/workspaces/${workspaceId}/messages`, { params: { limit: 50 } })
+      const params: Record<string, unknown> = { limit: query?.limit ?? 50 }
+      if (query?.q?.trim()) params.q = query.q.trim()
+      if (query?.fromAt) params.from_at = query.fromAt
+      if (query?.toAt) params.to_at = query.toAt
+      const res = await api.get(`/workspaces/${workspaceId}/messages`, { params })
       const raw = res.data.data || []
-      chatMessages.value = raw.map((m: Record<string, unknown>) => ({
+      return raw.map((m: Record<string, unknown>) => ({
         id: m.id as string,
         sender_type: m.sender_type as 'user' | 'agent' | 'system',
         sender_id: m.sender_id as string,
@@ -563,6 +606,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       }))
     } catch (e) {
       console.error('fetchChatHistory error:', e)
+      throw e
     }
   }
 
@@ -596,6 +640,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       await api.post(`/workspaces/${workspaceId}/chat`, body)
     } catch (e) {
       console.error('sendWorkspaceMessage error:', e)
+      throw e
     } finally {
       chatLoading.value = false
     }
@@ -606,7 +651,15 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       await api.post(`/workspaces/${workspaceId}/system-message`, { content })
     } catch (e) {
       console.error('sendSystemMessage error:', e)
+      throw e
     }
+  }
+
+  async function clearChatHistory(workspaceId: string) {
+    await api.post(`/workspaces/${workspaceId}/messages/clear`)
+    chatMessages.value = []
+    typingAgents.value.clear()
+    unreadCount.value = 0
   }
 
   const _typingTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -676,6 +729,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   function _handleAgentError(data: Record<string, unknown>) {
     const instanceId = data.instance_id as string
     const agentName = data.agent_name as string
+    const errorCode = (data.error as string) || 'unknown'
+    const errorDetail = (data.error_detail as string) || undefined
     typingAgents.value.delete(instanceId)
     _clearTypingTimer(instanceId)
 
@@ -684,16 +739,17 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     )
     if (streaming) {
       streaming.streaming = false
-      streaming.content += `\n[Error: ${data.error}]`
+      streaming.error = { code: errorCode, detail: errorDetail }
     } else {
       chatMessages.value.push({
         id: `error-${instanceId}-${Date.now()}`,
         sender_type: 'agent',
         sender_id: instanceId,
         sender_name: agentName,
-        content: `[Error: ${data.error}]`,
+        content: '',
         message_type: 'chat',
         created_at: new Date().toISOString(),
+        error: { code: errorCode, detail: errorDetail },
       })
     }
   }
@@ -711,6 +767,20 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
     if (_isDuplicateMessage(msgId)) return
 
+    const existingStreaming = chatMessages.value.find(
+      (m) => m.sender_id === instanceId && m.streaming,
+    )
+    if (existingStreaming) {
+      existingStreaming.streaming = false
+      existingStreaming.message_type = 'collaboration'
+      existingStreaming.content = content
+      existingStreaming.id = msgId
+      existingStreaming.intent = intent
+      existingStreaming.priority = priority
+      existingStreaming.envelope_id = data.envelope_id as string | undefined
+      return
+    }
+
     chatMessages.value.push({
       id: msgId,
       sender_type: 'agent',
@@ -719,10 +789,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       content,
       message_type: 'collaboration',
       created_at: new Date().toISOString(),
-      trace_id: data.trace_id as string | undefined,
+      trace_id: traceId,
       causation_id: data.causation_id as string | undefined,
-      intent: data.intent as string | undefined,
-      priority: data.priority as string | undefined,
+      intent,
+      priority,
       envelope_id: data.envelope_id as string | undefined,
     })
     _incrementUnread()
@@ -930,6 +1000,16 @@ export const useWorkspaceStore = defineStore('workspace', () => {
             })
           }
         }
+      } catch { /* ignore */ }
+    })
+
+    eventSource.addEventListener('chat:cleared', (e: MessageEvent) => {
+      try {
+        const data = JSON.parse(e.data)
+        externalCallback?.('chat:cleared', data)
+        chatMessages.value = []
+        typingAgents.value.clear()
+        unreadCount.value = 0
       } catch { /* ignore */ }
     })
 
@@ -1257,6 +1337,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     currentWorkspace.value = null
     blackboard.value = null
     schedules.value = []
+    schedulePresets.value = []
     topology.value = null
     members.value = []
     chatMessages.value = []
@@ -1324,8 +1405,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     fetchObjectives,
     createObjective,
     updateObjective,
+    schedulePresets,
     fetchSchedules,
     toggleScheduleActive,
+    createSchedule,
+    updateSchedule,
+    deleteSchedule,
     fetchPerformance,
     collectPerformance,
     attributeTokens,
@@ -1333,6 +1418,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     fetchChatHistory,
     sendWorkspaceMessage,
     sendSystemMessage,
+    clearChatHistory,
     connectSSE,
     disconnectSSE,
     sendMessage,

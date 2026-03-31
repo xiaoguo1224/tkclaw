@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 from croniter import croniter
 from sqlalchemy import select
 
-from app.models.workspace import Workspace
 from app.models.workspace_agent import WorkspaceAgent
 from app.models.workspace_schedule import WorkspaceSchedule
 

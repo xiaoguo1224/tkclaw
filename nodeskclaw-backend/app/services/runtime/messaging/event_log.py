@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -57,7 +57,10 @@ async def get_message_events(
 ) -> list[EventLog]:
     result = await db.execute(
         select(EventLog)
-        .where(EventLog.message_id == message_id)
+        .where(
+            EventLog.message_id == message_id,
+            EventLog.deleted_at.is_(None),
+        )
         .order_by(EventLog.created_at.asc())
     )
     return list(result.scalars().all())
@@ -69,7 +72,10 @@ async def get_trace_events(
 ) -> list[EventLog]:
     result = await db.execute(
         select(EventLog)
-        .where(EventLog.trace_id == trace_id)
+        .where(
+            EventLog.trace_id == trace_id,
+            EventLog.deleted_at.is_(None),
+        )
         .order_by(EventLog.created_at.asc())
     )
     return list(result.scalars().all())
@@ -85,7 +91,10 @@ async def get_workspace_events(
 ) -> list[EventLog]:
     stmt = (
         select(EventLog)
-        .where(EventLog.workspace_id == workspace_id)
+        .where(
+            EventLog.workspace_id == workspace_id,
+            EventLog.deleted_at.is_(None),
+        )
         .order_by(EventLog.created_at.desc())
         .limit(limit)
     )

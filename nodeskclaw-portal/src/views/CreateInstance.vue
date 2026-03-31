@@ -12,6 +12,11 @@ import { useOrgStore } from '@/stores/org'
 import { useI18n } from 'vue-i18n'
 import { useEdition } from '@/composables/useFeature'
 import { getRuntimeCaps } from '@/utils/runtimeCapabilities'
+import {
+  PROVIDERS, PROVIDER_LABELS, PROVIDER_DEFAULT_URLS,
+  BUILTIN_PROVIDERS, WORKING_PLAN_PROVIDERS, ALL_KNOWN_PROVIDERS,
+  isCodexProvider, DEFAULT_CODEX_MODEL, defaultModelForProvider,
+} from '@/utils/llmProviders'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -48,6 +53,7 @@ interface EngineItem {
   display_tags: string[]
   display_powered_by: string
   order: number
+  available: boolean
 }
 const engines = ref<EngineItem[]>([])
 const selectedRuntime = ref('openclaw')
@@ -130,19 +136,17 @@ const unusedProviders = computed(() =>
   PROVIDERS.filter(p => !llmConfigs.value.some(c => c.provider === p))
 )
 
-const ALL_KNOWN_PROVIDERS: Set<string> = new Set([...PROVIDERS])
-
 function addProvider(p: string) {
   if (!p) return
   llmConfigs.value.push({
     provider: p,
-    keySource: isWorkingPlanAvailable(p) ? 'org' : 'personal',
+    keySource: isCodexProvider(p) ? 'personal' : (isWorkingPlanAvailable(p) ? 'org' : 'personal'),
     personalKey: '',
     baseUrl: '',
     apiType: '',
     isCustom: false,
     showBaseUrl: false,
-    selectedModel: null,
+    selectedModel: defaultModelForProvider(p),
   })
   newProviderOpen.value = false
 }
@@ -192,8 +196,6 @@ function addCustomProvider() {
   showCustomForm.value = false
 }
 
-const BUILTIN_PROVIDERS = new Set(['openai', 'anthropic', 'gemini', 'openrouter'])
-const WORKING_PLAN_PROVIDERS = new Set(['minimax-openai', 'minimax-anthropic'])
 const orgKeyProviders = ref<Set<string>>(new Set())
 
 const isWorkingPlanAvailable = (provider: string) =>
@@ -426,6 +428,7 @@ const llmReady = computed(() => {
   if (llmConfigs.value.length === 0) return false
   return llmConfigs.value.every(c => {
     if (c.isCustom) return !!c.baseUrl && !!c.personalKey && !!c.selectedModel
+    if (isCodexProvider(c.provider)) return !!c.selectedModel
     if (BUILTIN_PROVIDERS.has(c.provider)) return true
     return !!c.selectedModel
   })
@@ -458,21 +461,24 @@ async function handleDeploy() {
 
   try {
     for (const cfg of llmConfigs.value) {
-      if (cfg.keySource === 'personal' && cfg.personalKey) {
+      if (cfg.keySource === 'personal' && (cfg.personalKey || isCodexProvider(cfg.provider))) {
         await api.post('/users/me/llm-keys', {
           provider: cfg.provider,
-          api_key: cfg.personalKey,
-          base_url: cfg.baseUrl || null,
+          api_key: isCodexProvider(cfg.provider) ? undefined : cfg.personalKey,
+          base_url: isCodexProvider(cfg.provider) ? null : (cfg.baseUrl || null),
           api_type: cfg.isCustom ? cfg.apiType : null,
         })
       }
     }
 
-    const activeLlm = llmConfigs.value.map(c => ({
-      provider: c.provider,
-      key_source: c.keySource,
-      selected_models: c.selectedModel ? [c.selectedModel] : undefined,
-    }))
+    const activeLlm = llmConfigs.value.map(c => {
+      const selectedModel = c.selectedModel ?? defaultModelForProvider(c.provider)
+      return {
+        provider: c.provider,
+        key_source: c.keySource,
+        selected_models: selectedModel ? [selectedModel] : undefined,
+      }
+    })
 
     const res = await api.post('/deploy', {
       name: name.value.trim(),
@@ -674,6 +680,10 @@ async function handleDeploy() {
                   :key="tag"
                   class="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary"
                 >{{ tag }}</span>
+                <span
+                  v-if="!eng.available"
+                  class="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground"
+                >{{ t('engine.comingSoon') }}</span>
               </div>
               <div class="text-xs text-muted-foreground mt-1.5 leading-relaxed">{{ eng.display_description }}</div>
               <div class="text-[10px] text-muted-foreground/60 mt-2">{{ t('engine.poweredBy') }} {{ eng.display_powered_by }}</div>
@@ -865,6 +875,7 @@ async function handleDeploy() {
           </div>
           <p class="text-xs text-muted-foreground">
             TClaw 需要至少一个大模型 API Key 才能正常使用
+            {{ t('llm.providerAccessHint') }}
           </p>
 
           <template v-if="!llmSkipped">
@@ -894,7 +905,7 @@ async function handleDeploy() {
               </div>
 
               <div class="space-y-2">
-                <div v-if="!cfg.isCustom" class="flex gap-4 text-sm">
+                <div v-if="!cfg.isCustom && !isCodexProvider(cfg.provider)" class="flex gap-4 text-sm">
                   <span class="relative group">
                     <label
                       class="flex items-center gap-1.5"
@@ -916,48 +927,56 @@ async function handleDeploy() {
                   </label>
                 </div>
 
+                <p v-else-if="isCodexProvider(cfg.provider)" class="text-xs text-muted-foreground pl-0.5">
+                  {{ t('llm.codexCliHint') }}
+                </p>
+
                 <p v-if="!cfg.isCustom && cfg.keySource === 'org'" class="text-xs text-muted-foreground pl-0.5">
                   使用组织统一配置的 Key，无需自行输入
                 </p>
 
                 <div v-if="cfg.keySource === 'personal'" class="space-y-2">
-                  <div class="relative">
-                    <Key class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                    <input
-                      v-model="cfg.personalKey"
-                      type="password"
-                      placeholder="输入 API Key"
-                      class="w-full pl-9 pr-3 py-1.5 rounded-md bg-background border border-border text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
-                    />
+                  <div v-if="isCodexProvider(cfg.provider)" class="rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
+                    {{ t('llm.codexCliRuntimeHint') }}
                   </div>
-
-                  <!-- Base URL (collapsible for built-in, always visible for custom) -->
-                  <div v-if="cfg.isCustom || cfg.showBaseUrl">
+                  <template v-else>
                     <div class="relative">
-                      <Link class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                      <Key class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
                       <input
-                        v-model="cfg.baseUrl"
-                        type="text"
-                        :placeholder="cfg.isCustom ? t('llm.baseUrlPlaceholder') : t('llm.defaultBaseUrl', { url: PROVIDER_DEFAULT_URLS[cfg.provider] || '' })"
-                        :class="cfg.isCustom ? 'pr-3' : 'pr-8'"
-                        class="w-full pl-9 py-1.5 rounded-md bg-background border border-border text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
+                        v-model="cfg.personalKey"
+                        type="password"
+                        placeholder="输入 API Key"
+                        class="w-full pl-9 pr-3 py-1.5 rounded-md bg-background border border-border text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
                       />
-                      <button
-                        v-if="!cfg.isCustom"
-                        class="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-                        @click="cfg.baseUrl = ''; cfg.showBaseUrl = false"
-                      >
-                        <X class="w-3.5 h-3.5" />
-                      </button>
                     </div>
-                  </div>
-                  <button
-                    v-if="!cfg.isCustom && !cfg.showBaseUrl"
-                    class="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                    @click="cfg.showBaseUrl = true"
-                  >
-                    {{ t('llm.customBaseUrl') }}
-                  </button>
+
+                    <div v-if="cfg.isCustom || cfg.showBaseUrl">
+                      <div class="relative">
+                        <Link class="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                        <input
+                          v-model="cfg.baseUrl"
+                          type="text"
+                          :placeholder="cfg.isCustom ? t('llm.baseUrlPlaceholder') : t('llm.defaultBaseUrl', { url: PROVIDER_DEFAULT_URLS[cfg.provider] || '' })"
+                          :class="cfg.isCustom ? 'pr-3' : 'pr-8'"
+                          class="w-full pl-9 py-1.5 rounded-md bg-background border border-border text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
+                        />
+                        <button
+                          v-if="!cfg.isCustom"
+                          class="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                          @click="cfg.baseUrl = ''; cfg.showBaseUrl = false"
+                        >
+                          <X class="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                    <button
+                      v-if="!cfg.isCustom && !cfg.showBaseUrl"
+                      class="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      @click="cfg.showBaseUrl = true"
+                    >
+                      {{ t('llm.customBaseUrl') }}
+                    </button>
+                  </template>
                 </div>
               </div>
 
@@ -968,7 +987,7 @@ async function handleDeploy() {
                 :allow-manual-input="!!cfg.isCustom"
                 @fetch-models="handleFetchModels"
               />
-              <p v-if="(cfg.isCustom || !BUILTIN_PROVIDERS.has(cfg.provider)) && !cfg.selectedModel" class="text-[10px] text-amber-500">
+              <p v-if="(cfg.isCustom || isCodexProvider(cfg.provider) || !BUILTIN_PROVIDERS.has(cfg.provider)) && !cfg.selectedModel" class="text-[10px] text-amber-500">
                 {{ t('llm.modelRequired') }}
               </p>
             </div>

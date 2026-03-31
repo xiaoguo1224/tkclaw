@@ -9,6 +9,15 @@ type ToolConfig = {
   instanceId: string;
 };
 
+export const NODESKCLAW_TOOL_NAMES = [
+  "nodeskclaw_blackboard",
+  "nodeskclaw_topology",
+  "nodeskclaw_performance",
+  "nodeskclaw_proposals",
+  "nodeskclaw_gene_discovery",
+  "nodeskclaw_shared_files",
+] as const;
+
 function resolveToolConfig(config: OpenClawConfig, sessionWorkspaceId?: string): ToolConfig {
   const section = (config as Record<string, unknown>).channels?.[
     "nodeskclaw"
@@ -36,15 +45,29 @@ async function apiFetch(
   method = "GET",
   body?: unknown,
 ): Promise<unknown> {
-  const res = await fetch(`${cfg.apiUrl}${path}`, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${cfg.token}`,
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  return res.json();
+  let res: Response;
+  try {
+    res = await fetch(`${cfg.apiUrl}${path}`, {
+      method,
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${cfg.token}`,
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (err) {
+    return { error: true, message: `Network error: ${(err as Error).message}` };
+  }
+  if (!res.ok) {
+    let detail: string;
+    try { detail = await res.text(); } catch { detail = ""; }
+    return { error: true, status: res.status, message: detail || res.statusText };
+  }
+  try {
+    return await res.json();
+  } catch {
+    return { error: true, message: "Response is not valid JSON" };
+  }
 }
 
 function jsonResult(payload: unknown) {
@@ -315,7 +338,7 @@ function createPerformanceTool(cfg: ToolConfig): AnyAgentTool {
           );
         case "get_team_performance":
           return jsonResult(
-            await apiFetch(cfg, `/workspaces/${ws}/performance/collect`, "POST"),
+            await apiFetch(cfg, `/workspaces/${ws}/performance`),
           );
         case "collect_performance":
           return jsonResult(
@@ -370,7 +393,7 @@ function createProposalsTool(cfg: ToolConfig): AnyAgentTool {
           return jsonResult(
             await apiFetch(
               cfg,
-              `/workspaces/trust-policies/check?workspace_id=${ws}&agent_instance_id=${agentId}&action_type=${p.action_type}`,
+              `/workspaces/trust-policies/check?workspace_id=${ws}&agent_instance_id=${agentId}&action_type=${encodeURIComponent(p.action_type as string)}`,
             ),
           );
         case "list_my_decisions":

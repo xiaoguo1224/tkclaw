@@ -29,7 +29,7 @@ Investment in AI operating capabilities. Loading a new Gene onto an AI partner o
 
 ### Elastic Scale
 
-Instant expansion of operating capacity. One-click deployment of AI operating partners on Kubernetes clusters or local Docker environments. DeskClaw handles the infrastructure so you can focus on operating decisions.
+Instant expansion of operating capacity. One-click deployment of AI operating partners on Kubernetes clusters. Local development supported via `dev.sh` for rapid iteration.
 
 ## Highlights
 
@@ -37,37 +37,19 @@ Instant expansion of operating capacity. One-click deployment of AI operating pa
 - **Gene System** -- Modular capability investment: load new business dimensions onto AI partners from a public or private marketplace
 - **One-Click Scale** -- Expand your operating capacity end-to-end, with SSE real-time progress streaming
 - **Multi-Cluster Operations** -- Cross-cluster orchestration, health checks, and elastic scaling across your business footprint
-- **Enterprise Auth** -- Feishu SSO with automatic org structure sync, bringing your existing organization into the platform
-
-## CE / EE
-
-Dual-edition architecture: Community Edition / Enterprise Edition.
-
-| | CE (Community) | EE (Enterprise) |
-|---|---|---|
-| License | Apache 2.0 | Commercial |
-| Features | Instance deploy, cluster management, log monitoring, gene marketplace | All of CE + multi-org, billing, advanced audit |
-| Code | This repository | Private `ee/` directory |
-
-Runtime auto-detection via `FeatureGate` -- if `ee/` exists it runs as EE, otherwise CE. Feature registry defined in `features.yaml`.
-
-**Technical implementation**: Backend Factory abstraction + Hook event bus; Frontend Stub + Vite Alias Override.
-
 ## Architecture
 
 ```mermaid
 graph TD
-    Human["Human Operators"] --> Portal["Portal (CE + EE)"]
-    Human --> AdminUI["Admin Console (EE)"]
+    Human["Human Operators"] --> Portal["Portal"]
     Portal --> API["Backend API Hub<br>Python 3.12 + FastAPI"]
-    AdminUI --> API
 
     API --> DB[(PostgreSQL)]
     API --> CW["Cyber Workspace<br>Blackboard / Topology / Delegation"]
-    API --> Gene["Gene System<br>Public + Enterprise Marketplace"]
-    API --> Compute["K8s / Docker"]
+    API --> Gene["Gene System<br>Public Marketplace"]
+    API --> Compute["K8s"]
 
-    Compute --> Runtime["AI Runtime<br>OpenClaw / ZeroClaw / Nanobot"]
+    Compute --> Runtime["AI Runtime<br>OpenClaw / Nanobot"]
     Runtime <-->|"Channel Plugin (SSE)"| API
     Runtime --> LLM["LLM Proxy"] --> Providers["OpenAI / Anthropic / Gemini / ..."]
 
@@ -78,22 +60,19 @@ graph TD
 
 ```
 DeskClaw/
-├── nodeskclaw-portal/             # User Portal -- Vue 3 + Tailwind CSS (CE + EE)
+├── nodeskclaw-portal/             # User Portal -- Vue 3 + Tailwind CSS
 ├── nodeskclaw-backend/            # API Server -- Python 3.12 + FastAPI + SQLAlchemy
 ├── nodeskclaw-llm-proxy/          # LLM Proxy -- Python + FastAPI
 ├── nodeskclaw-artifacts/          # Docker images & deploy manifests
 ├── openclaw-channel-nodeskclaw/   # Cyber Workspace channel plugin
 ├── openclaw-channel-dingtalk/     # DingTalk channel plugin (Stream protocol)
-├── features.yaml                  # CE/EE feature registry
-├── ee/                            # Enterprise Edition (private)
-│   └── nodeskclaw-frontend/      # Admin Console -- Vue 3 + shadcn-vue (EE-only)
 ├── openclaw/                      # DeskClaw runtime source (external)
 └── vibecraft/                     # VibeCraft source (external)
 ```
 
 ## i18n
 
-Full-stack internationalization covering Portal, Admin, and Backend.
+Full-stack internationalization covering Portal and Backend.
 
 - Language detection: `zh*` -> `zh-CN`, `en*` -> `en-US`, fallback `en-US`
 - Error display: prefer `message_key` local translation, fall back to `message` when missing
@@ -101,47 +80,79 @@ Full-stack internationalization covering Portal, Admin, and Backend.
 
 ## Quick Start
 
-### Docker Compose (recommended for deployment)
+### Kubernetes (recommended)
 
-Deploy the full platform with a built-in PostgreSQL -- no external database required.
+DeskClaw is designed to run on Kubernetes. K8s is the primary deployment target for both staging and production. For local development, use `dev.sh` instead (see below).
 
-```bash
-# CE
-docker compose up -d
+Requires a K8s cluster, a container registry, and an external PostgreSQL database.
 
-# EE (with Admin console)
-docker compose -f docker-compose.yml -f docker-compose.ee.yml up -d
+#### Prerequisites
 
-# Optional: customise timezone, secrets, etc.
-# cp .env.example .env && vi .env
-```
-
-| Service | URL |
+| Dependency | |
 |---|---|
-| Portal | http://localhost |
-| Backend API | http://localhost:4510 |
-| LLM Proxy | http://localhost:4511 |
-| Admin (EE) | http://localhost:8001 |
+| Kubernetes cluster | 1.24+ with Ingress Controller (e.g. ingress-nginx) |
+| Container registry | Any Docker V2 registry (Docker Hub, AWS ECR, GCR, etc.) |
+| PostgreSQL | External database (e.g. AWS RDS, GCP Cloud SQL) |
+| kubectl | Configured with access to your cluster |
+| Docker | For building images locally |
 
-**Initial credentials** -- on first startup the backend creates an admin account with a random password and prints it to the log:
+#### 1. Configure Registry & Context
 
 ```bash
-docker compose logs nodeskclaw-backend | grep -A4 "Initial"
+# Create deploy/.env.local (git-ignored)
+cat > deploy/.env.local <<'EOF'
+REGISTRY="your-registry.example.com/deskclaw"
+KUBE_CONTEXT="your-kubectl-context"
+EOF
+
+# Login to your container registry
+docker login your-registry.example.com
 ```
 
-| Edition | Default account | Env var to customize |
+#### 2. Prepare Backend Environment Variables
+
+```bash
+cp nodeskclaw-backend/.env.example nodeskclaw-backend/.env
+# Edit .env -- fill in DATABASE_URL, JWT_SECRET, ENCRYPTION_KEY, etc.
+# Minimum required:
+#   DATABASE_URL=postgresql+asyncpg://user:pass@your-rds:5432/nodeskclaw
+#   JWT_SECRET=<random-secret>
+#   ENCRYPTION_KEY=<32-byte-base64-key>
+```
+
+#### 3. Initialize the Cluster
+
+Creates the namespace, uploads `.env` as a K8s Secret, and applies base Deployment + Service manifests:
+
+```bash
+./deploy/cli.sh init                    # Default: staging namespace
+./deploy/cli.sh init --prod             # Production namespace
+```
+
+#### 4. Build & Deploy
+
+```bash
+./deploy/cli.sh deploy                  # Build all images + rolling update (staging)
+./deploy/cli.sh deploy --prod           # Deploy to production (interactive confirm)
+./deploy/cli.sh deploy backend          # Deploy a single component
+```
+
+#### 5. Configure Ingress
+
+Edit `deploy/k8s/ingress.yaml` -- replace `example.com` hosts with your actual domains, then apply:
+
+```bash
+kubectl --context <CTX> -n <NS> apply -f deploy/k8s/ingress.yaml
+```
+
+The Ingress defines two hosts (configure as needed):
+
+| Ingress | Default host | Backend service |
 |---|---|---|
-| CE | `admin` | `INIT_ADMIN_ACCOUNT` |
-| EE (additional) | `deskclaw-admin` | `INIT_EE_ADMIN_ACCOUNT` |
+| Portal | `console.example.com` | portal (80) + backend API (8000) |
+| LLM Proxy | `llm-proxy.example.com` | llm-proxy (80) |
 
-You will be prompted to change the password on first login. The random password is regenerated on every restart until you change it.
-
-To use an external database instead of the built-in PostgreSQL, create a `.env` at project root with your `DATABASE_URL` and start only the services you need:
-
-```bash
-echo 'DATABASE_URL=postgresql+asyncpg://user:pass@your-rds:5432/nodeskclaw' > .env
-docker compose up -d nodeskclaw-backend portal
-```
+See [deploy/README.md](deploy/README.md) for full CLI reference, image tagging, and the release/promote workflow.
 
 ### Local Development
 
@@ -164,19 +175,14 @@ cp .env.example .env
 #### 2. One-command Start
 
 ```bash
-./dev.sh              # Auto-detect: ee/ exists -> EE, otherwise -> CE
-./dev.sh ce           # Force CE mode (backend + portal)
-./dev.sh ee           # Force EE mode (backend + portal + admin)
+./dev.sh              # Start all services (backend + portal)
 ./dev.sh --docker-pg  # Start a Docker PostgreSQL (no local PG install needed)
 ./dev.sh --fresh      # Force reinstall all dependencies
 ```
 
 The script handles dependency installation, starts all services with colored log prefixes, and cleans up on Ctrl+C. `--docker-pg` launches a local PostgreSQL container automatically.
 
-| Mode | Services | Ports |
-|------|----------|-------|
-| CE | backend + llm-proxy + portal | 4510, 4511, 4517 |
-| EE | backend + llm-proxy + portal + admin | 4510, 4511, 4517, 4518 |
+Services: backend (4510) + llm-proxy (4511) + portal (4517)
 
 <details>
 <summary>Manual Start (alternative)</summary>
@@ -200,15 +206,6 @@ npm install && npm run dev
 
 Portal at `http://localhost:4517` | `/api` auto-proxy to backend.
 
-**Frontend (Admin, EE-only):**
-
-```bash
-cd ee/nodeskclaw-frontend
-npm install && npm run dev
-```
-
-Admin at `http://localhost:4518` | `/api` and `/stream` auto-proxy to backend.
-
 </details>
 
 #### 3. Sign In
@@ -224,38 +221,11 @@ On first startup the backend prints the initial admin credentials directly in th
 ========================================
 ```
 
-Open `http://localhost:4517` (Portal) or `http://localhost:4518` (Admin, EE) and sign in with the printed credentials. You will be prompted to change the password on first login.
+Open `http://localhost:4517` and sign in with the printed credentials. You will be prompted to change the password on first login.
 
 ## Upgrade
 
-### Docker Compose
-
-All business services are built locally, so upgrading means pulling the latest code and rebuilding.
-
-```bash
-# 1. Back up the database
-docker compose exec postgres pg_dump -U nodeskclaw nodeskclaw > backup_$(date +%Y%m%d).sql
-
-# 2. Pull the target version
-git pull origin main          # latest
-# git checkout v0.9.0         # or a specific release tag
-
-# 3. Rebuild and restart
-docker compose build
-docker compose up -d
-
-# EE
-docker compose -f docker-compose.yml -f docker-compose.ee.yml build
-docker compose -f docker-compose.yml -f docker-compose.ee.yml up -d
-```
-
-Database migrations run automatically on backend startup (Alembic `upgrade head`). Verify with:
-
-```bash
-docker compose logs nodeskclaw-backend | grep -i "alembic\|migration\|upgrade"
-```
-
-### Kubernetes (via deploy/cli.sh)
+### Kubernetes
 
 K8s deployments are managed by `deploy/cli.sh`. The typical workflow is **deploy to staging first, then promote to production**.
 
@@ -293,8 +263,8 @@ Database migrations run automatically when the new backend pod starts. See [depl
 ## Community
 
 - [Discord](https://discord.gg/y5NKqcP6eY) -- Join the discussion, ask questions, share feedback
-- [GitHub Issues](https://github.com/patchwork-body/nodeskclaw/issues) -- Bug reports and feature requests
-- WeChat -- Scan the QR code below to join the developer group
+- [GitHub Issues](https://github.com/NoDeskAI/nodeskclaw/issues) -- Bug reports and feature requests
+- WeChat -- Scan the QR code below to join the developer group; if the WeChat group is full, please use Discord above
 
 <img src=".github/wechat-group-qr.jpg" alt="DeskClaw WeChat Developer Group" width="280">
 

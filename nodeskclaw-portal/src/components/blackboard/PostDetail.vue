@@ -16,6 +16,7 @@ interface ReplyItem {
   author_type: string
   author_id: string
   author_name: string
+  floor_number: number
   created_at: string
 }
 
@@ -133,7 +134,10 @@ watch(() => props.postId, fetchPost)
           class="pl-3 border-l-2 border-border"
         >
           <div class="flex items-center justify-between text-xs text-muted-foreground mb-1">
-            <span>{{ reply.author_name }}</span>
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="shrink-0 font-medium text-foreground/80">{{ t('blackboard.replyFloor', { number: reply.floor_number }) }}</span>
+              <span class="truncate">{{ reply.author_name }}</span>
+            </div>
             <span>{{ formatTime(reply.created_at) }}</span>
           </div>
           <div class="prose prose-sm prose-invert max-w-none text-sm" v-html="renderMd(reply.content)" />

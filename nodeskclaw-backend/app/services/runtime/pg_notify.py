@@ -44,9 +44,10 @@ class PGNotifyService:
 
     @staticmethod
     async def notify(db: AsyncSession, channel: str, payload: str = "") -> None:
-        safe_channel = channel.replace("'", "''")
-        safe_payload = payload.replace("'", "''")
-        await db.execute(text(f"SELECT pg_notify('{safe_channel}', '{safe_payload}')"))
+        await db.execute(
+            text("SELECT pg_notify(:channel, :payload)"),
+            {"channel": channel, "payload": payload},
+        )
 
     @staticmethod
     async def notify_topology_changed(db: AsyncSession, workspace_id: str) -> None:

@@ -7,8 +7,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Coroutine
 
-import httpx
-from sqlalchemy import Integer, Select, and_, case, cast, func, or_, select, text
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AppException, BadRequestError, ConflictError, NotFoundError
@@ -720,7 +719,11 @@ async def get_instance_genes(db: AsyncSession, instance_id: str) -> list[dict]:
     q = (
         select(InstanceGene, Gene)
         .join(Gene, InstanceGene.gene_id == Gene.id)
-        .where(InstanceGene.instance_id == instance_id, not_deleted(InstanceGene))
+        .where(
+            InstanceGene.instance_id == instance_id,
+            not_deleted(InstanceGene),
+            Gene.deleted_at.is_(None),
+        )
         .order_by(InstanceGene.created_at.desc())
     )
     result = await db.execute(q)
@@ -817,7 +820,11 @@ async def get_instance_skills(db: AsyncSession, instance_id: str) -> list[dict]:
     ig_result = await db.execute(
         select(InstanceGene, Gene)
         .join(Gene, InstanceGene.gene_id == Gene.id)
-        .where(InstanceGene.instance_id == instance_id, not_deleted(InstanceGene))
+        .where(
+            InstanceGene.instance_id == instance_id,
+            not_deleted(InstanceGene),
+            Gene.deleted_at.is_(None),
+        )
     )
     ig_rows = ig_result.all()
 
@@ -952,6 +959,7 @@ async def _has_meta_learning(db: AsyncSession, instance_id: str) -> bool:
             Gene.slug == "meta-learning",
             InstanceGene.status == InstanceGeneStatus.installed,
             not_deleted(InstanceGene),
+            Gene.deleted_at.is_(None),
         )
     )
     return result.scalar_one_or_none() is not None
@@ -967,6 +975,7 @@ async def has_gene_installed(db: AsyncSession, instance_id: str, gene_slug: str)
             Gene.slug == gene_slug,
             InstanceGene.status == InstanceGeneStatus.installed,
             not_deleted(InstanceGene),
+            Gene.deleted_at.is_(None),
         )
         .limit(1)
     )
@@ -1435,7 +1444,9 @@ async def handle_learning_callback(
         raise NotFoundError(f"学习任务 '{payload.task_id}' 不存在")
 
     instance = await get_instance(ig_obj.instance_id, db)
-    gene = await db.execute(select(Gene).where(Gene.id == ig_obj.gene_id))
+    gene = await db.execute(
+        select(Gene).where(Gene.id == ig_obj.gene_id, Gene.deleted_at.is_(None))
+    )
     gene_obj = gene.scalar_one_or_none()
     if not gene_obj:
         raise NotFoundError("基因不存在")
@@ -1558,7 +1569,11 @@ async def apply_genome(db: AsyncSession, instance_id: str, genome_id: str) -> di
     installed_q = await db.execute(
         select(Gene.slug)
         .join(InstanceGene, InstanceGene.gene_id == Gene.id)
-        .where(InstanceGene.instance_id == instance_id, not_deleted(InstanceGene))
+        .where(
+            InstanceGene.instance_id == instance_id,
+            not_deleted(InstanceGene),
+            Gene.deleted_at.is_(None),
+        )
     )
     already_installed = {row[0] for row in installed_q}
 
@@ -1637,7 +1652,9 @@ async def _recalc_gene_rating(db: AsyncSession, gene_id: str) -> None:
         )
     )
     avg = result.scalar() or 0.0
-    gene_result = await db.execute(select(Gene).where(Gene.id == gene_id))
+    gene_result = await db.execute(
+        select(Gene).where(Gene.id == gene_id, Gene.deleted_at.is_(None))
+    )
     gene = gene_result.scalar_one_or_none()
     if gene:
         gene.avg_rating = round(float(avg), 2)
@@ -1652,7 +1669,9 @@ async def _recalc_genome_rating(db: AsyncSession, genome_id: str) -> None:
         )
     )
     avg = result.scalar() or 0.0
-    genome_result = await db.execute(select(Genome).where(Genome.id == genome_id))
+    genome_result = await db.execute(
+        select(Genome).where(Genome.id == genome_id, Genome.deleted_at.is_(None))
+    )
     genome = genome_result.scalar_one_or_none()
     if genome:
         genome.avg_rating = round(float(avg), 2)
@@ -1692,10 +1711,14 @@ async def log_effectiveness(
     await db.commit()
     await _recalc_effectiveness_score(db, gene_id)
 
-    gene_result = await db.execute(select(Gene).where(Gene.id == gene_id))
+    gene_result = await db.execute(
+        select(Gene).where(Gene.id == gene_id, Gene.deleted_at.is_(None))
+    )
     gene = gene_result.scalar_one_or_none()
 
-    instance_result = await db.execute(select(Instance).where(Instance.id == instance_id))
+    instance_result = await db.execute(
+        select(Instance).where(Instance.id == instance_id, Instance.deleted_at.is_(None))
+    )
     instance = instance_result.scalar_one_or_none()
     if instance and gene:
         ws_ids = await _get_instance_workspace_ids(db, instance_id)
@@ -1726,7 +1749,9 @@ async def _report_effectiveness_to_registry(
 
 async def _recalc_effectiveness_score(db: AsyncSession, gene_id: str) -> None:
     """Recalculate effectiveness_score = user_rating 25% + agent_self_eval 25% + usage_effect 50%."""
-    gene_result = await db.execute(select(Gene).where(Gene.id == gene_id))
+    gene_result = await db.execute(
+        select(Gene).where(Gene.id == gene_id, Gene.deleted_at.is_(None))
+    )
     gene = gene_result.scalar_one_or_none()
     if not gene:
         return
@@ -1838,12 +1863,16 @@ async def publish_variant(
     if ig.variant_published:
         raise ConflictError("该基因的变体已发布")
 
-    parent_gene = await db.execute(select(Gene).where(Gene.id == gene_id))
+    parent_gene = await db.execute(
+        select(Gene).where(Gene.id == gene_id, Gene.deleted_at.is_(None))
+    )
     parent = parent_gene.scalar_one_or_none()
     if not parent:
         raise NotFoundError("原始基因不存在")
 
-    instance_result = await db.execute(select(Instance).where(Instance.id == instance_id))
+    instance_result = await db.execute(
+        select(Instance).where(Instance.id == instance_id, Instance.deleted_at.is_(None))
+    )
     instance = instance_result.scalar_one_or_none()
     agent_display = instance.name if instance else instance_id[:8]
 
@@ -1945,7 +1974,10 @@ async def handle_creation_callback(
     meta = payload.meta or {}
 
     instance_result = await db.execute(
-        select(Instance).where(Instance.id == payload.instance_id)
+        select(Instance).where(
+            Instance.id == payload.instance_id,
+            Instance.deleted_at.is_(None),
+        )
     )
     instance = instance_result.scalar_one_or_none()
 
@@ -2086,6 +2118,7 @@ async def refresh_gene_skills(db: AsyncSession, gene_slugs: list[str]) -> dict:
             InstanceGene.status == InstanceGeneStatus.installed,
             not_deleted(InstanceGene),
             not_deleted(Instance),
+            Gene.deleted_at.is_(None),
         )
     )
     rows = result.all()
@@ -2138,7 +2171,7 @@ async def refresh_gene_skills(db: AsyncSession, gene_slugs: list[str]) -> dict:
 async def uninstall_gene(db: AsyncSession, instance_id: str, gene_id: str) -> dict:
     from app.services.instance_service import get_instance
 
-    instance = await get_instance(instance_id, db)
+    await get_instance(instance_id, db)
 
     ig_result = await db.execute(
         select(InstanceGene).where(
@@ -2275,7 +2308,9 @@ async def handle_forgetting_callback(
         raise NotFoundError(f"InstanceGene not found: {payload.task_id}")
 
     instance = await get_instance(ig.instance_id, db)
-    gene_result = await db.execute(select(Gene).where(Gene.id == ig.gene_id))
+    gene_result = await db.execute(
+        select(Gene).where(Gene.id == ig.gene_id, Gene.deleted_at.is_(None))
+    )
     gene = gene_result.scalar_one_or_none()
 
     ws_ids = await _get_instance_workspace_ids(db, instance.id)
@@ -2588,6 +2623,7 @@ async def get_gene_activity(db: AsyncSession, limit: int = 50) -> list[dict]:
     result = await db.execute(
         select(GeneEffectLog, Gene.slug, Gene.name)
         .join(Gene, GeneEffectLog.gene_id == Gene.id)
+        .where(Gene.deleted_at.is_(None))
         .order_by(GeneEffectLog.created_at.desc())
         .limit(limit)
     )
@@ -2614,7 +2650,7 @@ async def get_gene_matrix(db: AsyncSession) -> list[dict]:
             InstanceGene.status,
         )
         .join(Gene, InstanceGene.gene_id == Gene.id)
-        .where(not_deleted(InstanceGene))
+        .where(not_deleted(InstanceGene), Gene.deleted_at.is_(None))
         .order_by(InstanceGene.instance_id, Gene.slug)
     )
     return [
@@ -2639,7 +2675,12 @@ async def get_co_install_analysis(db: AsyncSession, min_count: int = 2) -> list[
         .join(ig2, (ig1.c.instance_id == ig2.c.instance_id) & (ig1.c.gene_id < ig2.c.gene_id))
         .join(g1, ig1.c.gene_id == g1.c.id)
         .join(g2, ig2.c.gene_id == g2.c.id)
-        .where(ig1.c.deleted_at.is_(None), ig2.c.deleted_at.is_(None))
+        .where(
+            ig1.c.deleted_at.is_(None),
+            ig2.c.deleted_at.is_(None),
+            g1.c.deleted_at.is_(None),
+            g2.c.deleted_at.is_(None),
+        )
         .group_by(g1.c.slug, g2.c.slug)
         .having(func.count() >= min_count)
         .order_by(func.count().desc())

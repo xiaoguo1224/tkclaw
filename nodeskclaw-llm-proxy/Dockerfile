@@ -3,11 +3,16 @@ FROM python:3.12-slim
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 ENV TZ=Asia/Shanghai
+ARG CODEX_CLI_VERSION=0.116.0
 
 WORKDIR /app
 
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends nodejs npm \
+    && npm install -g @openai/codex@${CODEX_CLI_VERSION} \
+    && rm -rf /var/lib/apt/lists/* \
+    && uv sync --frozen --no-dev
 
 COPY . .
 

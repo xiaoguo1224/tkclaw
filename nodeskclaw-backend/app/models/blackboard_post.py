@@ -38,6 +38,6 @@ class BlackboardPost(BaseModel):
     replies = relationship(
         "BlackboardReply",
         back_populates="post",
-        order_by="BlackboardReply.created_at",
+        order_by="BlackboardReply.floor_number",
         lazy="selectin",
     )

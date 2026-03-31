@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
 
 from app.services.registry_adapter import (
     RegistryAdapter,

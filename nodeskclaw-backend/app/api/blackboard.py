@@ -48,15 +48,22 @@ async def _notify_mentions(
     workspace_id: str,
     mentions: list,
     author_name: str,
-    context: str,
+    post_id: str,
+    title: str,
+    action_label: str,
     db: AsyncSession,
 ) -> None:
     from app.services import collaboration_service
     agent_ids = [m.id for m in mentions if m.type == "agent"]
     if agent_ids:
-        msg = f"{author_name} mentioned you in {context}"
+        msg = (
+            f'{author_name} mentioned you in a blackboard {action_label} '
+            f'"{title}" (post_id: {post_id}). '
+            'Reply in the blackboard thread with the nodeskclaw_blackboard tool '
+            'using action "reply_post" and this post_id. Do not reply in chat.'
+        )
         await collaboration_service.send_system_message_to_agents(
-            workspace_id, agent_ids, msg, db,
+            workspace_id, agent_ids, msg, db, mention_targets=agent_ids,
         )
 
 
@@ -90,8 +97,7 @@ async def create_post(
     _broadcast(workspace_id, "post:created", post_info.model_dump(mode="json"))
     if mentions:
         await _notify_mentions(
-            workspace_id, mentions, author_name,
-            f"a post: {data.title}", db,
+            workspace_id, mentions, author_name, post_info.id, data.title, "post", db,
         )
     return _ok(post_info.model_dump(mode="json"))
 
@@ -195,8 +201,7 @@ async def create_reply(
     })
     if mentions:
         await _notify_mentions(
-            workspace_id, mentions, author_name,
-            f"a reply on: {post.title}", db,
+            workspace_id, mentions, author_name, post_id, post.title, "reply", db,
         )
     return _ok(reply_info.model_dump(mode="json"))
 

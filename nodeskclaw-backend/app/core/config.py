@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     # ── Database ─────────────────────────────────────────
     DATABASE_URL: str = ""  # PostgreSQL，从 .env 读取
     DATABASE_NAME_SUFFIX: str = ""  # auto = 用本机 hostname，留空 = 使用 DATABASE_URL 原始库名
+    DB_POOL_SIZE: int = 10
+    DB_POOL_MAX_OVERFLOW: int = 20
 
     @model_validator(mode="after")
     def _resolve_database_url(self) -> "Settings":
@@ -141,13 +143,16 @@ class Settings(BaseSettings):
     GENEHUB_API_KEY: str = ""
     GENEHUB_WEB_URL: str = "https://skills.deskclaw.me"
 
-    # ── TOS 对象存储 ─────────────────────────────────────
-    TOS_ENDPOINT: str = ""
-    TOS_REGION: str = ""
-    TOS_BUCKET: str = ""
-    TOS_ACCESS_KEY_ID: str = ""
-    TOS_SECRET_ACCESS_KEY: str = ""
-    TOS_KEY_PREFIX: str = ""
+    # ── S3 兼容对象存储 ─────────────────────────────────
+    S3_ENDPOINT: str = ""
+    S3_REGION: str = ""
+    S3_BUCKET: str = ""
+    S3_ACCESS_KEY_ID: str = ""
+    S3_SECRET_ACCESS_KEY: str = ""
+    S3_KEY_PREFIX: str = ""
+
+    # ── 本地文件存储（S3 未配置时自动启用）─────────────────
+    LOCAL_STORAGE_DIR: str = ""
 
     # ── CORS ─────────────────────────────────────────────
     CORS_ORIGINS: list[str] = ["http://localhost:4517", "http://localhost:4518"]

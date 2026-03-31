@@ -30,6 +30,7 @@ import {
   HardDrive,
 } from 'lucide-vue-next'
 import { renderMarkdown } from '@/utils/markdown'
+import { copyToClipboard } from '@/utils/clipboard'
 import { useGeneStore } from '@/stores/gene'
 import type { GeneItem, GenomeItem } from '@/stores/gene'
 import api from '@/services/api'
@@ -223,11 +224,11 @@ function goToInstanceGenes(instanceId: string) {
 
 const copiedSlug = ref<string | null>(null)
 async function copySlug(slug: string) {
-  try {
-    await navigator.clipboard.writeText(slug)
+  const ok = await copyToClipboard(slug)
+  if (ok) {
     copiedSlug.value = slug
     setTimeout(() => { copiedSlug.value = null }, 1500)
-  } catch { /* ignore */ }
+  }
 }
 
 function selectInstance(instanceId: string) {

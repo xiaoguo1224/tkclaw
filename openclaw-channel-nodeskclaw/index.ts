@@ -2,7 +2,7 @@ import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
 import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
 import { nodeskclawPlugin } from "./src/channel.js";
 import { setNoDeskClawRuntime } from "./src/runtime.js";
-import { createNoDeskClawTools } from "./src/tools.js";
+import { createNoDeskClawTools, NODESKCLAW_TOOL_NAMES } from "./src/tools.js";
 
 const WORKSPACE_SESSION_PREFIX = "workspace:";
 
@@ -22,14 +22,7 @@ const plugin = {
       return createNoDeskClawTools(api.config, wsId);
     }, {
       optional: true,
-      names: [
-        "nodeskclaw_blackboard",
-        "nodeskclaw_topology",
-        "nodeskclaw_performance",
-        "nodeskclaw_proposals",
-        "nodeskclaw_gene_discovery",
-        "nodeskclaw_shared_files",
-      ],
+      names: [...NODESKCLAW_TOOL_NAMES],
     });
   },
 };
