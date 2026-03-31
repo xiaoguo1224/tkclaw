@@ -28,14 +28,15 @@ services:
         condition: service_healthy
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${NODESKCLAW_DATA_DIR:-$HOME/.nodeskclaw/docker-instances}:${NODESKCLAW_DATA_DIR:-$HOME/.nodeskclaw/docker-instances}
+      - ${NODESKCLAW_DATA_DIR:-${USERPROFILE:-${HOME:-.}}/.nodeskclaw/docker-instances}:/nodeskclaw-data
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://nodeskclaw:nodeskclaw@postgres:5432/nodeskclaw}
       DATABASE_NAME_SUFFIX: ""
       LLM_PROXY_URL: http://llm-proxy:8080
       LLM_PROXY_INTERNAL_URL: http://llm-proxy:8080
       NODESKCLAW_EDITION: ce
-      DOCKER_DATA_DIR: ${NODESKCLAW_DATA_DIR:-$HOME/.nodeskclaw/docker-instances}
+      DOCKER_DATA_DIR: /nodeskclaw-data
+      DOCKER_HOST_DATA_DIR: ${NODESKCLAW_DATA_DIR:-${USERPROFILE:-${HOME:-.}}/.nodeskclaw/docker-instances}
       INIT_ADMIN_ACCOUNT: ${INIT_ADMIN_ACCOUNT:-admin}
       PORTAL_BASE_URL: ${PORTAL_BASE_URL:-}
       WECOM_CORP_ID: ${WECOM_CORP_ID:-}

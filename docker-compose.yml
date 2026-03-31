@@ -33,7 +33,7 @@ services:
         source: /var/run/docker.sock
         target: /var/run/docker.sock
       - type: bind
-        source: ${NODESKCLAW_DATA_DIR:-${HOME:-.}/.nodeskclaw/docker-instances}
+        source: ${NODESKCLAW_DATA_DIR:-${USERPROFILE:-${HOME:-.}}/.nodeskclaw/docker-instances}
         target: /nodeskclaw-data
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+asyncpg://nodeskclaw:nodeskclaw@postgres:5432/nodeskclaw}
@@ -41,7 +41,8 @@ services:
       LLM_PROXY_URL: http://llm-proxy:8080
       LLM_PROXY_INTERNAL_URL: http://llm-proxy:8080
       NODESKCLAW_EDITION: ce
-      DOCKER_DATA_DIR: ${NODESKCLAW_DATA_DIR:-$HOME/.nodeskclaw/docker-instances}
+      DOCKER_DATA_DIR: /nodeskclaw-data
+      DOCKER_HOST_DATA_DIR: ${NODESKCLAW_DATA_DIR:-${USERPROFILE:-${HOME:-.}}/.nodeskclaw/docker-instances}
       INIT_ADMIN_ACCOUNT: ${INIT_ADMIN_ACCOUNT:-admin}
       PORTAL_BASE_URL: ${PORTAL_BASE_URL:-}
       TZ: ${TZ:-Asia/Shanghai}
