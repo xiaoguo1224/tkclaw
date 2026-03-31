@@ -1,5 +1,7 @@
 """Instance service: list, detail, delete, scale, restart, config save/apply."""
 
+from __future__ import annotations
+
 import asyncio
 import json
 import logging
@@ -18,6 +20,7 @@ from app.models.deploy_record import DeployAction, DeployRecord, DeployStatus
 from app.models.instance import Instance, InstanceStatus
 from app.schemas.deploy import DeployRecordInfo
 from app.schemas.instance import InstanceDetail, InstanceInfo, UpdateConfigRequest, WorkspaceBrief
+from app.services.runtime.compute.base import ComputeHandle
 from app.utils.display_status import compute_display_status
 from app.services.k8s.client_manager import k8s_manager
 from app.services.k8s.k8s_client import K8sClient
@@ -77,8 +80,7 @@ def _k8s_name(instance: Instance) -> str:
     return instance.slug or instance.name
 
 
-def _build_docker_handle(instance: Instance) -> "ComputeHandle":
-    from app.services.runtime.compute.base import ComputeHandle
+def _build_docker_handle(instance: Instance) -> ComputeHandle:
     advanced = json.loads(instance.advanced_config) if instance.advanced_config else {}
     return ComputeHandle(
         provider="docker", instance_id=instance.id,
@@ -207,19 +209,20 @@ async def list_instances(
     return items
 
 
-async def get_instance(instance_id: str, db: AsyncSession) -> Instance:
-    result = await db.execute(
-        select(Instance).where(Instance.id == instance_id, Instance.deleted_at.is_(None))
-    )
+async def get_instance(instance_id: str, db: AsyncSession, org_id: str | None = None) -> Instance:
+    query = select(Instance).where(Instance.id == instance_id, Instance.deleted_at.is_(None))
+    if org_id is not None:
+        query = query.where(Instance.org_id == org_id)
+    result = await db.execute(query)
     instance = result.scalar_one_or_none()
     if not instance:
         raise NotFoundError("实例不存在")
     return instance
 
 
-async def get_instance_detail(instance_id: str, db: AsyncSession) -> InstanceDetail:
+async def get_instance_detail(instance_id: str, db: AsyncSession, org_id: str | None = None) -> InstanceDetail:
     """Get instance info enriched with live K8s pod data."""
-    instance = await get_instance(instance_id, db)
+    instance = await get_instance(instance_id, db, org_id)
 
     wa_result = await db.execute(
         select(WorkspaceAgent, Workspace).join(
@@ -370,9 +373,9 @@ async def get_instance_detail(instance_id: str, db: AsyncSession) -> InstanceDet
     return detail
 
 
-async def delete_instance(instance_id: str, db: AsyncSession, delete_k8s: bool = True):
+async def delete_instance(instance_id: str, db: AsyncSession, delete_k8s: bool = True, org_id: str | None = None):
     """逻辑删除实例：标记 deleted_at，从 K8s 删除整个命名空间（级联删除所有资源）。"""
-    instance = await get_instance(instance_id, db)
+    instance = await get_instance(instance_id, db, org_id)
 
     wa_count_result = await db.execute(
         select(func.count()).select_from(WorkspaceAgent).where(
@@ -438,8 +441,8 @@ async def delete_instance(instance_id: str, db: AsyncSession, delete_k8s: bool =
     await db.commit()
 
 
-async def scale_instance(instance_id: str, replicas: int, db: AsyncSession):
-    instance = await get_instance(instance_id, db)
+async def scale_instance(instance_id: str, replicas: int, db: AsyncSession, org_id: str | None = None):
+    instance = await get_instance(instance_id, db, org_id)
 
     if instance.compute_provider == "docker":
         provider = _get_docker_provider()
@@ -464,8 +467,8 @@ async def scale_instance(instance_id: str, replicas: int, db: AsyncSession):
     await db.commit()
 
 
-async def restart_instance(instance_id: str, db: AsyncSession):
-    instance = await get_instance(instance_id, db)
+async def restart_instance(instance_id: str, db: AsyncSession, org_id: str | None = None):
+    instance = await get_instance(instance_id, db, org_id)
 
     if instance.compute_provider == "docker":
         provider = _get_docker_provider()
@@ -589,7 +592,8 @@ async def _monitor_restart(
         logger.exception("重启超时后恢复状态失败: instance=%s", instance_id)
 
 
-async def get_deploy_history(instance_id: str, db: AsyncSession) -> list[DeployRecordInfo]:
+async def get_deploy_history(instance_id: str, db: AsyncSession, org_id: str | None = None) -> list[DeployRecordInfo]:
+    await get_instance(instance_id, db, org_id)
     result = await db.execute(
         select(DeployRecord)
         .where(DeployRecord.instance_id == instance_id, DeployRecord.deleted_at.is_(None))
@@ -599,9 +603,14 @@ async def get_deploy_history(instance_id: str, db: AsyncSession) -> list[DeployR
 
 
 async def get_pod_logs(
-    instance_id: str, pod_name: str, db: AsyncSession, container: str | None = None, tail_lines: int = 200
+    instance_id: str,
+    pod_name: str,
+    db: AsyncSession,
+    container: str | None = None,
+    tail_lines: int = 200,
+    org_id: str | None = None,
 ) -> str:
-    instance = await get_instance(instance_id, db)
+    instance = await get_instance(instance_id, db, org_id)
 
     if instance.compute_provider == "docker":
         provider = _get_docker_provider()
@@ -625,12 +634,12 @@ async def get_pod_logs(
 # ────────────────────────────────────────────────────────────
 
 async def save_config(
-    instance_id: str, req: UpdateConfigRequest, db: AsyncSession
+    instance_id: str, req: UpdateConfigRequest, db: AsyncSession, org_id: str | None = None
 ) -> InstanceInfo:
     """
     Step 1: 仅保存配置变更到 pending_config，不执行 K8s 操作。
     """
-    instance = await get_instance(instance_id, db)
+    instance = await get_instance(instance_id, db, org_id)
 
     pending = {
         "image_version": req.image_version,
@@ -655,12 +664,12 @@ async def save_config(
 
 
 async def apply_config(
-    instance_id: str, user_id: str, db: AsyncSession
+    instance_id: str, user_id: str, db: AsyncSession, org_id: str | None = None
 ) -> InstanceInfo:
     """
     Step 2: 读取 pending_config，执行 K8s 滚动更新，成功后清空 pending_config。
     """
-    instance = await get_instance(instance_id, db)
+    instance = await get_instance(instance_id, db, org_id)
 
     if not instance.pending_config:
         raise NotFoundError("没有待应用的配置变更")
@@ -678,10 +687,10 @@ async def apply_config(
 
 
 async def update_config(
-    instance_id: str, req: UpdateConfigRequest, user_id: str, db: AsyncSession
+    instance_id: str, req: UpdateConfigRequest, user_id: str, db: AsyncSession, org_id: str | None = None
 ) -> InstanceInfo:
     """兼容旧接口: 直接保存 + 应用（供回滚等场景使用）。"""
-    instance = await get_instance(instance_id, db)
+    instance = await get_instance(instance_id, db, org_id)
     return await _execute_config_update(instance, req, user_id, db)
 
 
@@ -855,9 +864,9 @@ async def _execute_config_update(
     return InstanceInfo.model_validate(instance)
 
 
-async def sync_gateway_token(instance_id: str, db: AsyncSession) -> str:
+async def sync_gateway_token(instance_id: str, db: AsyncSession, org_id: str | None = None) -> str:
     """从运行中的 Pod 读取 GATEWAY_TOKEN 并回填到 DB 和 ConfigMap。"""
-    instance = await get_instance(instance_id, db)
+    instance = await get_instance(instance_id, db, org_id)
 
     env_vars = json.loads(instance.env_vars) if instance.env_vars else {}
     existing_token = env_vars.get("GATEWAY_TOKEN")
@@ -928,9 +937,9 @@ async def sync_gateway_token(instance_id: str, db: AsyncSession) -> str:
     return token
 
 
-async def regenerate_gateway_token(instance_id: str, db: AsyncSession) -> str:
+async def regenerate_gateway_token(instance_id: str, db: AsyncSession, org_id: str | None = None) -> str:
     """生成新的访问令牌，更新配置并触发实例重启。"""
-    instance = await get_instance(instance_id, db)
+    instance = await get_instance(instance_id, db, org_id)
     old_env_vars_json = instance.env_vars
     old_env_vars = json.loads(instance.env_vars) if instance.env_vars else {}
     old_proxy_token = instance.proxy_token
@@ -961,18 +970,18 @@ async def regenerate_gateway_token(instance_id: str, db: AsyncSession) -> str:
         logger.exception("更新实例访问令牌失败: instance=%s", instance_id)
         await db.rollback()
         try:
-            fresh_instance = await get_instance(instance_id, db)
+            fresh_instance = await get_instance(instance_id, db, org_id)
             await _replace_instance_configmap(fresh_instance, old_env_vars, k8s)
         except Exception:
             logger.exception("恢复旧访问令牌 ConfigMap 失败: instance=%s", instance_id)
         raise ConflictError("重设访问令牌失败，请稍后重试") from exc
 
     try:
-        await restart_instance(instance_id, db)
+        await restart_instance(instance_id, db, org_id)
     except Exception as exc:
         logger.exception("访问令牌更新后触发重启失败: instance=%s", instance_id)
         try:
-            rollback_instance = await get_instance(instance_id, db)
+            rollback_instance = await get_instance(instance_id, db, org_id)
             rollback_instance.env_vars = old_env_vars_json
             rollback_instance.proxy_token = old_proxy_token
             await _replace_instance_configmap(rollback_instance, old_env_vars, k8s)
@@ -986,10 +995,10 @@ async def regenerate_gateway_token(instance_id: str, db: AsyncSession) -> str:
 
 
 async def rollback_instance(
-    instance_id: str, target_revision: int, user_id: str, db: AsyncSession
+    instance_id: str, target_revision: int, user_id: str, db: AsyncSession, org_id: str | None = None
 ) -> InstanceInfo:
     """回滚实例到指定版本。"""
-    await get_instance(instance_id, db)
+    await get_instance(instance_id, db, org_id)
 
     # 查找目标版本记录
     result = await db.execute(
@@ -1020,4 +1029,4 @@ async def rollback_instance(
         env_vars=env_vars,
     )
 
-    return await update_config(instance_id, req, user_id, db)
+    return await update_config(instance_id, req, user_id, db, org_id)

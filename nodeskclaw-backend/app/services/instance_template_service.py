@@ -24,6 +24,35 @@ from app.schemas.instance_template import (
 logger = logging.getLogger(__name__)
 
 
+def _can_read_template(tpl: InstanceTemplate, org_id: str | None) -> bool:
+    return tpl.visibility == "public" or tpl.org_id == org_id
+
+
+def _can_manage_template(tpl: InstanceTemplate, org_id: str | None) -> bool:
+    return tpl.org_id == org_id
+
+
+async def _get_template_model(
+    db: AsyncSession,
+    template_id: str,
+    org_id: str | None,
+    *,
+    require_manage: bool = False,
+) -> InstanceTemplate:
+    result = await db.execute(
+        select(InstanceTemplate).where(InstanceTemplate.id == template_id, not_deleted(InstanceTemplate))
+    )
+    tpl = result.scalar_one_or_none()
+    if not tpl:
+        raise NotFoundError("AI 员工模板不存在")
+    if require_manage:
+        if not _can_manage_template(tpl, org_id):
+            raise NotFoundError("AI 员工模板不存在")
+    elif not _can_read_template(tpl, org_id):
+        raise NotFoundError("AI 员工模板不存在")
+    return tpl
+
+
 def _parse_gene_slugs(raw: str | None) -> list[str]:
     if not raw:
         return []
@@ -198,14 +227,8 @@ async def list_templates(
     return items_list, total
 
 
-async def get_template(db: AsyncSession, template_id: str) -> InstanceTemplateInfo:
-    result = await db.execute(
-        select(InstanceTemplate).where(InstanceTemplate.id == template_id, not_deleted(InstanceTemplate))
-    )
-    tpl = result.scalar_one_or_none()
-    if not tpl:
-        raise NotFoundError("AI \u5458\u5de5\u6a21\u677f\u4e0d\u5b58\u5728")
-
+async def get_template(db: AsyncSession, template_id: str, org_id: str | None = None) -> InstanceTemplateInfo:
+    tpl = await _get_template_model(db, template_id, org_id)
     ti_list = await _get_template_items(db, template_id)
     if ti_list:
         item_refs = await _resolve_item_refs(db, ti_list)
@@ -218,14 +241,10 @@ async def get_template(db: AsyncSession, template_id: str) -> InstanceTemplateIn
     return _template_to_info(tpl, genes)
 
 
-async def get_template_gene_slugs(db: AsyncSession, template_id: str) -> list[str]:
-    result = await db.execute(
-        select(InstanceTemplate).where(InstanceTemplate.id == template_id, not_deleted(InstanceTemplate))
-    )
-    tpl = result.scalar_one_or_none()
-    if not tpl:
-        raise NotFoundError("AI \u5458\u5de5\u6a21\u677f\u4e0d\u5b58\u5728")
-
+async def get_template_gene_slugs(
+    db: AsyncSession, template_id: str, org_id: str | None = None,
+) -> list[str]:
+    tpl = await _get_template_model(db, template_id, org_id)
     ti_list = await _get_template_items(db, template_id)
     if not ti_list:
         return _parse_gene_slugs(tpl.gene_slugs)
@@ -317,10 +336,14 @@ async def create_from_instance(
     org_id: str | None = None,
 ) -> InstanceTemplateInfo:
     inst = await db.execute(
-        select(Instance).where(Instance.id == instance_id, not_deleted(Instance))
+        select(Instance).where(
+            Instance.id == instance_id,
+            Instance.org_id == org_id,
+            not_deleted(Instance),
+        )
     )
     if not inst.scalar_one_or_none():
-        raise NotFoundError("\u5b9e\u4f8b\u4e0d\u5b58\u5728")
+        raise NotFoundError("实例不存在")
 
     existing = await db.execute(
         select(InstanceTemplate).where(
@@ -372,14 +395,9 @@ async def update_template(
     db: AsyncSession,
     template_id: str,
     req: InstanceTemplateUpdate,
+    org_id: str | None = None,
 ) -> InstanceTemplateInfo:
-    result = await db.execute(
-        select(InstanceTemplate).where(InstanceTemplate.id == template_id, not_deleted(InstanceTemplate))
-    )
-    tpl = result.scalar_one_or_none()
-    if not tpl:
-        raise NotFoundError("AI \u5458\u5de5\u6a21\u677f\u4e0d\u5b58\u5728")
-
+    tpl = await _get_template_model(db, template_id, org_id, require_manage=True)
     if req.name is not None:
         tpl.name = req.name
     if req.description is not None:
@@ -408,14 +426,8 @@ async def update_template(
     return _template_to_info(tpl, genes, item_refs)
 
 
-async def delete_template(db: AsyncSession, template_id: str) -> dict:
-    result = await db.execute(
-        select(InstanceTemplate).where(InstanceTemplate.id == template_id, not_deleted(InstanceTemplate))
-    )
-    tpl = result.scalar_one_or_none()
-    if not tpl:
-        raise NotFoundError("AI \u5458\u5de5\u6a21\u677f\u4e0d\u5b58\u5728")
-
+async def delete_template(db: AsyncSession, template_id: str, org_id: str | None = None) -> dict:
+    tpl = await _get_template_model(db, template_id, org_id, require_manage=True)
     await _soft_delete_template_items(db, template_id)
     tpl.soft_delete()
     await db.commit()

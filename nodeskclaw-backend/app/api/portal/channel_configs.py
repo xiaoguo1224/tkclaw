@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.channel_api_errors import channel_http_error
 from app.core.deps import get_db
 from app.core.security import get_current_user
 from app.models.base import not_deleted
@@ -48,7 +49,7 @@ async def _get_instance(instance_id: str, db: AsyncSession) -> Instance:
     )
     instance = result.scalar_one_or_none()
     if not instance:
-        raise HTTPException(404, {"message": "实例不存在", "message_key": "errors.instance.not_found"})
+        raise channel_http_error(404, 40460, "errors.instance.not_found", "实例不存在")
     return instance
 
 
@@ -174,11 +175,11 @@ async def upload_channel(
     instance = await _get_instance(instance_id, db)
 
     if not file.filename:
-        raise HTTPException(400, {"message": "文件名不能为空", "message_key": "errors.channel.empty_filename"})
+        raise channel_http_error(400, 40060, "errors.channel.empty_filename", "文件名不能为空")
 
     content = await file.read()
     if len(content) > 10 * 1024 * 1024:
-        raise HTTPException(400, {"message": "文件大小不能超过 10MB", "message_key": "errors.channel.file_too_large"})
+        raise channel_http_error(400, 40061, "errors.channel.file_too_large", "文件大小不能超过 10MB")
 
     plugin_files: dict[str, str] = {}
     plugin_id = ""
@@ -189,23 +190,14 @@ async def upload_channel(
         elif file.filename.endswith(".zip"):
             plugin_files, plugin_id = _extract_zip(content)
         else:
-            raise HTTPException(400, {
-                "message": "仅支持 .tgz / .tar.gz / .zip 格式",
-                "message_key": "errors.channel.unsupported_format",
-            })
+            raise channel_http_error(400, 40062, "errors.channel.unsupported_format", "仅支持 .tgz / .tar.gz / .zip 格式")
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(400, {
-            "message": f"文件解压失败: {e}",
-            "message_key": "errors.channel.extract_failed",
-        })
+        raise channel_http_error(400, 40063, "errors.channel.extract_failed", f"文件解压失败: {e}")
 
     if not plugin_id:
-        raise HTTPException(400, {
-            "message": "插件缺少 openclaw.plugin.json 或未定义 channels",
-            "message_key": "errors.channel.missing_plugin_manifest",
-        })
+        raise channel_http_error(400, 40064, "errors.channel.missing_plugin_manifest", "插件缺少 openclaw.plugin.json 或未定义 channels")
 
     result = await upload_channel_plugin(instance, db, plugin_files, plugin_id)
     return _ok(result)

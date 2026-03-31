@@ -190,6 +190,15 @@ async def check_agent_genes(
     )).scalar_one_or_none()
     if not ws:
         raise _error(404, 40430, "errors.workspace.not_found", "办公室不存在")
+    wa = (await db.execute(
+        sa_select(WorkspaceAgent).where(
+            WorkspaceAgent.workspace_id == workspace_id,
+            WorkspaceAgent.instance_id == instance_id,
+            WorkspaceAgent.deleted_at.is_(None),
+        )
+    )).scalar_one_or_none()
+    if wa is None:
+        raise _error(404, 40432, "errors.workspace.agent_not_in_workspace", "AI 员工不在该办公室中")
 
     required_rows = (await db.execute(
         sa_select(OrgRequiredGene, Gene)

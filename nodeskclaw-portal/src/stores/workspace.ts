@@ -46,6 +46,12 @@ export interface WorkspaceTemplateItem {
   name: string
   description: string
   is_preset: boolean
+  topology_snapshot?: {
+    nodes?: Array<{
+      node_type?: string
+      display_name?: string | null
+    }>
+  }
   org_id: string | null
   visibility: string
   created_by: string | null

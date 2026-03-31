@@ -509,7 +509,7 @@ async def deploy_instance(
     template_gene_slugs: list[str] | None = None
     if req.template_id:
         from app.services.instance_template_service import get_template_gene_slugs
-        template_gene_slugs = await get_template_gene_slugs(db, req.template_id)
+        template_gene_slugs = await get_template_gene_slugs(db, req.template_id, org_id)
 
     # 创建部署记录
     max_rev = await db.execute(

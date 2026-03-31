@@ -83,6 +83,7 @@ async def list_templates(
             "name": t.name,
             "description": t.description,
             "is_preset": t.is_preset,
+            "topology_snapshot": t.topology_snapshot,
             "org_id": t.org_id,
             "visibility": t.visibility,
             "created_by": t.created_by,

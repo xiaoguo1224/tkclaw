@@ -8,14 +8,11 @@ import logging
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse, StreamingResponse
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_db
-from app.core.exceptions import NotFoundError
-from app.core.security import get_current_user
-from app.models.cluster import Cluster
-from app.models.user import User
+from app.core.deps import get_current_org, get_db
+from app.services import cluster_service
+from app.services.k8s.k8s_client import K8sClient
 from app.services.runtime.registries.compute_registry import require_k8s_client
 
 logger = logging.getLogger(__name__)
@@ -46,26 +43,17 @@ def _map_k8s_event(obj, event_type: str = "OBJECT") -> dict:
     }
 
 
-async def _get_cluster(cluster_id: str, db: AsyncSession) -> Cluster:
-    result = await db.execute(
-        select(Cluster).where(Cluster.id == cluster_id, Cluster.deleted_at.is_(None))
-    )
-    cluster = result.scalar_one_or_none()
-    if not cluster:
-        raise NotFoundError("集群不存在")
-    return cluster
-
-
 @router.get("/recent")
 async def events_recent(
     cluster_id: str = Query(..., description="集群 ID"),
     namespace: str = Query("", description="命名空间，留空则查询所有"),
     limit: int = Query(100, ge=1, le=500, description="返回条数上限"),
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    org_ctx=Depends(get_current_org),
 ):
     """REST: 返回 K8s 最近事件列表。非 K8s 集群返回空列表。"""
-    cluster = await _get_cluster(cluster_id, db)
+    _current_user, org = org_ctx
+    cluster = await cluster_service.get_cluster(cluster_id, db, org.id)
 
     if not cluster.is_k8s:
         return JSONResponse({"data": []})
@@ -87,13 +75,14 @@ async def events_recent(
 async def events_stream(
     cluster_id: str = Query(..., description="集群 ID"),
     namespace: str = Query("", description="命名空间，留空则监听所有"),
-    _current_user: User = Depends(get_current_user),
+    org_ctx=Depends(get_current_org),
 ):
     """SSE 流: 实时推送 K8s 事件（deprecated，保留兼容）。"""
     from app.core.deps import async_session_factory
 
+    _current_user, org = org_ctx
     async with async_session_factory() as db:
-        cluster = await _get_cluster(cluster_id, db)
+        cluster = await cluster_service.get_cluster(cluster_id, db, org.id)
     k8s = await require_k8s_client(cluster)
 
     async def generate():

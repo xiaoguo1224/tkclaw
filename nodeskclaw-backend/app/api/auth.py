@@ -1,12 +1,13 @@
 """Auth endpoints: OAuth, email/password, phone/SMS, token refresh, user info, logout, user management."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core import hooks
 from app.core.deps import get_db, require_feature, require_super_admin_dep
+from app.core.exceptions import BadRequestError, NotFoundError
 from app.core.security import get_current_user, get_current_user_unchecked
 from app.models.admin_membership import AdminMembership
 from app.models.user import User
@@ -208,10 +209,10 @@ async def update_staff(
     )
     user = result.scalar_one_or_none()
     if user is None:
-        raise HTTPException(status_code=404, detail="用户不存在")
+        raise NotFoundError("用户不存在", "errors.auth.user_not_found_or_disabled")
 
     if user.id == current_user.id and is_super_admin is False:
-        raise HTTPException(status_code=400, detail="不能取消自己的超管权限")
+        raise BadRequestError("不能取消自己的超管权限", "errors.auth.cannot_revoke_self_admin")
 
     if is_super_admin is not None:
         user.is_super_admin = is_super_admin
