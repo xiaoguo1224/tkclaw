@@ -60,14 +60,24 @@ function deriveDefaultChatModel(cfg: OpenClawConfig): string {
     }
   }
 
-  // If model contains "/" it's provider/model format (e.g. "minimax-anthropic/MiniMax-M2.7")
-  // which is not valid for local OpenClaw Gateway - map to openclaw/main
-  if (modelName && (!LOCAL_GATEWAY_MODELS.includes(modelName))) {
-    console.log("[tunnel] Model '%s' not in local gateway models, using 'openclaw/main'", modelName);
-    return "openclaw/main";
+  if (!modelName) {
+    return process.env.OPENCLAW_DEFAULT_MODEL || "openclaw/main";
   }
 
-  return modelName || process.env.OPENCLAW_DEFAULT_MODEL || "openclaw/main";
+  if (LOCAL_GATEWAY_MODELS.includes(modelName)) {
+    return modelName;
+  }
+
+  if (modelName.includes("/")) {
+    console.log("[tunnel] Using provider-scoped model from config: '%s'", modelName);
+    return modelName;
+  }
+
+  console.log(
+    "[tunnel] Model '%s' is not a local gateway alias and has no provider prefix, using 'openclaw/main'",
+    modelName,
+  );
+  return "openclaw/main";
 }
 
 export function startTunnelClient(cfg: OpenClawConfig, callbacks?: TunnelCallbacks): TunnelClient {
@@ -93,6 +103,12 @@ export function startTunnelClient(cfg: OpenClawConfig, callbacks?: TunnelCallbac
 
   const instanceId = defaultAccount?.instanceId ?? "";
   const token = defaultAccount?.apiToken ?? "";
+  const gatewaySection = (cfg as Record<string, unknown>).gateway as Record<string, unknown> | undefined;
+  const gatewayAuth = gatewaySection?.auth as Record<string, unknown> | undefined;
+  const gatewayTokenFromConfig =
+    typeof gatewayAuth?.token === "string" ? gatewayAuth.token.trim() : "";
+  const localApiToken =
+    gatewayTokenFromConfig || process.env.OPENCLAW_GATEWAY_TOKEN || token;
   const defaultChatModel = deriveDefaultChatModel(cfg);
 
   if (!tunnelUrl || !instanceId || !token) {
@@ -106,6 +122,7 @@ export function startTunnelClient(cfg: OpenClawConfig, callbacks?: TunnelCallbac
       tunnelUrl,
       instanceId,
       token,
+      localApiToken,
       defaultChatModel,
       callbacks,
     );
@@ -120,6 +137,7 @@ export function startTunnelClient(cfg: OpenClawConfig, callbacks?: TunnelCallbac
     tunnelUrl,
     instanceId,
     token,
+    localApiToken,
     defaultChatModel,
     callbacks,
   );
@@ -145,6 +163,7 @@ export class TunnelClient {
     private backendUrl: string,
     private instanceId: string,
     private token: string,
+    private localApiToken: string,
     private defaultChatModel: string,
     private callbacks?: TunnelCallbacks,
   ) {}
@@ -323,7 +342,7 @@ export class TunnelClient {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${this.token}`,
+          Authorization: `Bearer ${this.localApiToken}`,
           ...(sessionKey ? { "X-OpenClaw-Session-Key": sessionKey } : {}),
         },
         body: JSON.stringify({
@@ -351,7 +370,7 @@ export class TunnelClient {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${this.token}`,
+          Authorization: `Bearer ${this.localApiToken}`,
           ...(sessionKey
             ? { "X-OpenClaw-Session-Key": sessionKey }
             : {}),
