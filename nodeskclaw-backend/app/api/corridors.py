@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.workspaces import broadcast_event
 from app.core import hooks
 from app.core.deps import get_current_org, get_current_org_or_agent, get_db
+from app.core.exceptions import NotFoundError
 from app.models.base import not_deleted
 from app.models.corridor import CorridorHex, HexConnection, HumanHex, is_adjacent, ordered_pair
 from app.models.instance import Instance
@@ -67,7 +68,7 @@ async def _check_workspace(workspace_id: str, org, db: AsyncSession) -> Workspac
     )
     ws = result.scalar_one_or_none()
     if not ws:
-        raise HTTPException(status_code=404, detail="cyber office not found")
+        raise NotFoundError("办公室不存在", "errors.workspace.not_found")
     return ws
 
 

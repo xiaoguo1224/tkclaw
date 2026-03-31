@@ -13,6 +13,7 @@ from sqlalchemy import select
 
 from app.core import hooks
 from app.core.deps import get_db
+from app.core.exceptions import BadRequestError, ConflictError
 from app.core.security import get_current_user
 from app.models.org_membership import OrgMembership
 from app.models.user import User
@@ -60,7 +61,7 @@ async def deploy(
 
     effective_org_id = body.org_id or current_user.current_org_id
     if not effective_org_id:
-        raise HTTPException(status_code=400, detail="缺少目标组织，无法部署")
+        raise BadRequestError("缺少目标组织，无法部署", "errors.org.org_required")
     try:
         deploy_id, ctx = await deploy_service.deploy_instance(
             body, current_user, db, org_id=effective_org_id
@@ -68,7 +69,10 @@ async def deploy(
     except IntegrityError:
         await db.rollback()
         slug_display = body.slug or body.name
-        raise HTTPException(status_code=409, detail=f"实例标识 '{slug_display}' 已存在，请更换标识")
+        raise ConflictError(
+            f"实例标识 '{slug_display}' 已存在，请更换标识",
+            "errors.instance.slug_conflict",
+        )
 
     await hooks.emit("operation_audit", action="deploy.started", target_type="instance", target_id=ctx.instance_id, actor_id=current_user.id, org_id=effective_org_id, details={"deploy_id": deploy_id, "slug": body.slug or body.name, "source": "portal"})
     task = asyncio.create_task(

@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
+from app.core.exceptions import NotFoundError
 from app.core.security import create_access_token, create_refresh_token, decode_token
 from app.models.user import User, UserRole
 from app.schemas.auth import LoginResponse, TokenResponse, UserInfo
@@ -425,7 +426,7 @@ async def change_password(
     )
     user = result.scalar_one_or_none()
     if user is None:
-        raise HTTPException(status_code=404, detail="用户不存在")
+        raise NotFoundError("用户不存在", "errors.auth.user_not_found_or_disabled")
 
     if user.password_hash and not user.must_change_password:
         if not old_password:
