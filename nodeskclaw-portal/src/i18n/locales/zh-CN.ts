@@ -1272,6 +1272,11 @@ const zhCN = {
     instance: {
       slug_conflict: "实例标识已存在，请更换标识",
     },
+    llm: {
+      api_key_required: "新建 Key 时 api_key 不能为空",
+      provider_key_missing: "当前 Provider 缺少可用 Key，请先配置个人 Key 或 Working Plan",
+      model_fetch_failed: "拉取模型列表失败",
+    },
     workspace: {
       not_found: "办公室不存在",
       add_agent_invalid: "添加 AI 员工参数不合法",

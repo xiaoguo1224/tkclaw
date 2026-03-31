@@ -258,7 +258,7 @@ async def upsert_user_llm_key(
     normalized_api_key = normalize_codex_api_key(body.api_key) if is_codex_provider(body.provider) else body.api_key
     if key is None:
         if not normalized_api_key:
-            return ApiResponse(code=400, message="新建 Key 时 api_key 不能为空")
+            raise BadRequestError("新建 Key 时 api_key 不能为空", "errors.llm.api_key_required")
         key = UserLlmKey(
             user_id=current_user.id,
             provider=body.provider,
@@ -360,14 +360,15 @@ async def list_provider_models(
             resolved_key = org_key.api_key
 
     if not resolved_key:
-        return ApiResponse(data=ProviderModelsResponse(provider=provider, models=[]),
-                           message=f"无可用的 {provider} Key，请先配置个人 Key 或 Working Plan")
+        raise BadRequestError(
+            f"无可用的 {provider} Key，请先配置个人 Key 或 Working Plan",
+            "errors.llm.provider_key_missing",
+        )
 
     try:
         models = await fetch_provider_models(provider, resolved_key, base_url=resolved_base_url)
     except ValueError as e:
-        return ApiResponse(data=ProviderModelsResponse(provider=provider, models=[]),
-                           message=str(e))
+        raise BadRequestError(str(e), "errors.llm.model_fetch_failed")
     return ApiResponse(data=ProviderModelsResponse(provider=provider, models=models))
 
 

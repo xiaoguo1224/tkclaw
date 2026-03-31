@@ -1272,6 +1272,11 @@ const enUS = {
     instance: {
       slug_conflict: "Instance slug already exists. Please choose another one",
     },
+    llm: {
+      api_key_required: "api_key is required when creating a new key",
+      provider_key_missing: "No available key for this provider. Please configure a personal key or Working Plan first",
+      model_fetch_failed: "Failed to fetch model list",
+    },
     workspace: {
       not_found: "Cyber office does not exist",
       add_agent_invalid: "Invalid parameters for adding AI Employee",
