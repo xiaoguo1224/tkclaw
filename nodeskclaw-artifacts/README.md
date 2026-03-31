@@ -15,12 +15,6 @@ nodeskclaw-artifacts/
 │   ├── init-container.sh        # Init Container 脚本（PVC 数据初始化 + 版本升级）
 │   ├── openclaw.json.template   # 配置模板，启动时 envsubst 替换占位符
 │   └── check-update.sh          # 版本检测脚本（查询 npm 最新稳定版、自动更新 Dockerfile）
-├── zeroclaw-image/              # ZeroClaw 高性能工作引擎镜像
-│   ├── Dockerfile               # Base 镜像: debian:bookworm-slim + 预编译二进制下载
-│   ├── Dockerfile.security      # 安全层镜像: 多阶段 Rust 源码构建（git clone + cargo build）
-│   ├── docker-entrypoint.sh     # 容器入口脚本
-│   ├── check-update.sh          # 版本检测脚本（查询 GitHub Releases 最新版、自动更新 Dockerfile）
-│   └── README.md                # 构建说明
 ├── nanobot-image/               # Nanobot 轻量工作引擎镜像
 │   ├── Dockerfile               # Base 镜像: python:3.13-slim-bookworm + pip install nanobot-ai
 │   ├── Dockerfile.security      # 安全层镜像: FROM base + pip install 安全层 + startup wrapper
@@ -69,12 +63,10 @@ cd nodeskclaw-artifacts
 
 # 单引擎（自动检测最新版）
 ./build.sh openclaw
-./build.sh zeroclaw
 ./build.sh nanobot
 
 # 指定版本
 ./build.sh openclaw --version 2026.3.13
-./build.sh zeroclaw --version v0.5.0
 
 # 仅构建不推送
 ./build.sh openclaw --build-only
@@ -96,11 +88,6 @@ cd nodeskclaw-artifacts
 # Nanobot
 ./build.sh nanobot --version 0.1.4 --build-only
 ./build.sh nanobot --with-security --base-tag v0.1.4 --build-only
-
-# ZeroClaw（安全层模式为 Rust 源码构建，耗时较长）
-./build.sh zeroclaw --version v0.5.0 --build-only
-ZEROCLAW_REPO=https://github.com/zeroclaw-labs/zeroclaw.git ZEROCLAW_REF=master \
-  ./build.sh zeroclaw --with-security --base-tag v0.5.0 --build-only
 ```
 
 安全层镜像 Tag 格式: `v{VERSION}-sec`（如 `v2026.2.26-sec`）。
@@ -126,9 +113,8 @@ ZEROCLAW_REPO=https://github.com/zeroclaw-labs/zeroclaw.git ZEROCLAW_REF=master 
 |---------|--------|-------------|
 | OpenClaw | npm `openclaw` | `npm view` 过滤 `YYYY.M.DD` 格式稳定版 |
 | Nanobot | PyPI `nanobot-ai` | PyPI JSON API 过滤 `X.Y.Z` 格式稳定版 |
-| ZeroClaw | GitHub `zeroclaw-labs/zeroclaw` | GitHub Releases API 获取最新 release tag |
 
-发现新版本时自动创建对应 PR，人工审核后合并。三个 runtime 的检测作为独立 Job 并行运行，互不影响。
+发现新版本时自动创建对应 PR，人工审核后合并。
 
 ### 镜像内文件说明
 

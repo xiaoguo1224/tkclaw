@@ -49,7 +49,7 @@ graph TD
     API --> Gene["基因系统<br>公共市场"]
     API --> Compute["K8s"]
 
-    Compute --> Runtime["AI 运行时<br>OpenClaw / ZeroClaw / Nanobot"]
+    Compute --> Runtime["AI 运行时<br>OpenClaw / Nanobot"]
     Runtime <-->|"经营通道 (SSE)"| API
     Runtime --> LLM["LLM 代理"] --> Providers["OpenAI / Anthropic / Gemini / ..."]
 

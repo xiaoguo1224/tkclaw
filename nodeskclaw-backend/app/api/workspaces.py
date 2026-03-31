@@ -1515,11 +1515,13 @@ async def _stream_agent_response(
         )
         async for chunk_msg in chat_stream:
             if chunk_msg.type == TunnelMessageType.CHAT_RESPONSE_ERROR:
-                logger.error("Agent %s returned error: %s", agent_name, chunk_msg.payload.get("error"))
+                raw_error = chunk_msg.payload.get("error", "unknown")
+                logger.error("Agent %s returned error: %s", agent_name, raw_error)
                 broadcast_event(workspace_id, "agent:error", {
                     "instance_id": instance_id,
                     "agent_name": agent_name,
-                    "error": chunk_msg.payload.get("error", "unknown"),
+                    "error": "stream_error",
+                    "error_detail": str(raw_error)[:256],
                 })
                 return
             if chunk_msg.type == TunnelMessageType.CHAT_RESPONSE_DONE:
@@ -1557,7 +1559,8 @@ async def _stream_agent_response(
         broadcast_event(workspace_id, "agent:error", {
             "instance_id": instance_id,
             "agent_name": agent_name,
-            "error": str(e),
+            "error": "stream_error",
+            "error_detail": str(e)[:256],
         })
         return
 
@@ -1591,6 +1594,12 @@ async def _stream_agent_response(
                 sender_name=agent_name,
                 content=full_response,
             )
+    elif not full_response:
+        broadcast_event(workspace_id, "agent:error", {
+            "instance_id": instance_id,
+            "agent_name": agent_name,
+            "error": "empty_response",
+        })
     else:
         broadcast_event(workspace_id, "agent:done", {
             "instance_id": instance_id,

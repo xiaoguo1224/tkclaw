@@ -2,9 +2,10 @@
 import { ref, onMounted, computed, provide } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ArrowLeft, Circle, Loader2, LayoutDashboard, Brain, Dna, History, Radio, FolderOpen, Users } from 'lucide-vue-next'
+import { ArrowLeft, Circle, Loader2, LayoutDashboard, Brain, Dna, History, Radio, FolderOpen, Users, Activity } from 'lucide-vue-next'
 import api from '@/services/api'
 import { getRuntimeCaps } from '@/utils/runtimeCapabilities'
+import { getStatusDisplay } from '@/utils/instanceStatus'
 
 const route = useRoute()
 const router = useRouter()
@@ -15,6 +16,7 @@ interface InstanceBasic {
   id: string
   name: string
   status: string
+  display_status?: string
   runtime?: string
   org_id: string | null
   my_role: string | null
@@ -23,19 +25,6 @@ interface InstanceBasic {
 const instance = ref<InstanceBasic | null>(null)
 const loading = ref(true)
 const myInstanceRole = computed(() => instance.value?.my_role ?? null)
-
-const statusColors: Record<string, string> = {
-  running: 'text-green-400',
-  learning: 'text-blue-400',
-  deploying: 'text-yellow-400',
-  restarting: 'text-amber-400',
-  failed: 'text-red-400',
-}
-
-function getStatusLabel(status: string): string {
-  const key = `status.${status}`
-  return t(key) === key ? status : t(key)
-}
 
 async function fetchBasic() {
   loading.value = true
@@ -68,6 +57,7 @@ const navItems = computed(() => {
   const items = [
     { name: 'InstanceDetail', label: t('common.overview'), icon: LayoutDashboard },
   ]
+  items.push({ name: 'InstanceRuntime', label: t('common.runtimeStatus'), icon: Activity })
   if (caps.value.genes) items.push({ name: 'InstanceGenes', label: t('common.genes'), icon: Dna })
   if (caps.value.evolutionLog) items.push({ name: 'EvolutionLog', label: t('common.evolutionLog'), icon: History })
   items.push({ name: 'InstanceChannels', label: t('common.channels'), icon: Radio })
@@ -92,9 +82,9 @@ const navItems = computed(() => {
       </template>
       <template v-else-if="instance">
         <h1 class="text-xl font-bold">{{ instance.name }}</h1>
-        <span class="flex items-center gap-1 text-xs" :class="statusColors[instance.status] || 'text-zinc-400'">
-          <Circle class="w-2 h-2 fill-current" />
-          {{ getStatusLabel(instance.status) }}
+        <span class="flex items-center gap-1 text-xs" :class="getStatusDisplay(instance.display_status ?? '').color">
+          <Circle class="w-2 h-2 fill-current" :class="getStatusDisplay(instance.display_status ?? '').pulse ? 'animate-pulse' : ''" />
+          {{ t('displayStatus.' + getStatusDisplay(instance.display_status ?? '').key) }}
         </span>
       </template>
     </div>

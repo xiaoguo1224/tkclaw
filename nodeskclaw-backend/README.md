@@ -90,11 +90,11 @@ nodeskclaw-backend/
 │   │   ├── summary_job.py        # 自动摘要生成
 │   │   ├── runtime/              # 运行时平台 v2（五层架构）
 │   │   │   ├── registries/       # 六大注册表（NodeType/Transport/Runtime/Compute/ContextBridge/Channel）
-│   │   │   ├── adapters/         # Agent 运行时适配器（OpenClaw/ZeroClaw/Nanobot）
+│   │   │   ├── adapters/         # Agent 运行时适配器（OpenClaw/Nanobot）
 │   │   │   ├── config_adapter.py            # Channel 配置适配器（三引擎 read/write/translate/restart）
 │   │   │   ├── gene_install_adapter.py      # GeneInstallAdapter 抽象接口
 │   │   │   ├── openclaw_gene_install_adapter.py # OpenClaw 基因安装适配器
-│   │   │   ├── noop_gene_install_adapter.py     # ZeroClaw/NanoBot 空实现
+│   │   │   ├── noop_gene_install_adapter.py     # NanoBot 空实现
 │   │   │   ├── context_bridges/  # 上下文注入桥接（ChannelPlugin/SystemPrompt/MCP）
 │   │   │   ├── compute/          # 计算资源提供者（K8s/Docker/Process）
 │   │   │   ├── transport/        # 消息投递适配器（Agent/Channel）
@@ -197,13 +197,12 @@ API 路由同时挂载在两个前缀下：
 | 配置键 | 引擎 | 说明 |
 |--------|------|------|
 | `image_registry` | OpenClaw | 全局默认，向后兼容 |
-| `image_registry_zeroclaw` | ZeroClaw | ZeroClaw 独立仓库 |
 | `image_registry_nanobot` | Nanobot | Nanobot 独立仓库 |
 
 - **启动时自动内置默认值**：`seed.py` 中 `_seed_default_registry_configs()` 在每次启动时幂等写入上述三个 key 的默认公共仓库地址（仅在 key 不存在时写入，不覆盖管理员修改）
 - 部署和配置更新时通过 `resolve_image_registry(db, runtime)` 自动解析
 - 未配置引擎专属仓库时回退到全局 `image_registry`
-- `GET /registry/tags?runtime=zeroclaw` 按引擎查询对应仓库的 Tag 列表
+- `GET /registry/tags?runtime=nanobot` 按引擎查询对应仓库的 Tag 列表
 - Settings API 动态支持 `image_registry_{runtime_id}` 键，新增引擎自动生效
 
 ### StorageClass 配置
@@ -658,7 +657,6 @@ Admin 后台权限**仅依赖 AdminMembership**，`is_super_admin` 不作为 Adm
 
 各 runtime 的 tunnel 客户端收到 `no_reply: true` 后：
 - **OpenClaw**：`max_tokens: 1` fire-and-forget，立即返回 `chat.response.done`
-- **ZeroClaw**：`POST /webhook` 后丢弃响应
 - **NanoBot**：注入消息到 AgentLoop 后丢弃回复
 
 无人被 @提及时，`no_reply` 不发送（保持默认行为，所有 agent 正常响应）。

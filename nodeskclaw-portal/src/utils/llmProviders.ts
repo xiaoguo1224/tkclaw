@@ -1,6 +1,6 @@
 import type { ModelItem } from '@/components/shared/ModelSelect.vue'
 
-export const PROVIDERS = ['codex', 'minimax-openai', 'minimax-anthropic', 'openai', 'anthropic', 'gemini', 'openrouter'] as const
+export const PROVIDERS = ['minimax-openai', 'minimax-anthropic', 'openai', 'anthropic', 'gemini', 'openrouter', 'codex'] as const
 
 export const PROVIDER_LABELS: Record<string, string> = {
   codex: 'Codex CLI',

@@ -40,37 +40,6 @@ def test_build_compose_yaml_uses_host_data_dir_for_bind_source(monkeypatch) -> N
     }]
 
 
-def test_build_compose_yaml_sets_zeroclaw_command(monkeypatch) -> None:
-    monkeypatch.setattr(docker_provider, "DOCKER_HOST_DATA_DIR", "/Users/tester/.nodeskclaw/docker-instances")
-
-    config = docker_provider.InstanceComputeConfig(
-        instance_id="instance-1",
-        name="demo",
-        namespace="default",
-        slug="demo",
-        image_version="latest",
-        runtime="zeroclaw",
-        gateway_port=8080,
-        env_vars={},
-        mem_limit=None,
-        cpu_limit=None,
-        companion=None,
-    )
-
-    compose = docker_provider._build_compose_yaml(config)
-    agent_service = compose["services"]["agent"]
-
-    assert agent_service["command"] == [
-        "zeroclaw",
-        "gateway",
-        "start",
-        "-p",
-        "8080",
-        "--host",
-        "0.0.0.0",
-    ]
-
-
 def test_resolve_compose_path_prefers_current_container_path(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(docker_provider, "DOCKER_DATA_DIR", tmp_path)
     monkeypatch.setattr(docker_provider, "DOCKER_HOST_DATA_DIR", r"C:\Users\tester\.nodeskclaw\docker-instances")

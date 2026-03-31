@@ -1,6 +1,6 @@
 """WebSocket endpoint for tool execution security evaluation.
 
-Runtime security layers (OpenClaw, nanobot, ZeroClaw) connect here and send
+Runtime security layers (OpenClaw, nanobot) connect here and send
 evaluate_before / evaluate_after requests. The pipeline runs all registered
 plugins and returns results (or pending + deferred result for approval flows).
 """

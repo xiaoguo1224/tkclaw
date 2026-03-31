@@ -381,6 +381,29 @@ export class TunnelClient {
       const decoder = new TextDecoder();
       let buffer = "";
       let dataAccum = "";
+      let hasContent = false;
+
+      const sendDoneOrError = () => {
+        if (hasContent) {
+          this.send({
+            id: crypto.randomUUID(),
+            type: "chat.response.done",
+            replyTo: msg.id,
+            traceId: msg.traceId,
+            payload: {},
+            ts: Date.now(),
+          });
+        } else {
+          this.send({
+            id: crypto.randomUUID(),
+            type: "chat.response.error",
+            replyTo: msg.id,
+            traceId: msg.traceId,
+            payload: { error: "empty_response" },
+            ts: Date.now(),
+          });
+        }
+      };
 
       while (true) {
         const { done, value } = await reader.read();
@@ -398,14 +421,7 @@ export class TunnelClient {
           }
           if (line.trim() === "" && dataAccum) {
             if (dataAccum === "[DONE]") {
-              this.send({
-                id: crypto.randomUUID(),
-                type: "chat.response.done",
-                replyTo: msg.id,
-                traceId: msg.traceId,
-                payload: {},
-                ts: Date.now(),
-              });
+              sendDoneOrError();
               return;
             }
             try {
@@ -413,6 +429,7 @@ export class TunnelClient {
               const content =
                 chunk?.choices?.[0]?.delta?.content ?? "";
               if (content) {
+                hasContent = true;
                 this.send({
                   id: crypto.randomUUID(),
                   type: "chat.response.chunk",
@@ -435,6 +452,7 @@ export class TunnelClient {
           const chunk = JSON.parse(dataAccum);
           const content = chunk?.choices?.[0]?.delta?.content ?? "";
           if (content) {
+            hasContent = true;
             this.send({
               id: crypto.randomUUID(),
               type: "chat.response.chunk",
@@ -449,14 +467,7 @@ export class TunnelClient {
         }
       }
 
-      this.send({
-        id: crypto.randomUUID(),
-        type: "chat.response.done",
-        replyTo: msg.id,
-        traceId: msg.traceId,
-        payload: {},
-        ts: Date.now(),
-      });
+      sendDoneOrError();
     } catch (err) {
       console.error("[tunnel] chat.request failed:", err);
       this.send({

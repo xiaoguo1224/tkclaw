@@ -28,6 +28,7 @@
 #   --skip-proxy    all 时跳过 proxy
 #   --no-cache      不使用 Docker 缓存
 #   --env-file FILE init 时指定 .env 文件
+#   --force         init 时跳过 Secret 差异确认
 #
 # 前置条件:
 #   - deploy/.env.local 已配置 REGISTRY 和 KUBE_CONTEXT
@@ -136,6 +137,37 @@ require_gh() {
     err "gh CLI 未认证。请运行: gh auth login"
     exit 1
   fi
+}
+
+diff_secret() {
+  local secret_name="$1" clean_env="$2"
+  if ! $KUBECTL -n "$NAMESPACE" get secret "$secret_name" &>/dev/null; then
+    return 1
+  fi
+  local current_json
+  current_json=$($KUBECTL -n "$NAMESPACE" get secret "$secret_name" -o jsonpath='{.data}')
+  python3 -c "
+import sys, json, base64
+cur_b64 = json.loads(sys.argv[1]) if sys.argv[1] else {}
+cur = {k: base64.b64decode(v).decode() for k, v in cur_b64.items()}
+new = {}
+with open(sys.argv[2]) as f:
+    for line in f:
+        line = line.strip()
+        if not line or '=' not in line:
+            continue
+        k, v = line.split('=', 1)
+        new[k] = v
+added = sorted(set(new) - set(cur))
+removed = sorted(set(cur) - set(new))
+changed = sorted(k for k in set(new) & set(cur) if new[k] != cur[k])
+if not added and not removed and not changed:
+    sys.exit(10)
+for k in changed:  print(f'  [变更] {k}')
+for k in added:    print(f'  [新增] {k}')
+for k in removed:  print(f'  [移除] {k} (将从 Secret 中删除)')
+sys.exit(0)
+" "$current_json" "$clean_env"
 }
 
 # ── 构建 & 推送 ──────────────────────────────────────────
@@ -483,11 +515,28 @@ cmd_init() {
   local env_count; env_count=$(wc -l < "$clean_env" | xargs)
   local secret_name="nodeskclaw-backend-env"
 
-  log "从 $env_file 创建 Secret: $secret_name"
-  $KUBECTL -n "$NAMESPACE" create secret generic "$secret_name" \
-    --from-env-file="$clean_env" \
-    --dry-run=client -o yaml | $KUBECTL apply -f -
-  ok "Secret $secret_name 已创建/更新 ($env_count 个变量)"
+  if diff_output=$(diff_secret "$secret_name" "$clean_env" 2>&1); then
+    warn "Secret $secret_name 已存在，检测到以下差异:"
+    echo "$diff_output"
+    if [[ "$FORCE" == true ]]; then
+      log "--force 模式，跳过确认"
+    else
+      confirm "是否覆盖 Secret $secret_name？"
+    fi
+    log "更新 Secret: $secret_name"
+    $KUBECTL -n "$NAMESPACE" create secret generic "$secret_name" \
+      --from-env-file="$clean_env" \
+      --dry-run=client -o yaml | $KUBECTL apply -f -
+    ok "Secret $secret_name 已更新 ($env_count 个变量)"
+  elif [[ $? -eq 10 ]]; then
+    ok "Secret $secret_name 无变更，跳过"
+  else
+    log "创建 Secret: $secret_name"
+    $KUBECTL -n "$NAMESPACE" create secret generic "$secret_name" \
+      --from-env-file="$clean_env" \
+      --dry-run=client -o yaml | $KUBECTL apply -f -
+    ok "Secret $secret_name 已创建 ($env_count 个变量)"
+  fi
 
   log "应用 K8s 部署清单（Deployment + Service）..."
   for f in backend.yaml admin.yaml portal.yaml; do
@@ -540,6 +589,7 @@ usage() {
   --skip-proxy    all 时跳过 proxy
   --no-cache      不使用 Docker 缓存
   --env-file FILE init 时指定 .env 文件
+  --force         init 时跳过 Secret 差异确认
 EOF
   exit 1
 }
@@ -556,6 +606,7 @@ DEPLOY_ONLY=false
 NO_CACHE=""
 SKIP_PROXY=false
 ENV_FILE=""
+FORCE=false
 IS_PROD=false
 
 case "$COMMAND" in
@@ -594,6 +645,7 @@ while [[ $# -gt 0 ]]; do
     --skip-proxy)  SKIP_PROXY=true ;;
     --no-cache)    NO_CACHE="--no-cache" ;;
     --env-file)    ENV_FILE="$2"; shift ;;
+    --force)       FORCE=true ;;
     *)             err "未知参数: $1"; usage ;;
   esac
   shift

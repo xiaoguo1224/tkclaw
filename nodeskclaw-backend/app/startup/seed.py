@@ -29,7 +29,6 @@ async def run_seed(
 
 DEFAULT_REGISTRY_CONFIGS: dict[str, str] = {
     "image_registry": "nodesk-center-cn-beijing.cr.volces.com/public/deskclaw-openclaw",
-    "image_registry_zeroclaw": "nodesk-center-cn-beijing.cr.volces.com/public/deskclaw-zeroclaw",
     "image_registry_nanobot": "nodesk-center-cn-beijing.cr.volces.com/public/deskclaw-nanobot",
 }
 

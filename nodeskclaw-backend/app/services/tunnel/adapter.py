@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 import uuid
 from dataclasses import dataclass
@@ -47,6 +48,23 @@ def _parse_delegation(response: str) -> tuple[str, str] | None:
             if target:
                 return (prefix.rstrip(":"), target)
     return None
+
+
+def _extract_mentions(
+    text: str, members: list[dict], self_name: str,
+) -> list[dict]:
+    """Parse @name from agent response, matching all workspace members (agent + human).
+
+    Uses negative lookahead to avoid prefix false positives (e.g. @test matching @test-2).
+    """
+    results = []
+    for m in members:
+        name = m.get("name", "")
+        if not name or name == self_name:
+            continue
+        if re.search(rf"@{re.escape(name)}(?![\w-])", text):
+            results.append(m)
+    return results
 
 
 class _InstanceConnection:
@@ -512,7 +530,8 @@ class TunnelAdapter:
         try:
             async for chunk_msg in chat_stream:
                 if chunk_msg.type == TunnelMessageType.CHAT_RESPONSE_ERROR:
-                    error_msg = chunk_msg.payload.get("error", "unknown_error")
+                    raw_error = chunk_msg.payload.get("error", "unknown_error")
+                    error_msg = str(raw_error)[:256]
                     break
                 if chunk_msg.type == TunnelMessageType.CHAT_RESPONSE_DONE:
                     break
@@ -556,7 +575,8 @@ class TunnelAdapter:
 
         if error_msg:
             broadcast_event(workspace_id, "agent:error", {
-                "instance_id": target_node_id, "agent_name": agent_name, "error": error_msg,
+                "instance_id": target_node_id, "agent_name": agent_name,
+                "error": "stream_error", "error_detail": error_msg,
             })
             return DeliveryResult(
                 success=False, target_node_id=target_node_id,
@@ -591,6 +611,78 @@ class TunnelAdapter:
             except Exception as e:
                 logger.warning("Delegation %s->%s failed: %s", action, delegate_target, e)
 
+        elif full_response and not msg_service.is_no_reply(full_response.strip()):
+            mentions = _extract_mentions(full_response, ws_ctx.members, agent_name)
+            if mentions:
+                depth = (data.extensions or {}).get("depth", 0)
+                if depth < MAX_COLLABORATION_DEPTH:
+                    from app.core.deps import async_session_factory
+                    async with async_session_factory() as save_db:
+                        saved_msg = await msg_service.record_message(
+                            save_db,
+                            workspace_id=workspace_id,
+                            sender_type="agent",
+                            sender_id=target_node_id,
+                            sender_name=agent_name,
+                            content=full_response,
+                            message_type="collaboration",
+                            depth=depth,
+                        )
+                    broadcast_event(workspace_id, "agent:collaboration", {
+                        "instance_id": target_node_id,
+                        "agent_name": agent_name,
+                        "content": full_response,
+                        "envelope_id": saved_msg.id,
+                        "trace_id": envelope.traceid,
+                    })
+                    for mention in mentions:
+                        if mention["type"] == "agent":
+                            from app.services.runtime.messaging.ingestion.agent import (
+                                build_agent_collaboration_envelope,
+                            )
+                            collab_env = build_agent_collaboration_envelope(
+                                workspace_id=workspace_id,
+                                source_instance_id=target_node_id,
+                                source_name=agent_name,
+                                target=f"agent:{mention['name']}",
+                                content=full_response,
+                                depth=depth + 1,
+                            )
+                            from app.services.runtime.messaging.bus import message_bus
+                            async with async_session_factory() as route_db:
+                                await message_bus.publish(collab_env, db=route_db)
+                        elif mention["type"] == "human":
+                            from app.services.collaboration_service import (
+                                _find_human_by_display_name,
+                                _route_to_human,
+                            )
+                            async with async_session_factory() as route_db:
+                                hh = await _find_human_by_display_name(
+                                    route_db, workspace_id, mention["name"],
+                                )
+                                if hh:
+                                    await _route_to_human(
+                                        route_db, workspace_id,
+                                        target_node_id, agent_name, hh, full_response,
+                                    )
+                                else:
+                                    logger.warning(
+                                        "Human mention target not found: %s in workspace %s",
+                                        mention["name"], workspace_id,
+                                    )
+                    broadcast_event(workspace_id, "agent:done", {
+                        "instance_id": target_node_id, "agent_name": agent_name,
+                    })
+                    return DeliveryResult(
+                        success=True, target_node_id=target_node_id,
+                        transport=self.transport_id,
+                        latency_ms=int((time.monotonic() - start) * 1000),
+                    )
+                logger.warning(
+                    "Mention routing skipped: depth %d >= %d",
+                    depth, MAX_COLLABORATION_DEPTH,
+                )
+
         if full_response and not msg_service.is_no_reply(full_response.strip()):
             broadcast_event(workspace_id, "agent:done", {
                 "instance_id": target_node_id,
@@ -608,6 +700,11 @@ class TunnelAdapter:
                     sender_name=agent_name,
                     content=full_response,
                 )
+        elif not full_response:
+            broadcast_event(workspace_id, "agent:error", {
+                "instance_id": target_node_id, "agent_name": agent_name,
+                "error": "empty_response",
+            })
         else:
             broadcast_event(workspace_id, "agent:done", {
                 "instance_id": target_node_id, "agent_name": agent_name,

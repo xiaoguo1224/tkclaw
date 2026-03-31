@@ -6,13 +6,12 @@
 #   ./build.sh <engine> --with-security --base-tag <tag> [--build-only]
 #   ./build.sh all [--build-only] [--skip-verify]
 #
-# 省略 --version 时自动检测各引擎最新稳定版（openclaw→npm, zeroclaw→GitHub, nanobot→PyPI）
+# 省略 --version 时自动检测各引擎最新稳定版（openclaw→npm, nanobot→PyPI）
 #
 # 示例:
 #   ./build.sh all                                    # 所有引擎最新版，构建并推送
 #   ./build.sh all --build-only                       # 所有引擎最新版，仅构建
 #   ./build.sh openclaw                               # 自动检测最新 OpenClaw
-#   ./build.sh zeroclaw --version v0.5.0 --build-only
 #   ./build.sh nanobot --version 0.1.4
 #   ./build.sh openclaw --with-security --base-tag v2026.3.13
 set -e
@@ -31,9 +30,6 @@ detect_latest_version() {
         if (stable.length > 0) console.log(stable[stable.length - 1]);
       "
       ;;
-    zeroclaw)
-      gh api repos/zeroclaw-labs/zeroclaw/releases/latest --jq '.tag_name' 2>/dev/null || echo ""
-      ;;
     nanobot)
       curl -sS https://pypi.org/pypi/nanobot-ai/json 2>/dev/null | python3 -c "
 import json, sys, re
@@ -49,14 +45,14 @@ print(stable[-1] if stable else '')"
 ENGINE="$1"; shift || true
 if [ -z "${ENGINE}" ]; then
   log_error "用法: ./build.sh <engine> [--version <ver>] [--build-only] [--skip-verify]"
-  log_info "可用引擎: openclaw, zeroclaw, nanobot, all"
+  log_info "可用引擎: openclaw, nanobot, all"
   exit 1
 fi
 
 # ── all 模式: 依次构建所有引擎 ────────────────────────
 if [ "${ENGINE}" = "all" ]; then
   FAILED=0
-  for e in openclaw zeroclaw nanobot; do
+  for e in openclaw nanobot; do
     echo ""
     log_info "==============================="
     log_info "  构建 ${e}"
@@ -94,21 +90,10 @@ if [ "${WITH_SECURITY}" = true ]; then
 
   print_build_summary "${ENGINE} (security)" "${BASE_TAG}" "${REGISTRY}" "linux/amd64" "security"
 
-  case "${ENGINE}" in
-    zeroclaw)
-      docker_build "${CONTEXT_DIR}" "${REGISTRY}:${IMAGE_TAG}" \
-        -f "${ENGINE_DIR}/Dockerfile.security" \
-        --build-arg ZEROCLAW_REPO="${ZEROCLAW_REPO:-https://github.com/zeroclaw-labs/zeroclaw.git}" \
-        --build-arg ZEROCLAW_REF="${ZEROCLAW_REF:-master}" \
-        --build-arg IMAGE_VERSION="${IMAGE_TAG}"
-      ;;
-    *)
-      docker_build "${CONTEXT_DIR}" "${REGISTRY}:${IMAGE_TAG}" \
-        -f "${ENGINE_DIR}/Dockerfile.security" \
-        --build-arg BASE_TAG="v${BASE_TAG}" \
-        --build-arg BASE_REGISTRY="${REGISTRY}"
-      ;;
-  esac
+  docker_build "${CONTEXT_DIR}" "${REGISTRY}:${IMAGE_TAG}" \
+    -f "${ENGINE_DIR}/Dockerfile.security" \
+    --build-arg BASE_TAG="v${BASE_TAG}" \
+    --build-arg BASE_REGISTRY="${REGISTRY}"
 else
   # --- Base 模式 ---
   if [ -z "${VERSION}" ]; then
@@ -141,10 +126,7 @@ else
 
   IMAGE_TAG="v${VERSION}"
 
-  case "${ENGINE}" in
-    zeroclaw) BUILD_ARG_VERSION="v${VERSION}" ;;
-    *)        BUILD_ARG_VERSION="${VERSION}" ;;
-  esac
+  BUILD_ARG_VERSION="${VERSION}"
 
   print_build_summary "${ENGINE}" "${VERSION}" "${REGISTRY}" "linux/amd64" "base"
 
@@ -163,9 +145,6 @@ if [ "${SKIP_VERIFY}" = false ] && [ "${WITH_SECURITY}" = false ]; then
       echo "  Node.js: $(docker run --rm --platform linux/amd64 "${REGISTRY}:${IMAGE_TAG}" node --version)"
       echo "  OpenClaw: $(docker run --rm --platform linux/amd64 "${REGISTRY}:${IMAGE_TAG}" openclaw --version 2>/dev/null || echo '(需启动后验证)')"
       echo "  版本标记: $(docker run --rm --platform linux/amd64 "${REGISTRY}:${IMAGE_TAG}" cat /root/.openclaw-version)"
-      ;;
-    zeroclaw)
-      echo "  ZeroClaw: $(docker run --rm --platform linux/amd64 "${REGISTRY}:${IMAGE_TAG}" zeroclaw --version 2>/dev/null || echo '(需启动后验证)')"
       ;;
     nanobot)
       echo "  Python: $(docker run --rm --platform linux/amd64 "${REGISTRY}:${IMAGE_TAG}" python --version)"

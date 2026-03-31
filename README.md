@@ -49,7 +49,7 @@ graph TD
     API --> Gene["Gene System<br>Public Marketplace"]
     API --> Compute["K8s"]
 
-    Compute --> Runtime["AI Runtime<br>OpenClaw / ZeroClaw / Nanobot"]
+    Compute --> Runtime["AI Runtime<br>OpenClaw / Nanobot"]
     Runtime <-->|"Channel Plugin (SSE)"| API
     Runtime --> LLM["LLM Proxy"] --> Providers["OpenAI / Anthropic / Gemini / ..."]
 

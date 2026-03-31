@@ -44,7 +44,7 @@ def build_agent_collaboration_envelope(
             intent=IntentType.COLLABORATE,
             content=content,
             priority=Priority.NORMAL,
-            extensions={"depth": depth},
+            extensions={"depth": depth, "mention_targets": targets},
             routing=MessageRouting(mode=mode, targets=targets, max_hops=5),
         ),
     )

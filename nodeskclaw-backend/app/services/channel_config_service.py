@@ -191,7 +191,7 @@ async def discover_available_channels(
     """Discover available channel plugins (runtime-aware).
 
     OpenClaw: Node.js exec scan of plugin directories.
-    NanoBot / ZeroClaw: return static list from adapter.supported_channels().
+    NanoBot: return static list from adapter.supported_channels().
 
     After collecting runtime-native channels, augment with UNIFIED_CHANNEL_REGISTRY
     entries to ensure a consistent view across all runtimes.

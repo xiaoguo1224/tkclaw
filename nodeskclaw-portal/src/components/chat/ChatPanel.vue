@@ -10,7 +10,7 @@ import { useWorkspaceStore, type GroupChatMessage, type AgentBrief, type FileAtt
 import FileAttachmentList from './FileAttachmentList.vue'
 import BaseTooltip from '@/components/shared/BaseTooltip.vue'
 import { useAuthStore } from '@/stores/auth'
-import { Send, Loader2, Bot, User, Users, AtSign, Slash, RotateCw, Trash2, Activity, XCircle, Copy, ThumbsUp, ThumbsDown, Paperclip, X, FileText, Search } from 'lucide-vue-next'
+import { Send, Loader2, Bot, User, Users, AtSign, Slash, RotateCw, Trash2, Activity, XCircle, Copy, ThumbsUp, ThumbsDown, Paperclip, X, FileText, Search, AlertTriangle, ChevronDown, ChevronRight } from 'lucide-vue-next'
 import { useToast } from '@/composables/useToast'
 import api from '@/services/api'
 import { resolveApiErrorMessage } from '@/i18n/error'
@@ -26,7 +26,7 @@ const props = withDefaults(defineProps<{
   canSend: true,
 })
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const store = useWorkspaceStore()
 const authStore = useAuthStore()
 const toast = useToast()
@@ -681,6 +681,20 @@ function renderMarkdownHighlighted(content: string): string {
 }
 
 const feedbackGiven = ref<Record<string, 'up' | 'down'>>({})
+const expandedErrors = ref<Set<string>>(new Set())
+
+function toggleErrorDetail(msgId: string) {
+  if (expandedErrors.value.has(msgId)) {
+    expandedErrors.value.delete(msgId)
+  } else {
+    expandedErrors.value.add(msgId)
+  }
+}
+
+function agentErrorText(code: string): string {
+  const key = `errors.agent.${code}`
+  return te(key) ? t(key) : code
+}
 
 async function handleFeedback(msg: GroupChatMessage, type: 'up' | 'down') {
   const key = msg.id
@@ -954,12 +968,36 @@ function updateSuggestionIndex(state: SuggestionState, idx: number) {
               </span>
             </div>
             <div
-              v-if="msg.sender_type === 'agent'"
+              v-if="msg.sender_type === 'agent' && msg.content"
               class="rounded-lg px-3 py-2 text-sm bg-muted text-foreground chat-markdown"
               v-html="renderMarkdownHighlighted(msg.content)"
             />
             <div
-              v-if="msg.sender_type === 'agent' && !msg.streaming && msg.content"
+              v-if="msg.sender_type === 'agent' && msg.error"
+              class="rounded-lg border-l-2 border-orange-400 bg-orange-50 dark:bg-orange-950/20 px-3 py-2 text-sm"
+              :class="{ 'mt-1': msg.content }"
+            >
+              <div class="flex items-center gap-1.5 text-orange-700 dark:text-orange-300">
+                <AlertTriangle class="w-3.5 h-3.5 shrink-0" />
+                <span>{{ agentErrorText(msg.error.code) }}</span>
+                <button
+                  v-if="msg.error.detail"
+                  class="ml-1 flex items-center gap-0.5 text-xs text-orange-500 hover:text-orange-700 dark:hover:text-orange-200 transition-colors"
+                  @click="toggleErrorDetail(msg.id)"
+                >
+                  <component :is="expandedErrors.has(msg.id) ? ChevronDown : ChevronRight" class="w-3 h-3" />
+                  {{ expandedErrors.has(msg.id) ? t('errors.agent.hide_detail') : t('errors.agent.view_detail') }}
+                </button>
+              </div>
+              <div
+                v-if="msg.error.detail && expandedErrors.has(msg.id)"
+                class="mt-1.5 rounded bg-orange-100/50 dark:bg-orange-900/20 px-2 py-1 text-xs font-mono text-orange-800 dark:text-orange-200 break-all"
+              >
+                {{ msg.error.detail }}
+              </div>
+            </div>
+            <div
+              v-if="msg.sender_type === 'agent' && !msg.streaming && msg.content && !msg.error"
               class="flex items-center gap-1 mt-1"
             >
               <button

@@ -19,8 +19,9 @@ from app.core.exceptions import register_exception_handlers
 _LOG_DIR = os.path.join(os.path.dirname(__file__), "..", "logs")
 os.makedirs(_LOG_DIR, exist_ok=True)
 
+_app_version = settings.APP_VERSION
 _log_formatter = logging.Formatter(
-    "%(asctime)s %(levelname)-5s [%(name)s] %(message)s",
+    f"%(asctime)s %(levelname)-5s [v{_app_version}] [%(name)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
@@ -37,7 +38,7 @@ class _ColorFormatter(logging.Formatter):
 
     def __init__(self):
         super().__init__(
-            "%(asctime)s %(colored_level)s [%(name)s] %(message)s",
+            f"%(asctime)s %(colored_level)s [v{_app_version}] [%(name)s] %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         )
 
@@ -128,6 +129,7 @@ async def lifespan(app: FastAPI):
     from app.utils.oauth_providers.registry import register_provider
 
     logger = logging.getLogger(__name__)
+    logger.info("NoDeskClaw v%s starting (Python %s)", settings.APP_VERSION, sys.version.split()[0])
 
     # ── EE Model 注册（在 Alembic 迁移之前导入，使其加入 Base.metadata）──
     from app.core.feature_gate import feature_gate as _fg

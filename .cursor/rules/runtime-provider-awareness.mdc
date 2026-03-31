@@ -2,18 +2,18 @@
 
 ## 核心原则
 
-**所有涉及实例基础设施操作的代码，必须同时考虑 runtime 类型（OpenClaw / ZeroClaw / Nanobot / ...）和 compute provider（K8s / Docker / Process）的差异。禁止硬编码任何 runtime 或 provider 特定的值。**
+**所有涉及实例基础设施操作的代码，必须同时考虑 runtime 类型（OpenClaw / Nanobot / ...）和 compute provider（K8s / Docker / Process）的差异。禁止硬编码任何 runtime 或 provider 特定的值。**
 
 ## Runtime 差异
 
 不同 runtime 的基础参数不同，必须从 `RuntimeSpec`（`RUNTIME_REGISTRY`）查取：
 
-| 参数 | OpenClaw | ZeroClaw | Nanobot |
-|------|----------|----------|---------|
-| Gateway 端口 | 18789 | 8080 | 18790 |
-| 数据目录 | `/root/.openclaw` | `/opt/zeroclaw` | `/opt/nanobot` |
-| 配置文件格式 | JSON (JSONC) | TOML | YAML |
-| 镜像仓库 key | `image_registry` | `image_registry_zeroclaw` | `image_registry_nanobot` |
+| 参数 | OpenClaw | Nanobot |
+|------|----------|---------|
+| Gateway 端口 | 18789 | 18790 |
+| 数据目录 | `/root/.openclaw` | `/opt/nanobot` |
+| 配置文件格式 | JSON (JSONC) | YAML |
+| 镜像仓库 key | `image_registry` | `image_registry_nanobot` |
 
 ### 必须做
 

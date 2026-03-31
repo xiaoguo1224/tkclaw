@@ -3,11 +3,12 @@ import { ref, computed, onMounted, onUnmounted, inject, type Ref, type ComputedR
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
-  RefreshCw, Trash2, Circle, Loader2, Copy, Check, RotateCcw, AlertTriangle, FileText, X,
+  RefreshCw, Trash2, Circle, Loader2, Copy, Check, RotateCcw, AlertTriangle,
 } from 'lucide-vue-next'
 import api from '@/services/api'
 import { useToast } from '@/composables/useToast'
 import { useConfirm } from '@/composables/useConfirm'
+import { getStatusDisplay } from '@/utils/instanceStatus'
 import { copyToClipboard } from '@/utils/clipboard'
 
 const router = useRouter()
@@ -31,6 +32,7 @@ interface InstanceDetail {
   name: string
   status: string
   health_status?: string
+  display_status?: string
   image_version: string
   ingress_domain: string | null
   namespace: string
@@ -61,7 +63,6 @@ interface EngineInfo {
 }
 const ENGINE_INFO: Record<string, EngineInfo> = {
   openclaw: { name: '全能工作引擎', description: '支持工具调用、基因系统、多技能管理', poweredBy: 'OpenClaw', tags: ['默认'] },
-  zeroclaw: { name: '高性能工作引擎', description: 'Rust 构建，极速响应，适合高并发场景', poweredBy: 'ZeroClaw', tags: [] },
   nanobot:  { name: '轻量工作引擎', description: '超轻量，快速部署，适合简单对话场景', poweredBy: 'Nanobot', tags: [] },
 }
 const engineInfo = computed(() => ENGINE_INFO[instance.value?.runtime ?? 'openclaw'] ?? null)
@@ -74,28 +75,6 @@ const resettingToken = ref(false)
 const showRestartDialog = ref(false)
 const showDeleteDialog = ref(false)
 const deleting = ref(false)
-const logsVisible = ref(false)
-const logsContent = ref('')
-const logsLoading = ref(false)
-
-async function viewLogs(podName: string) {
-  if (logsVisible.value) {
-    logsVisible.value = false
-    return
-  }
-  logsLoading.value = true
-  logsContent.value = ''
-  try {
-    const res = await api.get(`/api/v1/instances/${instanceId.value}/pods/${podName}/logs`, { params: { tail: 100 } })
-    logsContent.value = res.data?.logs || res.data || ''
-    logsVisible.value = true
-  } catch {
-    toast.error(t('instanceDetail.logsLoadFailed'))
-  } finally {
-    logsLoading.value = false
-  }
-}
-
 function formatCpu(val: string): string {
   if (val.endsWith('m')) {
     const cores = parseInt(val.slice(0, -1), 10) / 1000
@@ -355,6 +334,28 @@ async function handleDelete() {
             <span class="text-muted-foreground">创建时间</span>
             <span class="ml-2">{{ new Date(instance.created_at).toLocaleString('zh-CN') }}</span>
           </div>
+          <div class="col-span-2">
+            <span class="text-muted-foreground">{{ t('instanceDetail.workStatus') }}</span>
+            <span class="ml-2 inline-flex items-center gap-1.5">
+              <Circle
+                class="w-2 h-2 fill-current"
+                :class="[
+                  getStatusDisplay(instance.display_status ?? '').bgColor.replace('bg-', 'text-'),
+                  getStatusDisplay(instance.display_status ?? '').pulse ? 'animate-pulse' : '',
+                ]"
+              />
+              <span :class="getStatusDisplay(instance.display_status ?? '').color">
+                {{ t('displayStatus.' + getStatusDisplay(instance.display_status ?? '').key + '_desc') }}
+              </span>
+              <router-link
+                v-if="getStatusDisplay(instance.display_status ?? '').key === 'error'"
+                :to="{ name: 'InstanceRuntime', params: { id: instance.id } }"
+                class="text-xs text-primary hover:underline ml-1"
+              >
+                {{ t('common.runtimeStatus') }}
+              </router-link>
+            </span>
+          </div>
           <div v-if="instance.endpoint_url" class="col-span-2">
             <span class="text-muted-foreground">{{ t('instanceDetail.endpointUrl') }}</span>
             <a
@@ -367,53 +368,10 @@ async function handleDelete() {
         </div>
       </div>
 
-      <!-- Pod / 容器状态 -->
-      <div v-if="instance.pods?.length" class="p-4 rounded-xl border border-border bg-card">
-        <h2 class="text-sm font-medium mb-3">{{ isDocker ? t('instanceDetail.aiEmployeeStatus') : t('instanceDetail.podStatus') }}</h2>
-        <div class="space-y-2">
-          <div
-            v-for="pod in instance.pods"
-            :key="pod.name"
-            class="flex items-center justify-between text-sm p-2 rounded-md bg-muted/30"
-          >
-            <div class="flex items-center gap-2">
-              <Circle
-                class="w-2 h-2 fill-current"
-                :class="instance.health_status === 'unhealthy' ? 'text-orange-400' : (pod.ready ? 'text-green-400' : 'text-yellow-400')"
-              />
-              <span class="font-mono text-xs">{{ pod.name }}</span>
-              <span v-if="instance.status === 'running' && instance.health_status === 'unhealthy'" class="text-[10px] text-orange-400">
-                {{ t('status.running_unhealthy') }}
-              </span>
-            </div>
-            <div class="flex items-center gap-2">
-              <span class="text-xs text-muted-foreground">
-                重启 {{ pod.restart_count }} 次
-              </span>
-              <button
-                class="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                @click="viewLogs(pod.name)"
-              >
-                <FileText class="w-3 h-3" />
-                {{ t('instanceDetail.viewLogs') }}
-              </button>
-            </div>
-          </div>
-        </div>
-        <div v-if="logsVisible" class="mt-3 border border-border rounded-lg overflow-hidden">
-          <div class="flex items-center justify-between px-3 py-1.5 bg-muted/50 border-b border-border">
-            <span class="text-xs font-medium">{{ t('instanceDetail.viewLogs') }}</span>
-            <button class="text-muted-foreground hover:text-foreground" @click="logsVisible = false">
-              <X class="w-3.5 h-3.5" />
-            </button>
-          </div>
-          <pre class="p-3 text-xs font-mono leading-relaxed overflow-auto max-h-64 bg-black/30 text-foreground">{{ logsContent || '...' }}</pre>
-        </div>
-      </div>
-      <div v-else-if="restarting" class="p-4 rounded-xl border border-amber-500/20 bg-amber-500/5">
+      <div v-if="restarting" class="p-4 rounded-xl border border-amber-500/20 bg-amber-500/5">
         <div class="flex items-center gap-2 text-sm text-amber-400">
           <Loader2 class="w-4 h-4 animate-spin" />
-          AI 员工正在重启，等待新 Pod 启动...
+          {{ t('displayStatus.restarting_desc') }}
         </div>
       </div>
 

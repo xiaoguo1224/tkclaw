@@ -1,6 +1,6 @@
 """No-op gene installation adapter for runtimes that don't yet have specific logic.
 
-Used as a fallback for ZeroClaw, NanoBot, and any future runtimes that
+Used as a fallback for NanoBot and any future runtimes that
 haven't implemented their own GeneInstallAdapter yet. Deploys skills and
 scripts to generic paths without runtime-specific config management.
 """

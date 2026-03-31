@@ -1,6 +1,6 @@
 # Security Service
 
-集中式工具执行安全评估服务。运行时安全层（OpenClaw、nanobot、ZeroClaw）通过 WebSocket 连接到 `/api/v1/security/ws`，发送 `evaluate_before` / `evaluate_after` 请求，本服务运行注册的安全插件并返回结果。
+集中式工具执行安全评估服务。运行时安全层（OpenClaw、nanobot）通过 WebSocket 连接到 `/api/v1/security/ws`，发送 `evaluate_before` / `evaluate_after` 请求，本服务运行注册的安全插件并返回结果。
 
 ## 架构
 

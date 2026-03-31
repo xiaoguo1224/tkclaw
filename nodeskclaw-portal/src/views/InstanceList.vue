@@ -8,6 +8,7 @@ import { resolveApiErrorMessage } from '@/i18n/error'
 import { useGeneStore } from '@/stores/gene'
 import { useClusterStore } from '@/stores/cluster'
 import { useEdition } from '@/composables/useFeature'
+import { getStatusDisplay } from '@/utils/instanceStatus'
 import BaseTooltip from '@/components/shared/BaseTooltip.vue'
 import type { TemplateInfo } from '@/stores/gene'
 
@@ -21,6 +22,7 @@ interface InstanceInfo {
   available_replicas: number
   status: string
   health_status?: string
+  display_status?: string
   service_type: string
   ingress_domain: string | null
   created_by: string
@@ -72,35 +74,13 @@ function selectTemplate(tpl: TemplateInfo) {
   router.push(`/instances/create?template_id=${tpl.id}`)
 }
 
-const statusConfig: Record<string, { color: string; bg: string }> = {
-  running: { color: 'text-emerald-400', bg: 'bg-emerald-400' },
-  running_unhealthy: { color: 'text-orange-400', bg: 'bg-orange-400' },
-  learning: { color: 'text-blue-400', bg: 'bg-blue-400' },
-  creating: { color: 'text-blue-400', bg: 'bg-blue-400' },
-  pending: { color: 'text-yellow-400', bg: 'bg-yellow-400' },
-  deploying: { color: 'text-blue-400', bg: 'bg-blue-400' },
-  updating: { color: 'text-amber-400', bg: 'bg-amber-400' },
-  failed: { color: 'text-red-400', bg: 'bg-red-400' },
-  deleting: { color: 'text-gray-400', bg: 'bg-gray-400' },
+function getStatus(inst: InstanceInfo) {
+  return getStatusDisplay(inst.display_status ?? '')
 }
 
-const animatingStatuses = new Set(['creating', 'pending', 'deploying', 'updating', 'deleting', 'learning'])
-
-function getEffectiveStatus(status: string, healthStatus?: string) {
-  if (status === 'running' && healthStatus === 'unhealthy') return 'running_unhealthy'
-  return status
-}
-
-function getStatus(status: string, healthStatus?: string) {
-  const effective = getEffectiveStatus(status, healthStatus)
-  return statusConfig[effective] ?? { color: 'text-gray-400', bg: 'bg-gray-400' }
-}
-
-function getStatusLabel(status: string, healthStatus?: string) {
-  const effective = getEffectiveStatus(status, healthStatus)
-  const key = `status.${effective}`
-  const translated = t(key)
-  return translated === key ? status : translated
+function getStatusLabel(inst: InstanceInfo) {
+  const d = getStatusDisplay(inst.display_status ?? '')
+  return t(`displayStatus.${d.key}`)
 }
 
 const sortedInstances = computed(() =>
@@ -320,12 +300,12 @@ onMounted(() => {
                 <span
                   class="w-2 h-2 rounded-full"
                   :class="[
-                    getStatus(inst.status, inst.health_status).bg,
-                    animatingStatuses.has(inst.status) ? 'animate-pulse' : '',
+                    getStatus(inst).bgColor,
+                    getStatus(inst).pulse ? 'animate-pulse' : '',
                   ]"
                 />
-                <span :class="getStatus(inst.status, inst.health_status).color">
-                  {{ getStatusLabel(inst.status, inst.health_status) }}
+                <span :class="getStatus(inst).color">
+                  {{ getStatusLabel(inst) }}
                 </span>
               </span>
             </td>

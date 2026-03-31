@@ -32,8 +32,6 @@ dependencies = [
     "boto3>=1.35.0",
     # Database migrations
     "alembic>=1.13.0",
-    # TOML write support (ZeroClaw config)
-    "tomli_w>=1.0.0",
 ]
 
 [dependency-groups]

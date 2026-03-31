@@ -51,7 +51,6 @@ function runtimeBadgeText(ch: AvailableChannel): string | null {
   const labels: Record<string, string> = {
     openclaw: 'OpenClaw',
     nanobot: 'NanoBot',
-    zeroclaw: 'ZeroClaw',
   }
   return [...runtimes].map(r => labels[r] || r).join(' / ')
 }

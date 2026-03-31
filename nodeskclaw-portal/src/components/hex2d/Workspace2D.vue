@@ -5,6 +5,7 @@ import { useSvgZoom } from '@/composables/useSvgZoom'
 import { axialToWorld, hexVertices, HEX_SIZE } from '@/composables/useHexLayout'
 import { useTopologyBFS } from '@/composables/useTopologyBFS'
 import { useFlowAnimation2D } from '@/composables/useFlowAnimation'
+import { heatColor } from '@/composables/useHeatGradient'
 import type { AgentBrief, MessageFlowPair, TopologyNode as StoreTopologyNode, TopologyEdge } from '@/stores/workspace'
 
 const { t } = useI18n()
@@ -231,6 +232,7 @@ const START_OFFSET_2D = JUNCTION_R_2D + 2
 interface RailArm {
   x1a: number; y1a: number; x2a: number; y2a: number
   x1b: number; y1b: number; x2b: number; y2b: number
+  neighborKey: string
 }
 
 const corridorPaths = computed(() => {
@@ -259,6 +261,7 @@ const corridorPaths = computed(() => {
         y1b: dy * START_OFFSET_2D - perpY * HALF_GAP_2D,
         x2b: endX - perpX * HALF_GAP_2D,
         y2b: endY - perpY * HALF_GAP_2D,
+        neighborKey: `${ch.hex_q + dq},${ch.hex_r + dr}`,
       })
     }
     return { ...ch, arms }
@@ -273,28 +276,89 @@ function humanHexPoints(cx: number, cy: number): string {
   return hexPointsStr(cx, cy, HUMAN_RADIUS)
 }
 
-const heatLines = computed(() => {
+function axialDirIndex(dq: number, dr: number): number {
+  return AXIAL_DIRS.findIndex(([aq, ar]) => aq === dq && ar === dr)
+}
+
+const edgeHeatMap = computed(() => {
   const stats = props.messageFlowStats
-  if (!stats || stats.length === 0) return []
-  const maxCount = Math.max(...stats.map(s => s.count))
-  if (maxCount === 0) return []
-  return stats.map(s => {
+  if (!stats?.length) return new Map<string, number>()
+  const raw = new Map<string, number>()
+  for (const s of stats) {
     const [sq, sr] = s.sender_hex_key.split(',').map(Number)
     const [rq, rr] = s.receiver_hex_key.split(',').map(Number)
-    const from = worldPos(sq, sr)
-    const to = worldPos(rq, rr)
-    const ratio = s.count / maxCount
-    return {
-      key: s.sender_hex_key + '-' + s.receiver_hex_key,
-      x1: from.px,
-      y1: from.py,
-      x2: to.px,
-      y2: to.py,
-      width: 1 + 4 * ratio,
-      opacity: 0.15 + 0.45 * ratio,
+    const path = findPath(sq, sr, rq, rr)
+    if (!path || path.length < 2) continue
+    for (let i = 0; i < path.length - 1; i++) {
+      const a = path[i], b = path[i + 1]
+      const fwd = `${a.q},${a.r}>${b.q},${b.r}`
+      const bwd = `${b.q},${b.r}>${a.q},${a.r}`
+      raw.set(fwd, (raw.get(fwd) || 0) + s.count)
+      raw.set(bwd, (raw.get(bwd) || 0) + s.count)
     }
-  })
+  }
+  const maxVal = Math.max(...raw.values(), 1)
+  const normalized = new Map<string, number>()
+  for (const [k, v] of raw) normalized.set(k, v / maxVal)
+  return normalized
 })
+
+const agentDirHeat = computed(() => {
+  const stats = props.messageFlowStats
+  if (!stats?.length) return new Map<string, number[]>()
+  const raw = new Map<string, number[]>()
+  for (const s of stats) {
+    const [sq, sr] = s.sender_hex_key.split(',').map(Number)
+    const [rq, rr] = s.receiver_hex_key.split(',').map(Number)
+    const path = findPath(sq, sr, rq, rr)
+    if (!path || path.length < 2) continue
+    const senderKey = `${sq},${sr}`
+    if (!raw.has(senderKey)) raw.set(senderKey, [0, 0, 0, 0, 0, 0])
+    const sDir = axialDirIndex(path[1].q - path[0].q, path[1].r - path[0].r)
+    if (sDir >= 0) raw.get(senderKey)![sDir] += s.count
+
+    const receiverKey = `${rq},${rr}`
+    if (!raw.has(receiverKey)) raw.set(receiverKey, [0, 0, 0, 0, 0, 0])
+    const last = path.length - 1
+    const rDir = axialDirIndex(path[last - 1].q - path[last].q, path[last - 1].r - path[last].r)
+    if (rDir >= 0) raw.get(receiverKey)![rDir] += s.count
+  }
+  const allMax = Math.max(...[...raw.values()].flatMap(v => v), 1)
+  const normalized = new Map<string, number[]>()
+  for (const [k, arr] of raw) normalized.set(k, arr.map(v => v / allMax))
+  return normalized
+})
+
+const HEAT_EDGE_RADIUS = HEX_RADIUS * 1.08
+
+function getArmColor(ch: { hex_q: number; hex_r: number }, arm: RailArm): string {
+  const heat = edgeHeatMap.value.get(`${ch.hex_q},${ch.hex_r}>${arm.neighborKey}`) || 0
+  return heat > 0 ? heatColor(heat) : '#06b6d4'
+}
+
+function getArmOpacity(ch: { hex_q: number; hex_r: number }, arm: RailArm): number {
+  const heat = edgeHeatMap.value.get(`${ch.hex_q},${ch.hex_r}>${arm.neighborKey}`) || 0
+  return heat > 0 ? 0.7 + 0.3 * heat : 0.7
+}
+
+function getJunctionColor(ch: { hex_q: number; hex_r: number; arms: RailArm[] }): string {
+  let maxHeat = 0
+  for (const arm of ch.arms) {
+    const h = edgeHeatMap.value.get(`${ch.hex_q},${ch.hex_r}>${arm.neighborKey}`) || 0
+    if (h > maxHeat) maxHeat = h
+  }
+  return maxHeat > 0 ? heatColor(maxHeat) : '#06b6d4'
+}
+
+function agentHeatEdges(agent: { hex_q: number; hex_r: number }) {
+  const dirHeats = agentDirHeat.value.get(`${agent.hex_q},${agent.hex_r}`)
+  const verts = hexVertices(0, 0, HEAT_EDGE_RADIUS)
+  return Array.from({ length: 6 }, (_, i) => {
+    const [x1, y1] = verts[i]
+    const [x2, y2] = verts[(i + 1) % 6]
+    return { x1, y1, x2, y2, heat: dirHeats ? dirHeats[i] : 0 }
+  })
+}
 
 const emptyHexes = computed(() => {
   const occupied = new Set<string>()
@@ -342,6 +406,13 @@ const emptyHexes = computed(() => {
       <clipPath id="hex-clip">
         <polygon :points="hexPointsStr(0, 0, HEX_RADIUS)" />
       </clipPath>
+      <filter id="heat-glow">
+        <feGaussianBlur stdDeviation="2" result="blur" />
+        <feMerge>
+          <feMergeNode in="blur" />
+          <feMergeNode in="SourceGraphic" />
+        </feMerge>
+      </filter>
     </defs>
 
     <g :transform="transformStr">
@@ -354,19 +425,6 @@ const emptyHexes = computed(() => {
         opacity="0.18"
         mask="url(#grid-mask)"
       />
-
-      <!-- Heatmap overlay -->
-      <g class="heat-layer" v-if="heatLines.length">
-        <line
-          v-for="hl in heatLines"
-          :key="hl.key"
-          :x1="hl.x1" :y1="hl.y1" :x2="hl.x2" :y2="hl.y2"
-          stroke="#a78bfa"
-          :stroke-width="hl.width"
-          :opacity="hl.opacity"
-          stroke-linecap="round"
-        />
-      </g>
 
       <!-- Empty hex clickable areas -->
       <g
@@ -469,6 +527,15 @@ const emptyHexes = computed(() => {
             'animate-hex-thinking': agent.sse_connected && (agent.status === 'thinking' || agent.status === 'pending' || agent.status === 'learning'),
           }"
         />
+        <!-- Directional heat edges -->
+        <template v-for="(edge, ei) in agentHeatEdges(agent)" :key="'heat-' + ei">
+          <line v-if="edge.heat > 0"
+            :x1="edge.x1" :y1="edge.y1" :x2="edge.x2" :y2="edge.y2"
+            :stroke="heatColor(edge.heat)" :stroke-width="3"
+            :opacity="0.4 + 0.6 * edge.heat"
+            stroke-linecap="round" filter="url(#heat-glow)"
+          />
+        </template>
         <!-- Status text along upper-left edge (inside hex) -->
         <text
           :x="EDGE_MX" :y="EDGE_MY"
@@ -519,14 +586,14 @@ const emptyHexes = computed(() => {
         <template v-for="(arm, i) in ch.arms" :key="i">
           <line
             :x1="arm.x1a" :y1="arm.y1a" :x2="arm.x2a" :y2="arm.y2a"
-            stroke="#06b6d4" :stroke-width="RAIL_WIDTH_2D" stroke-linecap="round" opacity="0.7"
+            :stroke="getArmColor(ch, arm)" :stroke-width="RAIL_WIDTH_2D" stroke-linecap="round" :opacity="getArmOpacity(ch, arm)"
           />
           <line
             :x1="arm.x1b" :y1="arm.y1b" :x2="arm.x2b" :y2="arm.y2b"
-            stroke="#06b6d4" :stroke-width="RAIL_WIDTH_2D" stroke-linecap="round" opacity="0.7"
+            :stroke="getArmColor(ch, arm)" :stroke-width="RAIL_WIDTH_2D" stroke-linecap="round" :opacity="getArmOpacity(ch, arm)"
           />
         </template>
-        <circle cx="0" cy="0" :r="JUNCTION_R_2D" fill="#06b6d4" opacity="0.6" />
+        <circle cx="0" cy="0" :r="JUNCTION_R_2D" :fill="getJunctionColor(ch)" opacity="0.6" />
         <text
           v-if="ch.display_name"
           :y="-CORRIDOR_RADIUS - 6"

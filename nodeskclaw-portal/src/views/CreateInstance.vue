@@ -621,10 +621,6 @@ async function handleDeploy() {
               ]"
               @click="selectedRuntime = eng.runtime_id"
             >
-              <span
-                v-if="!eng.available"
-                class="absolute top-2.5 right-2.5 text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground"
-              >{{ t('engine.comingSoon') }}</span>
               <Check
                 v-if="selectedRuntime === eng.runtime_id"
                 class="absolute top-2.5 right-2.5 w-4 h-4 text-primary"
@@ -636,6 +632,10 @@ async function handleDeploy() {
                   :key="tag"
                   class="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary"
                 >{{ tag }}</span>
+                <span
+                  v-if="!eng.available"
+                  class="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground"
+                >{{ t('engine.comingSoon') }}</span>
               </div>
               <div class="text-xs text-muted-foreground mt-1.5 leading-relaxed">{{ eng.display_description }}</div>
               <div class="text-[10px] text-muted-foreground/60 mt-2">{{ t('engine.poweredBy') }} {{ eng.display_powered_by }}</div>
