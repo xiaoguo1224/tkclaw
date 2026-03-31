@@ -9,8 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 import lark_oapi as lark
 from lark_oapi.api.im.v1.model.p2_im_message_receive_v1 import P2ImMessageReceiveV1
@@ -21,7 +20,6 @@ if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger(__name__)
-FEISHU_MESSAGE_BUFFER_WINDOW_SECONDS = 1.5
 
 
 async def _handle_message_event(
@@ -130,85 +128,6 @@ def _extract_text_content(message: dict) -> str:
     return f"[{msg_type} message]"
 
 
-@dataclass
-class _BufferedMessageBatch:
-    messages: list[str] = field(default_factory=list)
-    generation: int = 0
-    timer: threading.Timer | None = None
-
-
-class _FeishuMessageBatcher:
-    def __init__(
-        self,
-        handler: Callable[[str, str, str], None],
-        window_seconds: float = FEISHU_MESSAGE_BUFFER_WINDOW_SECONDS,
-        timer_factory: Callable[..., threading.Timer] = threading.Timer,
-    ):
-        self._handler = handler
-        self._window_seconds = window_seconds
-        self._timer_factory = timer_factory
-        self._lock = threading.Lock()
-        self._batches: dict[tuple[str, str], _BufferedMessageBatch] = {}
-
-    def add(self, chat_id: str, sender_open_id: str, message: dict) -> None:
-        fragment = _extract_text_content(message).strip()
-        if not fragment:
-            return
-
-        key = (chat_id, sender_open_id)
-        with self._lock:
-            batch = self._batches.get(key)
-            if batch is None:
-                batch = _BufferedMessageBatch()
-                self._batches[key] = batch
-
-            batch.messages.append(fragment)
-            batch.generation += 1
-
-            if batch.timer is not None:
-                batch.timer.cancel()
-
-            timer = self._timer_factory(
-                self._window_seconds,
-                self._flush_if_current,
-                args=(key, batch.generation),
-            )
-            timer.daemon = True
-            batch.timer = timer
-            timer.start()
-
-    def flush_all(self) -> None:
-        with self._lock:
-            pending = list(self._batches.items())
-            self._batches = {}
-
-        for key, batch in pending:
-            if batch.timer is not None:
-                batch.timer.cancel()
-            self._emit(batch.messages, chat_id=key[0], sender_open_id=key[1])
-
-    def _flush_if_current(self, key: tuple[str, str], generation: int) -> None:
-        with self._lock:
-            batch = self._batches.get(key)
-            if batch is None or batch.generation != generation:
-                return
-            self._batches.pop(key, None)
-            messages = list(batch.messages)
-
-        self._emit(messages, chat_id=key[0], sender_open_id=key[1])
-
-    def _emit(
-        self,
-        messages: list[str],
-        *,
-        chat_id: str = "",
-        sender_open_id: str = "",
-    ) -> None:
-        content = "\n".join(part for part in messages if part).strip()
-        if content:
-            self._handler(chat_id, sender_open_id, content)
-
-
 class FeishuWSClient:
     """Manages a single Feishu WebSocket long-connection for one app."""
 
@@ -217,7 +136,6 @@ class FeishuWSClient:
         self._app_secret = app_secret
         self._thread: threading.Thread | None = None
         self._client: LarkWSClient | None = None
-        self._batcher = _FeishuMessageBatcher(self._dispatch_message_batch)
 
         handler = (
             EventDispatcherHandler.builder(encrypt_key, verification_token)
@@ -232,21 +150,10 @@ class FeishuWSClient:
             log_level=lark.LogLevel.WARNING,
         )
 
-    @staticmethod
-    def _dispatch_message_batch(chat_id: str, sender_open_id: str, content: str) -> None:
-        import asyncio
-
-        try:
-            loop = asyncio.new_event_loop()
-            loop.run_until_complete(
-                _handle_message_event(chat_id, sender_open_id, content)
-            )
-            loop.close()
-        except Exception as e:
-            logger.error("Feishu WS message handling error: %s", e)
-
     def _on_message(self, event: P2ImMessageReceiveV1) -> None:
         """Called by lark-oapi when im.message.receive_v1 arrives."""
+        import asyncio
+
         msg = event.event.message
         sender = event.event.sender
 
@@ -259,7 +166,16 @@ class FeishuWSClient:
                 "message_type": msg.message_type or "",
                 "content": msg.content or "",
             }
-        self._batcher.add(chat_id, sender_open_id, message_dict)
+        content = _extract_text_content(message_dict)
+
+        try:
+            loop = asyncio.new_event_loop()
+            loop.run_until_complete(
+                _handle_message_event(chat_id, sender_open_id, content)
+            )
+            loop.close()
+        except Exception as e:
+            logger.error("Feishu WS message handling error: %s", e)
 
     def start(self) -> None:
         """Start the WebSocket connection in a background daemon thread."""
@@ -279,5 +195,4 @@ class FeishuWSClient:
 
     def stop(self) -> None:
         """Best-effort shutdown. The daemon thread will terminate with the process."""
-        self._batcher.flush_all()
         logger.info("Stopping Feishu WS client: app_id=%s", self._app_id)
