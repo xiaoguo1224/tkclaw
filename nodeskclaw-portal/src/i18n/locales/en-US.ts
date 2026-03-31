@@ -1267,11 +1267,12 @@ const enUS = {
       sms_code_not_requested: "Please request an SMS code first",
       sms_code_expired: "SMS code has expired",
       sms_code_invalid: "Invalid SMS code",
+      sms_not_available: "SMS verification is not available in the current environment",
       old_password_required: "Current password is required",
       wrong_password: "Incorrect current password",
       email_domain_not_allowed: "Email domain is not in the allowed list",
       password_change_required: "Please change your password first",
-      verification_code_requires_email_or_phone: "Verification code login only supports email or phone number",
+      verification_code_requires_email_or_phone: "Verification code login currently supports email only",
     },
     org: {
       user_has_no_org: "User has not joined any organization",

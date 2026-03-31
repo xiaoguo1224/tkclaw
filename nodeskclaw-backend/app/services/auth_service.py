@@ -310,100 +310,26 @@ async def login_with_email(email: str, password: str, db: AsyncSession) -> Login
 
 async def send_sms_code(phone: str) -> dict:
     """发送验证码（当前为 mock，生产环境接真实 SMS 服务）。"""
-    if phone in _verification_codes:
-        _, expire_ts = _verification_codes[phone]
-        remaining = expire_ts - time.time()
-        if remaining > 240:
-            raise HTTPException(
-                status_code=429,
-                detail={
-                    "error_code": 42920,
-                    "message_key": "errors.auth.sms_send_too_frequent",
-                    "message": "发送过于频繁，请稍后再试",
-                },
-            )
-
-    code = f"{secrets.randbelow(900000) + 100000}"
-    _verification_codes[phone] = (code, time.time() + 300)
-
-    # TODO: 接入真实 SMS 服务（阿里云/腾讯云短信）
-    logger.info("SMS 验证码 [%s]: %s (mock)", phone, code)
-
-    return {"sent": True, "message": "验证码已发送"}
+    raise HTTPException(
+        status_code=503,
+        detail={
+            "error_code": 50320,
+            "message_key": "errors.auth.sms_not_available",
+            "message": "当前环境未接入短信验证码服务",
+        },
+    )
 
 
 async def login_with_phone(phone: str, code: str, db: AsyncSession) -> LoginResponse:
     """手机号验证码登录（不存在则自动注册）。"""
-    stored = _verification_codes.get(phone)
-    if stored is None:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error_code": 40021,
-                "message_key": "errors.auth.sms_code_not_requested",
-                "message": "请先获取验证码",
-            },
-        )
-
-    stored_code, expire_ts = stored
-    if time.time() > expire_ts:
-        _verification_codes.pop(phone, None)
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error_code": 40022,
-                "message_key": "errors.auth.sms_code_expired",
-                "message": "验证码已过期",
-            },
-        )
-    if stored_code != code:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error_code": 40023,
-                "message_key": "errors.auth.sms_code_invalid",
-                "message": "验证码错误",
-            },
-        )
-
-    _verification_codes.pop(phone, None)
-
-    result = await db.execute(
-        select(User).options(selectinload(User.oauth_connections)).where(User.phone == phone, User.deleted_at.is_(None))
+    raise HTTPException(
+        status_code=503,
+        detail={
+            "error_code": 50320,
+            "message_key": "errors.auth.sms_not_available",
+            "message": "当前环境未接入短信验证码服务",
+        },
     )
-    user = result.scalar_one_or_none()
-
-    if user is None:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error_code": 40030,
-                "message_key": "errors.auth.phone_not_registered",
-                "message": "该手机号未注册",
-            },
-        )
-
-    if not user.is_active:
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "error_code": 40320,
-                "message_key": "errors.auth.account_disabled",
-                "message": "账户已被禁用",
-            },
-        )
-
-    user.last_login_at = datetime.now(timezone.utc)
-    await db.commit()
-
-    refreshed = await db.execute(
-        select(User)
-        .options(selectinload(User.oauth_connections))
-        .where(User.id == user.id, User.deleted_at.is_(None))
-    )
-    user = refreshed.scalar_one()
-    logger.info("手机登录: %s", phone)
-    return await _issue_tokens(user, db)
 
 
 # ── 修改密码 ─────────────────────────────────────────────

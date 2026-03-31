@@ -1267,11 +1267,12 @@ const zhCN = {
       sms_code_not_requested: "请先获取验证码",
       sms_code_expired: "验证码已过期",
       sms_code_invalid: "验证码错误",
+      sms_not_available: "当前环境未接入短信验证码服务",
       old_password_required: "请输入当前密码",
       wrong_password: "当前密码错误",
       email_domain_not_allowed: "当前邮箱域名不在允许范围内",
       password_change_required: "请先修改密码",
-      verification_code_requires_email_or_phone: "验证码登录仅支持邮箱或手机号",
+      verification_code_requires_email_or_phone: "验证码登录当前仅支持邮箱",
     },
     org: {
       user_has_no_org: "用户未加入任何组织",
