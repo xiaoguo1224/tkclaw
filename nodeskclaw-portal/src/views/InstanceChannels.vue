@@ -48,6 +48,52 @@ type WecomConnectMode = 'official_qr' | 'manual'
 
 const supportsPluginInstall = computed(() => instanceRuntime.value === 'openclaw')
 
+function dedupeAvailableChannels(channels: AvailableChannel[]): AvailableChannel[] {
+  const byId = new Map<string, AvailableChannel>()
+
+  const score = (ch: AvailableChannel): number => {
+    let s = 0
+    if (ch.supported !== false) s += 4
+    if (ch.origin === 'workspace') s += 3
+    else if (ch.origin === 'bundled') s += 2
+    else if (ch.origin === 'builtin') s += 1
+    if (ch.schema && ch.schema.length > 0) s += 1
+    return s
+  }
+
+  for (const ch of channels) {
+    const prev = byId.get(ch.id)
+    if (!prev) {
+      byId.set(ch.id, ch)
+      continue
+    }
+
+    const prevScore = score(prev)
+    const currScore = score(ch)
+    if (currScore > prevScore) {
+      byId.set(ch.id, {
+        ...ch,
+        schema: (ch.schema && ch.schema.length > 0) ? ch.schema : prev.schema,
+      })
+      continue
+    }
+
+    if (!prev.schema || prev.schema.length === 0) {
+      byId.set(ch.id, {
+        ...prev,
+        schema: ch.schema,
+      })
+    }
+  }
+
+  return Array.from(byId.values()).sort((a, b) => {
+    const ao = a.order ?? Number.MAX_SAFE_INTEGER
+    const bo = b.order ?? Number.MAX_SAFE_INTEGER
+    if (ao !== bo) return ao - bo
+    return a.label.localeCompare(b.label)
+  })
+}
+
 function runtimeBadgeText(ch: AvailableChannel): string | null {
   if (!ch.schema?.length) return null
   const runtimes = new Set<string>()
@@ -212,7 +258,7 @@ async function loadAll() {
       api.get(`/instances/${instanceId.value}/channel-configs`),
     ])
 
-    availableChannels.value = channelsRes.data.data ?? []
+    availableChannels.value = dedupeAvailableChannels(channelsRes.data.data ?? [])
     channelConfigs.value = configsRes.data.data ?? {}
 
     editingConfigs.value = {}
