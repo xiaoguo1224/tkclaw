@@ -90,6 +90,15 @@ def _extract_docker_error(stderr_text: str) -> str:
     return stderr_text.strip()[:500]
 
 
+def _ensure_openclaw_workspace(data_dir) -> None:
+    config_file = data_dir / "openclaw.json"
+    template_file = data_dir / "openclaw.json.template"
+    if config_file.exists() and config_file.stat().st_size == 0:
+        config_file.unlink()
+    if not template_file.exists():
+        template_file.write_text(_OPENCLAW_TEMPLATE, encoding="utf-8")
+
+
 def _is_windows_path(path: str) -> bool:
     return bool(_WINDOWS_HOST_PATH_RE.match(path))
 
