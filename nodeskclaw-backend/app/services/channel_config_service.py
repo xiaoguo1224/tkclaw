@@ -425,43 +425,22 @@ async def ensure_official_wecom_plugin_installed(
     force: bool = False,
 ) -> dict:
     _assert_openclaw_runtime(instance)
-    await _cleanup_wecom_install_stage_dirs(instance, db)
-    if not force and await is_official_wecom_plugin_installed(instance, db):
-        return {"status": "installed", "already_installed": True, "package": WECOM_OFFICIAL_PLUGIN_PACKAGE}
+    installed = await is_official_wecom_plugin_installed(instance, db)
+    if not installed:
+        raise BadRequestError(
+            message="未检测到企业微信官方插件，请先使用内置插件镜像部署",
+            message_key="errors.channel.install_required",
+        )
 
     adapter = get_config_adapter("openclaw")
     async with remote_fs(instance, db) as fs:
         config = await adapter.read_config(fs) or {}
         config, changed = cleanup_stale_wecom_plugin_config(config)
-        if changed:
+        ensure_wecom_plugin_config(config)
+        if changed or force:
             await adapter.write_config(fs, config)
 
-    output = ""
-    try:
-        output = await _run_openclaw_exec(
-            instance,
-            db,
-              ["openclaw", "plugins", "install", "@wecom/wecom-openclaw-plugin"],
-        )
-    except AppException as e:
-        if not await is_official_wecom_plugin_installed(instance, db):
-            raise
-        output = f"installer_non_zero_but_plugin_present: {e.message}"
-    if not await is_official_wecom_plugin_installed(instance, db):
-        raise AppException(
-            code=50200,
-            message="企业微信官方插件安装后未检测到，请检查实例环境",
-            status_code=502,
-            message_key="errors.channel.install_failed",
-        )
-    await _cleanup_wecom_install_stage_dirs(instance, db)
-
-    async with remote_fs(instance, db) as fs:
-        config = await adapter.read_config(fs) or {}
-        ensure_wecom_plugin_config(config)
-        await adapter.write_config(fs, config)
-
-    return {"status": "installed", "already_installed": False, "package": WECOM_OFFICIAL_PLUGIN_PACKAGE, "output": output}
+    return {"status": "installed", "already_installed": True, "package": WECOM_OFFICIAL_PLUGIN_PACKAGE}
 
 
 # ── Config Read / Write ───────────────────────────────────
