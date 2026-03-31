@@ -45,6 +45,12 @@ RUN mkdir -p /root/.openclaw/extensions
 RUN --mount=type=cache,target=/root/.npm \
     openclaw plugins install @wecom/wecom-openclaw-plugin
 
+RUN mkdir -p /opt/openclaw-bundled-extensions && \
+    if [ -d /root/.openclaw/extensions/wecom-openclaw-plugin ]; then \
+      cp -a /root/.openclaw/extensions/wecom-openclaw-plugin /opt/openclaw-bundled-extensions/wecom-openclaw-plugin; \
+      rm -rf /root/.openclaw/extensions/wecom-openclaw-plugin; \
+    fi
+
 # ---------- 预置用户数据目录结构 ----------
 RUN mkdir -p /root/.openclaw/agents/main/sessions \
              /root/.openclaw/config \
@@ -64,6 +70,7 @@ RUN mkdir -p /root/.openclaw/agents/main/sessions \
 COPY openclaw.json.template /root/.openclaw/openclaw.json.template
 COPY repair-sessions-index.js /repair-sessions-index.js
 COPY repair-user-data.js /repair-user-data.js
+COPY sync-bundled-extensions.sh /sync-bundled-extensions.sh
 
 # ---------- 版本标记 ----------
 RUN echo "${IMAGE_VERSION}" > /root/.openclaw-version
@@ -71,8 +78,8 @@ RUN echo "${IMAGE_VERSION}" > /root/.openclaw-version
 # ---------- 启动脚本 + Init Container 脚本 ----------
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 COPY init-container.sh /init-container.sh
-RUN sed -i 's/\r$//' /docker-entrypoint.sh /init-container.sh && \
-    chmod +x /docker-entrypoint.sh /init-container.sh
+RUN sed -i 's/\r$//' /docker-entrypoint.sh /init-container.sh /sync-bundled-extensions.sh && \
+    chmod +x /docker-entrypoint.sh /init-container.sh /sync-bundled-extensions.sh
 
 # ---------- 运行配置 ----------
 WORKDIR /root

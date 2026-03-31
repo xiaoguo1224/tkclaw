@@ -18,6 +18,10 @@ CONFIG_FILE="${OPENCLAW_DIR}/openclaw.json"
 TEMPLATE_FILE="${OPENCLAW_DIR}/openclaw.json.template"
 CREDENTIALS_DIR="${OPENCLAW_DIR}/credentials"
 
+# ---- 0. 内置插件同步（覆盖挂载目录场景）----
+
+/sync-bundled-extensions.sh "${OPENCLAW_DIR}/extensions"
+
 # ---- 1. 配置初始化 ----
 
 # 用 node 实现 envsubst（替换模板中的 ${VAR} 占位符）

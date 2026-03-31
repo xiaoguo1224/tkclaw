@@ -19,6 +19,10 @@ PVC_VERSION_FILE="${PVC_DIR}/.openclaw-version"
 IMAGE_DATA_DIR="/root/.openclaw"
 PVC_DATA_DIR="${PVC_DIR}/.openclaw"
 
+sync_bundled_extensions() {
+  /sync-bundled-extensions.sh "${PVC_DATA_DIR}/extensions"
+}
+
 # 读取镜像内的版本号
 IMAGE_VERSION="unknown"
 if [ -f "${IMAGE_VERSION_FILE}" ]; then
@@ -49,6 +53,8 @@ if [ ! -f "${PVC_VERSION_FILE}" ]; then
     fi
   done
 
+  sync_bundled_extensions
+
   echo "[init] 首次初始化完成"
   exit 0
 fi
@@ -62,6 +68,7 @@ echo "[init] PVC 版本: ${PVC_VERSION}"
 
 if [ "${IMAGE_VERSION}" = "${PVC_VERSION}" ]; then
   echo "[init] 版本一致 (${IMAGE_VERSION})，跳过初始化"
+  sync_bundled_extensions
   exit 0
 fi
 
@@ -73,24 +80,7 @@ echo "[init] 版本不同 (${PVC_VERSION} -> ${IMAGE_VERSION})，执行轻量升
 cp "${IMAGE_VERSION_FILE}" "${PVC_VERSION_FILE}"
 echo "[init]   已更新版本标记: ${IMAGE_VERSION}"
 
-# 3b. 合并内置插件（保留用户自定义插件，更新/新增内置插件）
-if [ -d "${IMAGE_DATA_DIR}/extensions" ]; then
-  mkdir -p "${PVC_DATA_DIR}/extensions"
-  # 使用 cp -n 不覆盖已存在的文件（保留用户自定义），cp -a 保留权限
-  # 注意: cp -n 在某些系统上不可用，改用 rsync 风格的逻辑
-  for ext_dir in "${IMAGE_DATA_DIR}/extensions"/*/; do
-    if [ -d "${ext_dir}" ]; then
-      ext_name=$(basename "${ext_dir}")
-      target="${PVC_DATA_DIR}/extensions/${ext_name}"
-      if [ ! -d "${target}" ]; then
-        cp -a "${ext_dir}" "${target}"
-        echo "[init]   新增内置插件: ${ext_name}"
-      else
-        echo "[init]   跳过已存在的插件: ${ext_name}"
-      fi
-    fi
-  done
-fi
+sync_bundled_extensions
 
 # 3c. 确保所有子目录存在（新版本可能新增了子目录）
 for subdir in agents/main/sessions config credentials extensions workspace memory data temp canvas devices identity cron skills; do

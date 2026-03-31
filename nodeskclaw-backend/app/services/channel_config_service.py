@@ -97,6 +97,7 @@ _WECOM_PLUGIN_CHECK_SCRIPT = textwrap.dedent("""\
       const candidates = [
         path.join(globalRoot, 'openclaw', 'extensions', 'wecom-openclaw-plugin', 'openclaw.plugin.json'),
         '/root/.openclaw/extensions/wecom-openclaw-plugin/openclaw.plugin.json',
+        '/opt/openclaw-bundled-extensions/wecom-openclaw-plugin/openclaw.plugin.json',
       ];
       installed = candidates.some((p) => fs.existsSync(p));
     } catch (e) {
