@@ -13,29 +13,31 @@ defineEmits<{
   select: []
 }>()
 
-const iconMap: Record<string, typeof Code2> = {
-  Code2,
-  PenTool,
-  Microscope,
-  LayoutTemplate,
-}
-
 const iconComponent = computed(() => {
   if (props.blank) return FilePlus2
   if (!props.template) return LayoutTemplate
   if (props.template.visibility === 'org_private') return Building2
-  const name = props.template.name
-  if (name.includes('研发') || name.includes('Software')) return Code2
-  if (name.includes('内容') || name.includes('Content')) return PenTool
-  if (name.includes('研究') || name.includes('Research')) return Microscope
+
+  const nodes = props.template.topology_snapshot?.nodes ?? []
+  const agentNames = new Set(
+    nodes
+      .filter((node) => node.node_type === 'agent')
+      .map((node) => node.display_name?.trim())
+      .filter((name): name is string => Boolean(name)),
+  )
+
+  if (agentNames.has('PM') && agentNames.has('Dev') && agentNames.has('QA')) return Code2
+  if (agentNames.has('Writer') && agentNames.has('Editor') && agentNames.has('Designer')) return PenTool
+  if (agentNames.has('Researcher') && agentNames.has('Analyst')) return Microscope
+
   return LayoutTemplate
 })
 
 const agentCount = computed(() => {
   if (props.blank || !props.template) return 0
-  const topo = (props.template as any).topology_snapshot
+  const topo = props.template.topology_snapshot
   if (!topo?.nodes) return 0
-  return topo.nodes.filter((n: any) => n.node_type === 'agent').length
+  return topo.nodes.filter((node) => node.node_type === 'agent').length
 })
 </script>
 

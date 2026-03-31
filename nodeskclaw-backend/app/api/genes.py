@@ -1,9 +1,13 @@
 """Gene Evolution Ecosystem API routes."""
 
+import logging
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_db
+from app.core.config import settings
+from app.core.deps import get_current_org, get_db
+from app.core.exceptions import BadRequestError
 from app.core.security import get_current_user
 from app.models.user import User
 from app.schemas.common import ApiResponse, PaginatedResponse, Pagination
@@ -25,7 +29,34 @@ from app.schemas.gene import (
 )
 from app.services import gene_service
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+def _validate_gene_callback_auth(
+    payload: LearningCallbackPayload,
+    mode: str,
+    sig: str | None,
+    instance_id: str | None,
+) -> None:
+    if sig or instance_id:
+        if not sig or not instance_id:
+            raise BadRequestError("回调签名参数不完整")
+        if payload.instance_id != instance_id:
+            raise BadRequestError("回调实例与签名参数不匹配")
+        if not gene_service.verify_gene_callback_signature(payload, mode, sig):
+            raise BadRequestError("回调签名无效")
+        return
+
+    if not settings.ALLOW_LEGACY_GENE_CALLBACKS:
+        raise BadRequestError("缺少回调签名参数")
+
+    logger.warning(
+        "Allowing legacy unsigned gene callback mode=%s task_id=%s instance_id=%s",
+        mode,
+        payload.task_id,
+        payload.instance_id,
+    )
 
 
 # ═══════════════════════════════════════════════════
@@ -197,9 +228,10 @@ async def rate_genome(
 async def instance_genes(
     instance_id: str,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    org_ctx=Depends(get_current_org),
 ):
-    genes = await gene_service.get_instance_genes(db, instance_id)
+    _current_user, org = org_ctx
+    genes = await gene_service.get_instance_genes(db, instance_id, org.id)
     return ApiResponse(data=genes)
 
 
@@ -207,9 +239,10 @@ async def instance_genes(
 async def instance_skills(
     instance_id: str,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    org_ctx=Depends(get_current_org),
 ):
-    skills = await gene_service.get_instance_skills(db, instance_id)
+    _current_user, org = org_ctx
+    skills = await gene_service.get_instance_skills(db, instance_id, org.id)
     return ApiResponse(data=skills)
 
 
@@ -218,9 +251,10 @@ async def install_gene(
     instance_id: str,
     req: InstallGeneRequest,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    org_ctx=Depends(get_current_org),
 ):
-    result = await gene_service.install_gene(db, instance_id, req.gene_slug)
+    _current_user, org = org_ctx
+    result = await gene_service.install_gene(db, instance_id, req.gene_slug, org_id=org.id)
     return ApiResponse(data=result)
 
 
@@ -229,9 +263,10 @@ async def uninstall_gene(
     instance_id: str,
     req: UninstallGeneRequest,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    org_ctx=Depends(get_current_org),
 ):
-    result = await gene_service.uninstall_gene(db, instance_id, req.gene_id)
+    _current_user, org = org_ctx
+    result = await gene_service.uninstall_gene(db, instance_id, req.gene_id, org_id=org.id)
     return ApiResponse(data=result)
 
 
@@ -240,9 +275,10 @@ async def apply_genome(
     instance_id: str,
     req: ApplyGenomeRequest,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    org_ctx=Depends(get_current_org),
 ):
-    result = await gene_service.apply_genome(db, instance_id, req.genome_id)
+    _current_user, org = org_ctx
+    result = await gene_service.apply_genome(db, instance_id, req.genome_id, org.id)
     return ApiResponse(data=result)
 
 
@@ -257,8 +293,10 @@ async def publish_variant(
     gene_id: str,
     req: PublishVariantRequest,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    org_ctx=Depends(get_current_org),
 ):
+    _current_user, org = org_ctx
+    await gene_service.get_instance_genes(db, instance_id, org.id)
     result = await gene_service.publish_variant(
         db, instance_id, gene_id, req.variant_name, req.variant_slug
     )
@@ -271,8 +309,10 @@ async def log_effectiveness(
     gene_id: str,
     req: EffectivenessRequest,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    org_ctx=Depends(get_current_org),
 ):
+    _current_user, org = org_ctx
+    await gene_service.get_instance_genes(db, instance_id, org.id)
     result = await gene_service.log_effectiveness(
         db, instance_id, gene_id, req.metric_type, req.value, req.context
     )
@@ -284,9 +324,10 @@ async def create_gene_from_agent(
     instance_id: str,
     req: CreateGeneRequest,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    org_ctx=Depends(get_current_org),
 ):
-    result = await gene_service.trigger_gene_creation(db, instance_id, req.creation_prompt)
+    _current_user, org = org_ctx
+    result = await gene_service.trigger_gene_creation(db, instance_id, req.creation_prompt, org.id)
     return ApiResponse(data=result)
 
 
@@ -298,8 +339,11 @@ async def create_gene_from_agent(
 @router.post("/genes/learning-callback")
 async def learning_callback(
     payload: LearningCallbackPayload,
+    sig: str | None = Query(None),
+    instance_id: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
+    _validate_gene_callback_auth(payload, "learn", sig, instance_id)
     result = await gene_service.handle_learning_callback(db, payload)
     return ApiResponse(data=result)
 
@@ -307,8 +351,11 @@ async def learning_callback(
 @router.post("/genes/creation-callback")
 async def creation_callback(
     payload: LearningCallbackPayload,
+    sig: str | None = Query(None),
+    instance_id: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
+    _validate_gene_callback_auth(payload, "create", sig, instance_id)
     result = await gene_service.handle_creation_callback(db, payload)
     return ApiResponse(data=result)
 
@@ -316,8 +363,11 @@ async def creation_callback(
 @router.post("/genes/forgetting-callback")
 async def forgetting_callback(
     payload: LearningCallbackPayload,
+    sig: str | None = Query(None),
+    instance_id: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
+    _validate_gene_callback_auth(payload, "forget", sig, instance_id)
     result = await gene_service.handle_forgetting_callback(db, payload)
     return ApiResponse(data=result)
 
@@ -333,9 +383,10 @@ async def get_evolution_log(
     page: int = 1,
     page_size: int = 20,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    org_ctx=Depends(get_current_org),
 ):
-    events = await gene_service.get_evolution_log(db, instance_id, page, page_size)
+    _current_user, org = org_ctx
+    events = await gene_service.get_evolution_log(db, instance_id, page, page_size, org.id)
     return ApiResponse(data=events)
 
 

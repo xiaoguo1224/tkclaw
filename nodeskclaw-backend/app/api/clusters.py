@@ -3,33 +3,28 @@
 import logging
 
 from fastapi import APIRouter, Depends
-
-logger = logging.getLogger(__name__)
 from pydantic import BaseModel
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import hooks
 from app.core.deps import get_current_org, get_db
-from app.core.exceptions import NotFoundError
-from app.core.security import get_current_user
-from app.models.cluster import Cluster
-from app.models.user import User
 from app.schemas.cluster import ClusterCreate, ClusterInfo, ClusterUpdate, ConnectionTestResult
 from app.schemas.common import ApiResponse
 from app.services import cluster_service
 from app.services.runtime.registries.compute_registry import require_k8s_client
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
 @router.get("", response_model=ApiResponse[list[ClusterInfo]])
 async def list_clusters(
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    org_ctx=Depends(get_current_org),
 ):
     """集群列表。"""
-    data = await cluster_service.list_clusters(db)
+    _current_user, org = org_ctx
+    data = await cluster_service.list_clusters(db, org.id)
     return ApiResponse(data=data)
 
 
@@ -50,10 +45,11 @@ async def create_cluster(
 async def get_cluster(
     cluster_id: str,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    org_ctx=Depends(get_current_org),
 ):
     """集群详情。"""
-    cluster = await cluster_service.get_cluster(cluster_id, db)
+    _current_user, org = org_ctx
+    cluster = await cluster_service.get_cluster(cluster_id, db, org.id)
     return ApiResponse(data=ClusterInfo.model_validate(cluster))
 
 
@@ -62,11 +58,12 @@ async def update_cluster(
     cluster_id: str,
     body: ClusterUpdate,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    org_ctx=Depends(get_current_org),
 ):
     """更新集群配置。"""
-    data = await cluster_service.update_cluster(cluster_id, body, db)
-    await hooks.emit("operation_audit", action="cluster.updated", target_type="cluster", target_id=cluster_id, actor_id=_current_user.id, org_id=_current_user.current_org_id)
+    current_user, org = org_ctx
+    data = await cluster_service.update_cluster(cluster_id, body, db, org.id)
+    await hooks.emit("operation_audit", action="cluster.updated", target_type="cluster", target_id=cluster_id, actor_id=current_user.id, org_id=org.id)
     return ApiResponse(data=data)
 
 
@@ -74,11 +71,12 @@ async def update_cluster(
 async def delete_cluster(
     cluster_id: str,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    org_ctx=Depends(get_current_org),
 ):
     """删除集群。"""
-    await cluster_service.delete_cluster(cluster_id, db)
-    await hooks.emit("operation_audit", action="cluster.deleted", target_type="cluster", target_id=cluster_id, actor_id=_current_user.id, org_id=_current_user.current_org_id)
+    current_user, org = org_ctx
+    await cluster_service.delete_cluster(cluster_id, db, org.id)
+    await hooks.emit("operation_audit", action="cluster.deleted", target_type="cluster", target_id=cluster_id, actor_id=current_user.id, org_id=org.id)
     return ApiResponse(message="集群已删除")
 
 
@@ -86,12 +84,13 @@ async def delete_cluster(
 async def cluster_health(
     cluster_id: str,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    org_ctx=Depends(get_current_org),
 ):
     """集群健康详情 + Token 过期检测。"""
     from app.services.health_checker import get_cluster_health
 
-    data = await get_cluster_health(cluster_id, db)
+    _current_user, org = org_ctx
+    data = await get_cluster_health(cluster_id, db, org.id)
     return ApiResponse(data=data)
 
 
@@ -99,15 +98,11 @@ async def cluster_health(
 async def cluster_overview(
     cluster_id: str,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    org_ctx=Depends(get_current_org),
 ):
     """集群概览: 资源汇总 + 节点列表。"""
-    result = await db.execute(
-        select(Cluster).where(Cluster.id == cluster_id, Cluster.deleted_at.is_(None))
-    )
-    cluster = result.scalar_one_or_none()
-    if not cluster:
-        raise NotFoundError("集群不存在")
+    _current_user, org = org_ctx
+    cluster = await cluster_service.get_cluster(cluster_id, db, org.id)
 
     k8s = await require_k8s_client(cluster)
 
@@ -172,10 +167,11 @@ async def cluster_overview(
 async def test_connection(
     cluster_id: str,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    org_ctx=Depends(get_current_org),
 ):
     """测试集群连接。"""
-    data = await cluster_service.test_connection(cluster_id, db)
+    _current_user, org = org_ctx
+    data = await cluster_service.test_connection(cluster_id, db, org.id)
     return ApiResponse(data=data)
 
 
@@ -188,9 +184,10 @@ async def update_kubeconfig(
     cluster_id: str,
     body: KubeconfigBody,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    org_ctx=Depends(get_current_org),
 ):
     """更新 KubeConfig（重建连接）。"""
-    data = await cluster_service.update_kubeconfig(cluster_id, body.kubeconfig, db)
-    await hooks.emit("operation_audit", action="cluster.kubeconfig_updated", target_type="cluster", target_id=cluster_id, actor_id=_current_user.id, org_id=_current_user.current_org_id)
+    current_user, org = org_ctx
+    data = await cluster_service.update_kubeconfig(cluster_id, body.kubeconfig, db, org.id)
+    await hooks.emit("operation_audit", action="cluster.kubeconfig_updated", target_type="cluster", target_id=cluster_id, actor_id=current_user.id, org_id=org.id)
     return ApiResponse(data=data)

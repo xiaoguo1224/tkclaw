@@ -16,6 +16,7 @@ if _proj_root not in sys.path:
 
 from app.core.config import settings  # noqa: E402
 from app.models import Base  # noqa: E402  — triggers all model imports
+from app.utils.alembic_url import escape_for_alembic_config  # noqa: E402
 
 try:
     import ee.backend.models  # noqa: F401, E402
@@ -27,7 +28,7 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)
+config.set_main_option("sqlalchemy.url", escape_for_alembic_config(settings.DATABASE_URL))
 target_metadata = Base.metadata
 
 

@@ -28,6 +28,8 @@ RUN mkdir -p /app/data
 
 ENV NODESKCLAW_ROOT=/app
 ENV PYTHONUNBUFFERED=1
+ARG APP_VERSION=dev
+ENV APP_VERSION=$APP_VERSION
 EXPOSE 8000
 
 CMD ["/bin/sh", "-c", ".venv/bin/alembic upgrade head && .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000"]

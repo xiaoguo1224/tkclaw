@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import hooks
 from app.core.deps import get_db
+from app.core.exceptions import BadRequestError
 from app.core.security import get_current_user
 from app.models.user import User
 from app.schemas.common import ApiResponse
@@ -68,7 +69,7 @@ async def update_setting(
 ):
     """更新指定系统配置项。"""
     if not _is_allowed_key(key):
-        raise HTTPException(status_code=400, detail=f"不支持的配置项: {key}")
+        raise BadRequestError(f"不支持的配置项: {key}", "errors.settings.unsupported_key")
 
     row = await config_service.set_config(key, body.value, db)
     display_value = "******" if key in _SENSITIVE_KEYS and row.value else row.value
