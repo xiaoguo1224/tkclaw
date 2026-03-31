@@ -30,7 +30,6 @@ from app.api.workspaces import router as workspace_router
 from app.api.templates import router as template_router
 from app.api.instance_templates import router as instance_template_router
 from app.core.deps import require_ce_edition, require_org_admin, require_org_role
-from app.core.exceptions import ForbiddenError, NotFoundError
 from app.core.feature_gate import feature_gate
 from app.core.config import settings
 
@@ -83,17 +82,21 @@ async def serve_local_file(file_key: str, expires: str = "", sig: str = ""):
     from app.services import storage_service
 
     if storage_service._use_s3():
-        raise NotFoundError("对象存储启用时不提供本地文件服务", "errors.storage.local_file_disabled")
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Local file serving disabled when S3 storage is active")
 
     if not expires or not sig:
-        raise ForbiddenError("缺少签名参数", "errors.storage.signature_missing")
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Missing signature parameters")
 
     if not storage_service.verify_signature(file_key, expires, sig):
-        raise ForbiddenError("签名无效或已过期", "errors.storage.signature_invalid")
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="Invalid or expired signature")
 
     file_path = storage_service._get_local_dir() / file_key
     if not file_path.is_file():
-        raise NotFoundError("文件不存在", "errors.storage.file_not_found")
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="File not found")
 
     return FileResponse(file_path)
 

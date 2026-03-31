@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_current_org, get_db
+from app.core.security import get_current_user
+from app.models.user import User
 from app.schemas.common import ApiResponse, PaginatedResponse, Pagination
 from app.schemas.instance_template import (
     InstanceTemplateCreate,
@@ -50,10 +52,9 @@ async def featured_templates(
 async def get_template(
     template_id: str,
     db: AsyncSession = Depends(get_db),
-    org_info=Depends(get_current_org),
+    _current_user: User = Depends(get_current_user),
 ):
-    _user, org = org_info
-    item = await svc.get_template(db, template_id, org.id)
+    item = await svc.get_template(db, template_id)
     return ApiResponse(data=item.model_dump(mode="json"))
 
 
@@ -85,10 +86,9 @@ async def update_template(
     template_id: str,
     body: InstanceTemplateUpdate,
     db: AsyncSession = Depends(get_db),
-    org_info=Depends(get_current_org),
+    _current_user: User = Depends(get_current_user),
 ):
-    _user, org = org_info
-    item = await svc.update_template(db, template_id, body, org.id)
+    item = await svc.update_template(db, template_id, body)
     return ApiResponse(data=item.model_dump(mode="json"))
 
 
@@ -96,8 +96,7 @@ async def update_template(
 async def delete_template(
     template_id: str,
     db: AsyncSession = Depends(get_db),
-    org_info=Depends(get_current_org),
+    _current_user: User = Depends(get_current_user),
 ):
-    _user, org = org_info
-    result = await svc.delete_template(db, template_id, org.id)
+    result = await svc.delete_template(db, template_id)
     return ApiResponse(data=result)

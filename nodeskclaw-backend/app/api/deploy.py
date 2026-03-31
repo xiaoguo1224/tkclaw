@@ -3,14 +3,13 @@
 import asyncio
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import hooks
 from app.core.deps import get_db
-from app.core.exceptions import BadRequestError, ConflictError
 from app.core.security import get_current_user
 from app.models.user import User
 from app.schemas.common import ApiResponse
@@ -43,7 +42,7 @@ async def deploy(
     """执行部署：同步创建记录后立即返回，K8s 管道在后台异步执行。"""
     effective_org_id = body.org_id or current_user.current_org_id
     if not effective_org_id:
-        raise BadRequestError("缺少目标组织，无法部署", "errors.org.org_required")
+        raise HTTPException(status_code=400, detail="缺少目标组织，无法部署")
     try:
         deploy_id, ctx = await deploy_service.deploy_instance(
             body, current_user, db, org_id=effective_org_id
@@ -51,10 +50,7 @@ async def deploy(
     except IntegrityError:
         await db.rollback()
         slug_display = body.slug or body.name
-        raise ConflictError(
-            f"实例标识 '{slug_display}' 已存在，请更换标识",
-            "errors.instance.slug_conflict",
-        )
+        raise HTTPException(status_code=409, detail=f"实例标识 '{slug_display}' 已存在，请更换标识")
 
     await hooks.emit("operation_audit", action="deploy.started", target_type="instance", target_id=ctx.instance_id, actor_id=current_user.id, org_id=effective_org_id, details={"deploy_id": deploy_id, "slug": body.slug or body.name, "source": "admin"})
     # 后台异步执行 K8s 部署管道（使用独立 DB session）

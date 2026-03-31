@@ -1,19 +1,15 @@
 """Gene Evolution Ecosystem service: CRUD, install/learn engine, rating, evolution."""
 
 import asyncio
-import hashlib
-import hmac
 import json
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Coroutine
-from urllib.parse import urlencode
 
 from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
 from app.core.exceptions import AppException, BadRequestError, ConflictError, NotFoundError
 from app.models.base import not_deleted
 from app.models.corridor import HumanHex
@@ -113,32 +109,6 @@ def _json_dumps(obj) -> str | None:
     if obj is None:
         return None
     return json.dumps(obj, ensure_ascii=False)
-
-
-def _gene_callback_secret() -> str:
-    return settings.GENE_CALLBACK_SECRET or settings.JWT_SECRET
-
-
-def sign_gene_callback(task_id: str, instance_id: str, mode: str) -> str:
-    payload = f"{task_id}:{instance_id}:{mode}"
-    return hmac.new(
-        _gene_callback_secret().encode(),
-        payload.encode(),
-        hashlib.sha256,
-    ).hexdigest()
-
-
-def verify_gene_callback_signature(payload: LearningCallbackPayload, mode: str, sig: str) -> bool:
-    expected = sign_gene_callback(payload.task_id, payload.instance_id, mode)
-    return hmac.compare_digest(expected, sig)
-
-
-def build_gene_callback_url(base_url: str, path: str, task_id: str, instance_id: str, mode: str) -> str:
-    params = urlencode({
-        "instance_id": instance_id,
-        "sig": sign_gene_callback(task_id, instance_id, mode),
-    })
-    return f"{base_url}{path}?{params}"
 
 
 def _truncate_text(text: str, limit: int = 120) -> str:
@@ -745,10 +715,7 @@ async def get_featured_genomes(db: AsyncSession, limit: int = 10) -> list[dict]:
 # ═══════════════════════════════════════════════════
 
 
-async def get_instance_genes(db: AsyncSession, instance_id: str, org_id: str | None = None) -> list[dict]:
-    from app.services.instance_service import get_instance
-
-    await get_instance(instance_id, db, org_id)
+async def get_instance_genes(db: AsyncSession, instance_id: str) -> list[dict]:
     q = (
         select(InstanceGene, Gene)
         .join(Gene, InstanceGene.gene_id == Gene.id)
@@ -837,7 +804,7 @@ def _build_db_only_items(ig_rows: list) -> list[dict]:
     return items
 
 
-async def get_instance_skills(db: AsyncSession, instance_id: str, org_id: str | None = None) -> list[dict]:
+async def get_instance_skills(db: AsyncSession, instance_id: str) -> list[dict]:
     """Return the merged skill list driven by Pod filesystem + DB enrichment.
 
     Each item is typed ``hub`` (matched Gene Hub entry) or ``emerged``
@@ -848,7 +815,7 @@ async def get_instance_skills(db: AsyncSession, instance_id: str, org_id: str | 
     """
     from app.services.instance_service import get_instance
 
-    instance = await get_instance(instance_id, db, org_id)
+    instance = await get_instance(instance_id, db)
 
     ig_result = await db.execute(
         select(InstanceGene, Gene)
@@ -1050,12 +1017,11 @@ async def install_gene(
     instance_id: str,
     gene_slug: str,
     genome_id: str | None = None,
-    org_id: str | None = None,
 ) -> dict:
     from app.api.workspaces import broadcast_event
     from app.services.instance_service import get_instance
 
-    instance = await get_instance(instance_id, db, org_id)
+    instance = await get_instance(instance_id, db)
 
     gene = await get_gene_by_slug(db, gene_slug)
 
@@ -1375,14 +1341,10 @@ async def _send_learning_task(
         skill = manifest.get("skill", {})
         learning = manifest.get("learning")
 
-        callback_base = settings.NODESKCLAW_WEBHOOK_BASE_URL or ""
-        callback_url = build_gene_callback_url(
-            callback_base,
-            "/api/v1/genes/learning-callback",
-            ig.id,
-            instance.id,
-            "learn",
-        )
+        from app.core.config import settings
+
+        callback_base = getattr(settings, "NODESKCLAW_WEBHOOK_BASE_URL", "") or ""
+        callback_url = f"{callback_base}/api/v1/genes/learning-callback"
 
         gene_content = skill.get("content", "")
         force_deep = not _has_frontmatter(gene_content)
@@ -1480,8 +1442,6 @@ async def handle_learning_callback(
     ig_obj = ig.scalar_one_or_none()
     if not ig_obj:
         raise NotFoundError(f"学习任务 '{payload.task_id}' 不存在")
-    if ig_obj.instance_id != payload.instance_id:
-        raise BadRequestError("回调实例与学习任务不匹配")
 
     instance = await get_instance(ig_obj.instance_id, db)
     gene = await db.execute(
@@ -1594,15 +1554,7 @@ async def handle_learning_callback(
 # ── Apply Genome ─────────────────────────────────
 
 
-async def apply_genome(
-    db: AsyncSession,
-    instance_id: str,
-    genome_id: str,
-    org_id: str | None = None,
-) -> dict:
-    from app.services.instance_service import get_instance
-
-    await get_instance(instance_id, db, org_id)
+async def apply_genome(db: AsyncSession, instance_id: str, genome_id: str) -> dict:
     genome_result = await db.execute(
         select(Genome).where(Genome.id == genome_id, not_deleted(Genome))
     )
@@ -1631,7 +1583,7 @@ async def apply_genome(
             results["skipped"].append(slug)
             continue
         try:
-            await install_gene(db, instance_id, slug, genome_id=genome.id, org_id=org_id)
+            await install_gene(db, instance_id, slug, genome_id=genome.id)
             results["installed"].append(slug)
         except AppException:
             results["skipped"].append(slug)
@@ -1977,23 +1929,19 @@ async def trigger_gene_creation(
     db: AsyncSession,
     instance_id: str,
     creation_prompt: str | None = None,
-    org_id: str | None = None,
 ) -> dict:
     from app.services.instance_service import get_instance
 
-    instance = await get_instance(instance_id, db, org_id)
+    instance = await get_instance(instance_id, db)
+
+    from app.core.config import settings
+
+    callback_base = getattr(settings, "NODESKCLAW_WEBHOOK_BASE_URL", "") or ""
+    callback_url = f"{callback_base}/api/v1/genes/creation-callback"
+
     import uuid
 
     task_id = str(uuid.uuid4())
-
-    callback_base = settings.NODESKCLAW_WEBHOOK_BASE_URL or ""
-    callback_url = build_gene_callback_url(
-        callback_base,
-        "/api/v1/genes/creation-callback",
-        task_id,
-        instance.id,
-        "create",
-    )
 
     payload = {
         "mode": "create",
@@ -2032,8 +1980,6 @@ async def handle_creation_callback(
         )
     )
     instance = instance_result.scalar_one_or_none()
-    if instance is None:
-        raise NotFoundError("实例不存在")
 
     gene_desc = meta.get("gene_description", "")
     gene_short_desc = gene_desc[:256] if gene_desc else None
@@ -2070,27 +2016,13 @@ async def handle_creation_callback(
             "gene_name": gene.name,
         })
 
-    _fire_task(
-        _push_created_gene_to_registry(
-            gene_manifest,
-            gene.slug,
-            gene.name,
-            gene_desc,
-            meta,
-            instance.runtime,
-        )
-    )
+    _fire_task(_push_created_gene_to_registry(gene_manifest, gene.slug, gene.name, gene_desc, meta))
 
     return {"status": "created", "gene_id": gene.id, "slug": gene.slug}
 
 
 async def _push_created_gene_to_registry(
-    manifest: dict,
-    slug: str,
-    name: str,
-    description: str,
-    meta: dict,
-    runtime: str,
+    manifest: dict, slug: str, name: str, description: str, meta: dict,
 ) -> None:
     """Best-effort push of an Agent-created gene to default registry."""
     full_manifest = {
@@ -2103,7 +2035,7 @@ async def _push_created_gene_to_registry(
         "tags": meta.get("suggested_tags", []),
         "icon": meta.get("icon"),
         "author": {"type": "agent", "name": "nodeskclaw"},
-        "compatibility": [{"product": runtime or "openclaw", "min_version": "1.0.0"}],
+        "compatibility": [{"product": instance.runtime if instance else "openclaw", "min_version": "1.0.0"}],
         **manifest,
     }
     aggregator = get_aggregator()
@@ -2236,15 +2168,10 @@ async def refresh_gene_skills(db: AsyncSession, gene_slugs: list[str]) -> dict:
     return {"refreshed": refreshed, "failed": failed}
 
 
-async def uninstall_gene(
-    db: AsyncSession,
-    instance_id: str,
-    gene_id: str,
-    org_id: str | None = None,
-) -> dict:
+async def uninstall_gene(db: AsyncSession, instance_id: str, gene_id: str) -> dict:
     from app.services.instance_service import get_instance
 
-    await get_instance(instance_id, db, org_id)
+    await get_instance(instance_id, db)
 
     ig_result = await db.execute(
         select(InstanceGene).where(
@@ -2337,14 +2264,10 @@ async def _send_forgetting_task(
         manifest = _json_loads(gene.manifest) or {}
         skill_content = manifest.get("skill", {}).get("content", "")
 
-        callback_base = settings.NODESKCLAW_WEBHOOK_BASE_URL or ""
-        callback_url = build_gene_callback_url(
-            callback_base,
-            "/api/v1/genes/forgetting-callback",
-            ig.id,
-            instance.id,
-            "forget",
-        )
+        from app.core.config import settings
+
+        callback_base = getattr(settings, "NODESKCLAW_WEBHOOK_BASE_URL", "") or ""
+        callback_url = f"{callback_base}/api/v1/genes/forgetting-callback"
 
         payload = {
             "mode": "forget",
@@ -2383,8 +2306,6 @@ async def handle_forgetting_callback(
     ig = await db.get(InstanceGene, payload.task_id)
     if not ig:
         raise NotFoundError(f"InstanceGene not found: {payload.task_id}")
-    if ig.instance_id != payload.instance_id:
-        raise BadRequestError("回调实例与遗忘任务不匹配")
 
     instance = await get_instance(ig.instance_id, db)
     gene_result = await db.execute(
@@ -2496,11 +2417,7 @@ async def get_evolution_log(
     instance_id: str,
     page: int = 1,
     page_size: int = 20,
-    org_id: str | None = None,
 ) -> list[dict]:
-    from app.services.instance_service import get_instance
-
-    await get_instance(instance_id, db, org_id)
     offset = (page - 1) * page_size
     result = await db.execute(
         select(EvolutionEvent)

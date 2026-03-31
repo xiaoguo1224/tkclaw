@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import hooks
-from app.core.deps import get_current_org, get_db
+from app.core.deps import get_db
 from app.core.exceptions import NotFoundError
 from app.core.security import get_current_user
 from app.models.cluster import Cluster
@@ -93,11 +93,10 @@ async def list_instances(
 async def get_instance(
     instance_id: str,
     db: AsyncSession = Depends(get_db),
-    org_ctx=Depends(get_current_org),
+    _current_user: User = Depends(get_current_user),
 ):
     """实例详情（含 Pod 实时信息）。"""
-    _current_user, org = org_ctx
-    data = await instance_service.get_instance_detail(instance_id, db, org.id)
+    data = await instance_service.get_instance_detail(instance_id, db)
     return ApiResponse(data=data)
 
 
@@ -106,11 +105,10 @@ async def delete_instance(
     instance_id: str,
     delete_k8s: bool = Query(True),
     db: AsyncSession = Depends(get_db),
-    org_ctx=Depends(get_current_org),
+    _current_user: User = Depends(get_current_user),
 ):
     """删除实例。"""
-    _current_user, org = org_ctx
-    await instance_service.delete_instance(instance_id, db, delete_k8s, org.id)
+    await instance_service.delete_instance(instance_id, db, delete_k8s)
     await hooks.emit("operation_audit", action="instance.deleted", target_type="instance", target_id=instance_id, actor_id=_current_user.id, org_id=_current_user.current_org_id, details={"delete_k8s": delete_k8s, "source": "admin"})
     return ApiResponse(message="实例已删除")
 
@@ -124,11 +122,10 @@ async def scale_instance(
     instance_id: str,
     body: ScaleBody,
     db: AsyncSession = Depends(get_db),
-    org_ctx=Depends(get_current_org),
+    _current_user: User = Depends(get_current_user),
 ):
     """扩缩容。"""
-    _current_user, org = org_ctx
-    await instance_service.scale_instance(instance_id, body.replicas, db, org.id)
+    await instance_service.scale_instance(instance_id, body.replicas, db)
     await hooks.emit("operation_audit", action="instance.scaled", target_type="instance", target_id=instance_id, actor_id=_current_user.id, org_id=_current_user.current_org_id, details={"replicas": body.replicas, "source": "admin"})
     return ApiResponse(message=f"已扩缩容至 {body.replicas} 副本")
 
@@ -137,12 +134,11 @@ async def scale_instance(
 async def restart_instance(
     instance_id: str,
     db: AsyncSession = Depends(get_db),
-    org_ctx=Depends(get_current_org),
+    current_user: User = Depends(get_current_user),
 ):
     """重启实例（scale 0 -> scale N）。"""
-    current_user, org = org_ctx
     logger.info("用户 %s (%s) 请求重启实例 %s", current_user.name, current_user.id, instance_id)
-    await instance_service.restart_instance(instance_id, db, org.id)
+    await instance_service.restart_instance(instance_id, db)
     await hooks.emit("operation_audit", action="instance.restart", target_type="instance", target_id=instance_id, actor_id=current_user.id, org_id=current_user.current_org_id, details={"source": "admin"})
     return ApiResponse(message="已触发重启，实例将在数秒后恢复")
 
@@ -151,11 +147,10 @@ async def restart_instance(
 async def deploy_history(
     instance_id: str,
     db: AsyncSession = Depends(get_db),
-    org_ctx=Depends(get_current_org),
+    _current_user: User = Depends(get_current_user),
 ):
     """部署历史。"""
-    _current_user, org = org_ctx
-    data = await instance_service.get_deploy_history(instance_id, db, org.id)
+    data = await instance_service.get_deploy_history(instance_id, db)
     return ApiResponse(data=data)
 
 
@@ -164,11 +159,10 @@ async def save_config(
     instance_id: str,
     body: UpdateConfigRequest,
     db: AsyncSession = Depends(get_db),
-    org_ctx=Depends(get_current_org),
+    _current_user: User = Depends(get_current_user),
 ):
     """保存实例配置变更到 pending_config（不立即生效）。"""
-    _current_user, org = org_ctx
-    data = await instance_service.save_config(instance_id, body, db, org.id)
+    data = await instance_service.save_config(instance_id, body, db)
     await hooks.emit("operation_audit", action="instance.config_saved", target_type="instance", target_id=instance_id, actor_id=_current_user.id, org_id=_current_user.current_org_id, details={"source": "admin"})
     return ApiResponse(data=data)
 
@@ -177,11 +171,10 @@ async def save_config(
 async def apply_config(
     instance_id: str,
     db: AsyncSession = Depends(get_db),
-    org_ctx=Depends(get_current_org),
+    current_user: User = Depends(get_current_user),
 ):
     """将 pending_config 应用到 K8s，触发滚动更新。"""
-    current_user, org = org_ctx
-    data = await instance_service.apply_config(instance_id, current_user.id, db, org.id)
+    data = await instance_service.apply_config(instance_id, current_user.id, db)
     await hooks.emit("operation_audit", action="instance.config_applied", target_type="instance", target_id=instance_id, actor_id=current_user.id, org_id=current_user.current_org_id, details={"source": "admin"})
     return ApiResponse(data=data)
 
@@ -195,12 +188,11 @@ async def rollback_instance(
     instance_id: str,
     body: RollbackBody,
     db: AsyncSession = Depends(get_db),
-    org_ctx=Depends(get_current_org),
+    current_user: User = Depends(get_current_user),
 ):
     """回滚到指定版本。"""
-    current_user, org = org_ctx
     data = await instance_service.rollback_instance(
-        instance_id, body.target_revision, current_user.id, db, org.id
+        instance_id, body.target_revision, current_user.id, db
     )
     await hooks.emit("operation_audit", action="instance.rolled_back", target_type="instance", target_id=instance_id, actor_id=current_user.id, org_id=current_user.current_org_id, details={"target_revision": body.target_revision, "source": "admin"})
     return ApiResponse(data=data)
@@ -210,11 +202,10 @@ async def rollback_instance(
 async def sync_token(
     instance_id: str,
     db: AsyncSession = Depends(get_db),
-    org_ctx=Depends(get_current_org),
+    _current_user: User = Depends(get_current_user),
 ):
     """从运行中的 Pod 获取 Gateway Token 并回填到 DB。"""
-    _current_user, org = org_ctx
-    token = await instance_service.sync_gateway_token(instance_id, db, org.id)
+    token = await instance_service.sync_gateway_token(instance_id, db)
     await hooks.emit("operation_audit", action="instance.token_synced", target_type="instance", target_id=instance_id, actor_id=_current_user.id, org_id=_current_user.current_org_id, details={"source": "admin"})
     return ApiResponse(data={"token": token})
 
@@ -226,11 +217,10 @@ async def pod_logs(
     container: str | None = Query(None),
     tail_lines: int = Query(200),
     db: AsyncSession = Depends(get_db),
-    org_ctx=Depends(get_current_org),
+    _current_user: User = Depends(get_current_user),
 ):
     """获取 Pod 日志。"""
-    _current_user, org = org_ctx
-    data = await instance_service.get_pod_logs(instance_id, pod_name, db, container, tail_lines, org.id)
+    data = await instance_service.get_pod_logs(instance_id, pod_name, db, container, tail_lines)
     return ApiResponse(data=data)
 
 
@@ -242,14 +232,13 @@ async def pod_logs_stream(
     tail_lines: int = Query(50),
     since_seconds: int | None = Query(None, description="最近 N 秒的日志"),
     since_time: str | None = Query(None, description="ISO 8601 起始时间"),
-    org_ctx=Depends(get_current_org),
+    _current_user: User = Depends(get_current_user),
 ):
     """SSE 流: 实时 Pod 日志，支持时间范围筛选。"""
     from app.core.deps import async_session_factory
 
-    _current_user, org = org_ctx
     async with async_session_factory() as db:
-        instance = await instance_service.get_instance(instance_id, db, org.id)
+        instance = await instance_service.get_instance(instance_id, db)
         result = await db.execute(
             select(Cluster).where(Cluster.id == instance.cluster_id, Cluster.deleted_at.is_(None))
         )

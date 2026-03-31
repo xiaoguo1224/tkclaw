@@ -12,7 +12,6 @@ from app.core.deps import get_current_org, get_current_org_or_agent, get_db
 from app.models.base import not_deleted
 from app.models.decision_record import DecisionRecord
 from app.models.trust_policy import TrustPolicy
-from app.models.workspace import Workspace
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -20,39 +19,6 @@ router = APIRouter()
 
 def _ok(data=None, message: str = "success"):
     return {"code": 0, "message": message, "data": data}
-
-
-def _org_id(org) -> str:
-    return org.id if hasattr(org, "id") else org.get("org_id", "")
-
-
-def _user_id(user) -> str:
-    return str(user.id) if user is not None and hasattr(user, "id") else ""
-
-
-def _trust_http_error(status_code: int, error_code: int, message_key: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code,
-        detail={
-            "error_code": error_code,
-            "message_key": message_key,
-            "message": message,
-        },
-    )
-
-
-async def _get_workspace(workspace_id: str, org, db: AsyncSession) -> Workspace:
-    result = await db.execute(
-        select(Workspace).where(
-            Workspace.id == workspace_id,
-            Workspace.org_id == _org_id(org),
-            not_deleted(Workspace),
-        )
-    )
-    workspace = result.scalar_one_or_none()
-    if not workspace:
-        raise _trust_http_error(404, 40490, "errors.workspace.not_found", "办公室不存在")
-    return workspace
 
 
 class TrustPolicyCreate(BaseModel):
@@ -78,10 +44,8 @@ class ApprovalResponse(BaseModel):
 async def list_trust_policies(
     workspace_id: str,
     agent_instance_id: str | None = None,
-    org_ctx=Depends(get_current_org), db: AsyncSession = Depends(get_db),
+    org: dict = Depends(get_current_org), db: AsyncSession = Depends(get_db),
 ):
-    _, org = org_ctx
-    await _get_workspace(workspace_id, org, db)
     query = select(TrustPolicy).where(
         TrustPolicy.workspace_id == workspace_id,
         not_deleted(TrustPolicy),
@@ -106,16 +70,14 @@ async def list_trust_policies(
 @router.post("/trust-policies")
 async def create_trust_policy(
     body: TrustPolicyCreate,
-    org_ctx=Depends(get_current_org), db: AsyncSession = Depends(get_db),
+    org: dict = Depends(get_current_org), db: AsyncSession = Depends(get_db),
 ):
-    user, org = org_ctx
-    await _get_workspace(body.workspace_id, org, db)
     policy = TrustPolicy(
         id=str(uuid.uuid4()),
         workspace_id=body.workspace_id,
         agent_instance_id=body.agent_instance_id,
         action_type=body.action_type,
-        granted_by=_user_id(user),
+        granted_by=org.get("user_id", ""),
         grant_type=body.grant_type,
     )
     db.add(policy)
@@ -128,11 +90,9 @@ async def check_trust(
     workspace_id: str,
     agent_instance_id: str,
     action_type: str,
-    org_ctx=Depends(get_current_org_or_agent), db: AsyncSession = Depends(get_db),
+    org: dict = Depends(get_current_org_or_agent), db: AsyncSession = Depends(get_db),
 ):
     """Check if an agent has an 'always' trust policy for a given action."""
-    _, org = org_ctx
-    await _get_workspace(workspace_id, org, db)
     result = await db.execute(
         select(TrustPolicy).where(
             TrustPolicy.workspace_id == workspace_id,
@@ -149,14 +109,12 @@ async def check_trust(
 @router.post("/approval-requests")
 async def submit_approval_request(
     body: ApprovalRequest,
-    org_ctx=Depends(get_current_org_or_agent), db: AsyncSession = Depends(get_db),
+    org: dict = Depends(get_current_org_or_agent), db: AsyncSession = Depends(get_db),
 ):
     """Submit an approval request that routes to Human Hex via channel adapter."""
     from app.models.corridor import HumanHex
     from app.services import corridor_router
 
-    _, org = org_ctx
-    ws = await _get_workspace(body.workspace_id, org, db)
     has_topo = await corridor_router.has_any_connections(body.workspace_id, db)
     if not has_topo:
         return _ok({"status": "no_topology", "message": "No corridor topology configured"})
@@ -187,7 +145,15 @@ async def submit_approval_request(
     await db.commit()
 
     from app.core.config import settings
+    from app.models.workspace import Workspace
 
+    ws_q = await db.execute(
+        select(Workspace).where(
+            Workspace.id == body.workspace_id,
+            Workspace.deleted_at.is_(None),
+        )
+    )
+    ws = ws_q.scalar_one_or_none()
     workspace_name = ws.name if ws else body.workspace_id
 
     callback_base = getattr(settings, "NODESKCLAW_WEBHOOK_BASE_URL", "") or getattr(settings, "NODESKCLAW_HOST", "") or ""
@@ -231,21 +197,19 @@ async def submit_approval_request(
 async def resolve_approval(
     record_id: str,
     body: ApprovalResponse,
-    org_ctx=Depends(get_current_org), db: AsyncSession = Depends(get_db),
+    org: dict = Depends(get_current_org), db: AsyncSession = Depends(get_db),
 ):
     """Human resolves an approval request."""
     from datetime import datetime, timezone
 
-    user, org = org_ctx
     result = await db.execute(
         select(DecisionRecord).where(DecisionRecord.id == record_id, not_deleted(DecisionRecord))
     )
     record = result.scalar_one_or_none()
     if not record:
-        raise _trust_http_error(404, 40491, "errors.trust.decision_record_not_found", "审批记录不存在")
-    await _get_workspace(record.workspace_id, org, db)
+        raise HTTPException(404, "decision record not found")
 
-    record.reviewer_id = _user_id(user)
+    record.reviewer_id = org.get("user_id")
     record.review_type = "human"
     record.resolved_at = datetime.now(timezone.utc)
 
@@ -260,7 +224,7 @@ async def resolve_approval(
             workspace_id=record.workspace_id,
             agent_instance_id=record.agent_instance_id,
             action_type=record.decision_type,
-            granted_by=_user_id(user),
+            granted_by=org.get("user_id", ""),
             grant_type="always",
         )
         db.add(policy)
@@ -277,11 +241,9 @@ async def list_decision_records(
     workspace_id: str,
     agent_id: str | None = None,
     decision_type: str | None = None,
-    org_ctx=Depends(get_current_org_or_agent),
+    org: dict = Depends(get_current_org_or_agent),
     db: AsyncSession = Depends(get_db),
 ):
-    _, org = org_ctx
-    await _get_workspace(workspace_id, org, db)
     query = select(DecisionRecord).where(
         DecisionRecord.workspace_id == workspace_id,
         not_deleted(DecisionRecord),
@@ -315,11 +277,9 @@ async def list_decision_records(
 async def get_decision_record(
     workspace_id: str,
     record_id: str,
-    org_ctx=Depends(get_current_org),
+    org: dict = Depends(get_current_org),
     db: AsyncSession = Depends(get_db),
 ):
-    _, org = org_ctx
-    await _get_workspace(workspace_id, org, db)
     result = await db.execute(
         select(DecisionRecord).where(
             DecisionRecord.id == record_id,
@@ -329,7 +289,7 @@ async def get_decision_record(
     )
     record = result.scalar_one_or_none()
     if not record:
-        raise _trust_http_error(404, 40491, "errors.trust.decision_record_not_found", "审批记录不存在")
+        raise HTTPException(404, "decision record not found")
     return _ok(
         {
             "id": record.id,

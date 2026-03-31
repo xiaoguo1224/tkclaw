@@ -25,17 +25,6 @@ def _ok(data=None, message: str = "success"):
     return {"code": 0, "message": message, "data": data}
 
 
-def _mcp_http_error(status_code: int, error_code: int, message_key: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status_code,
-        detail={
-            "error_code": error_code,
-            "message_key": message_key,
-            "message": message,
-        },
-    )
-
-
 def _mcp_to_info(m: InstanceMcpServer) -> dict:
     return McpServerInfo(
         id=m.id, instance_id=m.instance_id, name=m.name,
@@ -78,7 +67,7 @@ async def create_mcp_server(
         select(Instance).where(Instance.id == instance_id, not_deleted(Instance))
     )
     if not inst_q.scalar_one_or_none():
-        raise _mcp_http_error(404, 40470, "errors.instance.not_found", "实例不存在")
+        raise HTTPException(404, "instance not found")
 
     mcp = InstanceMcpServer(
         id=str(uuid.uuid4()),
@@ -114,7 +103,7 @@ async def update_mcp_server(
     )
     mcp = result.scalar_one_or_none()
     if not mcp:
-        raise _mcp_http_error(404, 40471, "errors.mcp.server_not_found", "MCP 服务不存在")
+        raise HTTPException(404, "mcp server not found")
     for field in ("name", "transport", "command", "url", "args", "env", "is_active"):
         val = getattr(body, field, None)
         if val is not None:
@@ -141,7 +130,7 @@ async def delete_mcp_server(
     )
     mcp = result.scalar_one_or_none()
     if not mcp:
-        raise _mcp_http_error(404, 40471, "errors.mcp.server_not_found", "MCP 服务不存在")
+        raise HTTPException(404, "mcp server not found")
     mcp.soft_delete()
     await db.commit()
     return _ok(message="deleted")

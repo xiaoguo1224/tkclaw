@@ -40,12 +40,8 @@ const canSubmitAccount = computed(() => {
   return accountForm.value.account && accountForm.value.password
 })
 
-function isEmailInput(value: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
-}
-
 const canSubmitCode = computed(() => {
-  return isEmailInput(codeForm.value.account) && codeForm.value.code.length >= 4
+  return codeForm.value.account.length >= 5 && codeForm.value.code.length >= 4
 })
 
 async function handleAccountSubmit() {
@@ -73,10 +69,6 @@ async function handleAccountSubmit() {
 
 async function handleSendCode() {
   if (!codeForm.value.account || codeSending.value || codeCountdown.value > 0) return
-  if (!isEmailInput(codeForm.value.account)) {
-    error.value = t('auth.codeEmailOnly')
-    return
-  }
   if (isEE.value && isNonWhitelistedEmail(codeForm.value.account)) {
     await showWaitlistDialog()
     return
@@ -106,10 +98,6 @@ async function handleSendCode() {
 
 async function handleCodeSubmit() {
   if (!canSubmitCode.value || loading.value) return
-  if (!isEmailInput(codeForm.value.account)) {
-    error.value = t('auth.codeEmailOnly')
-    return
-  }
   if (isEE.value && isNonWhitelistedEmail(codeForm.value.account)) {
     await showWaitlistDialog()
     return
@@ -320,7 +308,7 @@ watch(activeTab, () => { error.value = '' })
               @click="activeTab = 'code'"
             >
               <MessageSquareCode class="w-4 h-4" />
-              {{ t('auth.emailCodeLogin') }}
+              {{ t('auth.verificationCodeLogin') }}
             </button>
           </div>
 
@@ -331,7 +319,7 @@ watch(activeTab, () => { error.value = '' })
               <input
                 v-model="accountForm.account"
                 type="text"
-                :placeholder="t('auth.accountLoginPlaceholder')"
+                :placeholder="t('auth.accountPlaceholder')"
                 required
                 class="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 transition-shadow"
               />
@@ -373,16 +361,14 @@ watch(activeTab, () => { error.value = '' })
           <!-- 验证码表单 -->
           <form v-if="activeTab === 'code'" class="space-y-4" @submit.prevent="handleCodeSubmit">
             <div class="space-y-1.5">
-              <label class="text-sm font-medium text-foreground">{{ t('auth.emailLabel') }}</label>
+              <label class="text-sm font-medium text-foreground">{{ t('auth.accountLabel') }}</label>
               <input
                 v-model="codeForm.account"
-                type="email"
-                inputmode="email"
-                :placeholder="t('auth.emailPlaceholder')"
+                type="text"
+                :placeholder="t('auth.accountPlaceholder')"
                 required
                 class="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 transition-shadow"
               />
-              <p class="text-xs text-muted-foreground">{{ t('auth.codeLoginHint') }}</p>
             </div>
 
             <div class="space-y-1.5">
@@ -399,7 +385,7 @@ watch(activeTab, () => { error.value = '' })
                 />
                 <button
                   type="button"
-                  :disabled="!isEmailInput(codeForm.account) || codeSending || codeCountdown > 0"
+                  :disabled="!codeForm.account || codeForm.account.length < 5 || codeSending || codeCountdown > 0"
                   class="shrink-0 h-10 px-4 rounded-lg border border-input text-sm font-medium hover:bg-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
                   @click="handleSendCode"
                 >

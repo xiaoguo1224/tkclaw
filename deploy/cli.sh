@@ -224,9 +224,6 @@ EODF
   fi
 
   case "$component" in
-    backend)
-      extra_args="$extra_args --build-arg APP_VERSION=${TAG}"
-      ;;
     portal|admin)
       extra_args="$extra_args --build-arg VITE_APP_VERSION=${TAG}"
       ;;

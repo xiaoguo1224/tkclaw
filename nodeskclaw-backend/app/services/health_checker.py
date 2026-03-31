@@ -100,12 +100,11 @@ class HealthChecker:
             )
 
 
-async def get_cluster_health(cluster_id: str, db, org_id: str | None = None) -> dict:
+async def get_cluster_health(cluster_id: str, db) -> dict:
     """Return health details for a single cluster."""
-    query = select(Cluster).where(Cluster.id == cluster_id, Cluster.deleted_at.is_(None))
-    if org_id:
-        query = query.where(Cluster.org_id == org_id)
-    result = await db.execute(query)
+    result = await db.execute(
+        select(Cluster).where(Cluster.id == cluster_id, Cluster.deleted_at.is_(None))
+    )
     cluster = result.scalar_one_or_none()
     if not cluster:
         from app.core.exceptions import NotFoundError
