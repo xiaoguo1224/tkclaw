@@ -1309,6 +1309,7 @@ const zhCN = {
       unsupported_key: "不支持的配置项",
     },
     instance: {
+      not_found: "实例不存在",
       slug_conflict: "实例标识已存在，请更换标识",
     },
     llm: {
@@ -1331,6 +1332,23 @@ const zhCN = {
       unsupported_format: "仅支持 .tgz / .tar.gz / .zip 格式",
       extract_failed: "文件解压失败",
       missing_plugin_manifest: "插件缺少 openclaw.plugin.json 或未定义 channels",
+    },
+    mcp: {
+      server_not_found: "MCP 服务不存在",
+    },
+    corridor: {
+      hex_position_occupied: "当前位置已被占用",
+      hex_not_found: "走廊格子不存在",
+      hexes_not_adjacent: "两个格子必须相邻",
+      hex_a_not_occupied: "格子 A 尚未被占用",
+      hex_b_not_occupied: "格子 B 尚未被占用",
+      connection_exists: "连接已存在",
+      connection_not_found: "连接不存在",
+      member_not_found: "成员不在当前办公室中",
+      human_hex_not_found: "人工节点不存在",
+    },
+    trust: {
+      decision_record_not_found: "审批记录不存在",
     },
     workspace: {
       not_found: "办公室不存在",

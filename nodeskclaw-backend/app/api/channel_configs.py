@@ -40,9 +40,13 @@ def _ok(data=None, message: str = "success"):
     return {"code": 0, "message": message, "data": data}
 
 
-async def _get_instance(instance_id: str, db: AsyncSession) -> Instance:
+async def _get_instance(instance_id: str, org_id: str, db: AsyncSession) -> Instance:
     result = await db.execute(
-        select(Instance).where(Instance.id == instance_id, not_deleted(Instance))
+        select(Instance).where(
+            Instance.id == instance_id,
+            Instance.org_id == org_id,
+            not_deleted(Instance),
+        )
     )
     instance = result.scalar_one_or_none()
     if not instance:
@@ -53,11 +57,12 @@ async def _get_instance(instance_id: str, db: AsyncSession) -> Instance:
 @router.get("/{instance_id}/available-channels")
 async def list_available_channels(
     instance_id: str,
-    org: dict = Depends(get_current_org),
+    org_ctx=Depends(get_current_org),
     db: AsyncSession = Depends(get_db),
 ):
     """扫描实例 Pod 返回可用 Channel 列表。"""
-    instance = await _get_instance(instance_id, db)
+    _, org = org_ctx
+    instance = await _get_instance(instance_id, org.id, db)
     runtime = instance.runtime or "openclaw"
     channels = await discover_available_channels(instance, db)
 
@@ -85,11 +90,12 @@ async def list_available_channels(
 @router.get("/{instance_id}/channel-configs")
 async def get_channel_configs(
     instance_id: str,
-    org: dict = Depends(get_current_org),
+    org_ctx=Depends(get_current_org),
     db: AsyncSession = Depends(get_db),
 ):
     """读取实例当前已配置的 Channel（排除系统 Channel）。"""
-    instance = await _get_instance(instance_id, db)
+    _, org = org_ctx
+    instance = await _get_instance(instance_id, org.id, db)
     configs = await read_channel_configs(instance, db)
     return _ok(configs)
 
@@ -98,11 +104,12 @@ async def get_channel_configs(
 async def update_channel_configs(
     instance_id: str,
     body: ChannelConfigsUpdate,
-    org: dict = Depends(get_current_org),
+    org_ctx=Depends(get_current_org),
     db: AsyncSession = Depends(get_db),
 ):
     """写入 Channel 配置并重启 OpenClaw。"""
-    instance = await _get_instance(instance_id, db)
+    _, org = org_ctx
+    instance = await _get_instance(instance_id, org.id, db)
     result = await write_channel_configs(instance, db, body.configs)
     return _ok(result)
 
@@ -111,11 +118,12 @@ async def update_channel_configs(
 async def get_channel_schema_endpoint(
     instance_id: str,
     channel_id: str,
-    org: dict = Depends(get_current_org),
+    org_ctx=Depends(get_current_org),
     db: AsyncSession = Depends(get_db),
 ):
     """获取指定 Channel 的配置表单 Schema。"""
-    instance = await _get_instance(instance_id, db)
+    _, org = org_ctx
+    instance = await _get_instance(instance_id, org.id, db)
     runtime = instance.runtime or "openclaw"
     schema = get_channel_schema(channel_id, runtime_id=runtime)
     return _ok({"channel_id": channel_id, "runtime": runtime, "schema": schema})
@@ -125,11 +133,12 @@ async def get_channel_schema_endpoint(
 async def install_channel_npm(
     instance_id: str,
     body: InstallNpmChannelRequest,
-    org: dict = Depends(get_current_org),
+    org_ctx=Depends(get_current_org),
     db: AsyncSession = Depends(get_db),
 ):
     """通过 npm 安装第三方 Channel 插件。"""
-    instance = await _get_instance(instance_id, db)
+    _, org = org_ctx
+    instance = await _get_instance(instance_id, org.id, db)
     result = await install_npm_channel(instance, db, body.package_name)
     return _ok(result)
 
@@ -138,11 +147,12 @@ async def install_channel_npm(
 async def deploy_channel_from_repo(
     instance_id: str,
     body: DeployRepoChannelRequest,
-    org: dict = Depends(get_current_org),
+    org_ctx=Depends(get_current_org),
     db: AsyncSession = Depends(get_db),
 ):
     """从项目仓库部署自研 Channel 插件到实例。"""
-    instance = await _get_instance(instance_id, db)
+    _, org = org_ctx
+    instance = await _get_instance(instance_id, org.id, db)
     result = await deploy_repo_channel(instance, db, body.channel_id)
     return _ok(result)
 
@@ -151,11 +161,12 @@ async def deploy_channel_from_repo(
 async def upload_channel(
     instance_id: str,
     file: UploadFile = File(...),
-    org: dict = Depends(get_current_org),
+    org_ctx=Depends(get_current_org),
     db: AsyncSession = Depends(get_db),
 ):
     """上传 Channel 插件文件（tgz/zip）到实例。"""
-    instance = await _get_instance(instance_id, db)
+    _, org = org_ctx
+    instance = await _get_instance(instance_id, org.id, db)
 
     if not file.filename:
         raise channel_http_error(400, 40060, "errors.channel.empty_filename", "文件名不能为空")

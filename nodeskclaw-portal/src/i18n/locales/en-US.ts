@@ -1309,6 +1309,7 @@ const enUS = {
       unsupported_key: "Unsupported configuration key",
     },
     instance: {
+      not_found: "Instance not found",
       slug_conflict: "Instance slug already exists. Please choose another one",
     },
     llm: {
@@ -1331,6 +1332,23 @@ const enUS = {
       unsupported_format: "Only .tgz, .tar.gz and .zip formats are supported",
       extract_failed: "Failed to extract archive",
       missing_plugin_manifest: "The plugin is missing openclaw.plugin.json or channels definition",
+    },
+    mcp: {
+      server_not_found: "MCP server not found",
+    },
+    corridor: {
+      hex_position_occupied: "This position is already occupied",
+      hex_not_found: "Corridor hex not found",
+      hexes_not_adjacent: "The two hexes must be adjacent",
+      hex_a_not_occupied: "Hex A is not occupied",
+      hex_b_not_occupied: "Hex B is not occupied",
+      connection_exists: "Connection already exists",
+      connection_not_found: "Connection not found",
+      member_not_found: "Member is not in this cyber office",
+      human_hex_not_found: "Human hex not found",
+    },
+    trust: {
+      decision_record_not_found: "Decision record not found",
     },
     workspace: {
       not_found: "Cyber office does not exist",
