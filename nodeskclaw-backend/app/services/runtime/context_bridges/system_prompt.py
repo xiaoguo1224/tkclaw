@@ -55,7 +55,7 @@ class SystemPromptBridge:
     def build_system_prompt(self, context: WorkspaceContext) -> str:
         """Build a system prompt string from workspace context."""
         parts = [
-            f"你是 {context.agent_identity}，在赛博办公室「{context.workspace_name}」中工作。",
+            f"你是 {context.agent_identity}，在智能助理「{context.workspace_name}」中工作。",
         ]
 
         if context.team:

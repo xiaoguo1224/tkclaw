@@ -118,7 +118,7 @@ api_router.include_router(registry_router, prefix="/registry", tags=["镜像仓�
 api_router.include_router(settings_router, prefix="/settings", tags=["系统配置"],
     dependencies=[Depends(require_ce_edition), Depends(require_org_admin)])
 api_router.include_router(storage_router, prefix="/storage-classes", tags=["存储"])
-api_router.include_router(workspace_router, prefix="/workspaces", tags=["赛博办公室"])
+api_router.include_router(workspace_router, prefix="/workspaces", tags=["智能助理"])
 api_router.include_router(blackboard_router, prefix="/workspaces", tags=["黑板讨论区"])
 api_router.include_router(corridor_router, prefix="/workspaces", tags=["过道系统"])
 api_router.include_router(observability_router, prefix="/workspaces", tags=["可观测性"])
@@ -140,7 +140,7 @@ admin_router = APIRouter()
 # 基础路由（无额外角色限制）
 admin_router.include_router(auth_router, prefix="/auth", tags=["Admin - 认证"])
 admin_router.include_router(org_router, prefix="/orgs", tags=["Admin - 组织"])
-admin_router.include_router(workspace_router, prefix="/workspaces", tags=["Admin - 赛博办公室"])
+admin_router.include_router(workspace_router, prefix="/workspaces", tags=["Admin - 智能助理"])
 admin_router.include_router(blackboard_router, prefix="/workspaces", tags=["Admin - 黑板讨论区"])
 admin_router.include_router(corridor_router, prefix="/workspaces", tags=["Admin - 过道系统"])
 admin_router.include_router(observability_router, prefix="/workspaces", tags=["Admin - 可观测性"])

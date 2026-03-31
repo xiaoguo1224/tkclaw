@@ -792,7 +792,7 @@ async def _notify_topology_status(
     })
 
 
-WELCOME_MESSAGE = "你好！你刚刚加入了赛博办公室，请向大家介绍一下你自己：你叫什么名字、你的能力和专长是什么。"
+WELCOME_MESSAGE = "你好！你刚刚加入了智能助理，请向大家介绍一下你自己：你叫什么名字、你的能力和专长是什么。"
 WELCOME_READY_TIMEOUT = 120
 WELCOME_POLL_INTERVAL = 3
 WELCOME_FALLBACK_DELAY = 10

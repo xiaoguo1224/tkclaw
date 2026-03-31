@@ -35,7 +35,7 @@ edition_features:
 
     - id: topology_audit
       name: Topology Audit Log
-      description: 赛博办公室拓扑变更审计日志
+      description: 智能助理拓扑变更审计日志
 
     - id: performance_analytics
       name: Performance Analytics
