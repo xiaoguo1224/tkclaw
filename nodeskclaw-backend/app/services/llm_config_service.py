@@ -749,6 +749,9 @@ def _inject_channel_config(
 
     entries = plugins.setdefault("entries", {})
     entries["nodeskclaw"] = {"enabled": True}
+    p_allow = plugins.setdefault("allow", [])
+    if "nodeskclaw" not in p_allow:
+        p_allow.append("nodeskclaw")
 
     gw = config.setdefault("gateway", {})
     http_cfg = gw.setdefault("http", {})
@@ -1011,7 +1014,8 @@ async def deploy_learning_channel_plugin(
 
 # ── DingTalk Channel Plugin ──────────────────────
 
-DINGTALK_PLUGIN_DIR = "openclaw-channel-dingtalk"
+DINGTALK_PLUGIN_SOURCE_DIR = "openclaw-channel-dingtalk"
+DINGTALK_PLUGIN_DIR = "dingtalk"
 DINGTALK_PLUGIN_FILES = [
     "index.ts",
     "package.json",
@@ -1026,8 +1030,8 @@ DINGTALK_PLUGIN_FILES = [
 
 def _get_dingtalk_plugin_source_dir() -> Path:
     candidates = [
-        Path(__file__).resolve().parents[3] / DINGTALK_PLUGIN_DIR,
-        Path("/app") / DINGTALK_PLUGIN_DIR,
+        Path(__file__).resolve().parents[3] / DINGTALK_PLUGIN_SOURCE_DIR,
+        Path("/app") / DINGTALK_PLUGIN_SOURCE_DIR,
     ]
     for p in candidates:
         if p.exists() and (p / "index.ts").exists():
@@ -1044,9 +1048,18 @@ async def _deploy_dingtalk_plugin_files(fs: RemoteFS, plugin_source: Path) -> No
     for rel_path in DINGTALK_PLUGIN_FILES:
         src = plugin_source / rel_path
         if src.exists():
+            content = src.read_text(encoding="utf-8")
+            if rel_path == "package.json":
+                try:
+                    pkg = json.loads(content)
+                    if isinstance(pkg, dict):
+                        pkg["name"] = "dingtalk"
+                        content = json.dumps(pkg, ensure_ascii=False, indent=2) + "\n"
+                except Exception:
+                    pass
             await fs.write_text(
                 f"{target_base}/{rel_path}",
-                src.read_text(encoding="utf-8"),
+                content,
             )
 
 
@@ -1054,14 +1067,32 @@ def _inject_dingtalk_plugin_path(config: dict) -> None:
     plugins = config.setdefault("plugins", {})
     load = plugins.setdefault("load", {})
     paths = load.setdefault("paths", [])
-    old_relative = f".openclaw/extensions/{DINGTALK_PLUGIN_DIR}"
-    if old_relative in paths:
-        paths.remove(old_relative)
+    old_relatives = [
+        f".openclaw/extensions/{DINGTALK_PLUGIN_DIR}",
+        ".openclaw/extensions/openclaw-channel-dingtalk",
+    ]
+    for old_relative in old_relatives:
+        if old_relative in paths:
+            paths.remove(old_relative)
+    old_absolutes = [
+        f"/root/.openclaw/extensions/{DINGTALK_PLUGIN_DIR}",
+        "/root/.openclaw/extensions/openclaw-channel-dingtalk",
+    ]
+    for old_absolute in old_absolutes:
+        while old_absolute in paths:
+            paths.remove(old_absolute)
     plugin_path = f"/root/.openclaw/extensions/{DINGTALK_PLUGIN_DIR}"
     if plugin_path not in paths:
         paths.append(plugin_path)
 
+    allow = plugins.setdefault("allow", [])
+    while "openclaw-channel-dingtalk" in allow:
+        allow.remove("openclaw-channel-dingtalk")
+    if "dingtalk" not in allow:
+        allow.append("dingtalk")
+
     entries = plugins.setdefault("entries", {})
+    entries.pop("openclaw-channel-dingtalk", None)
     entries["dingtalk"] = {"enabled": True}
 
 

@@ -1,5 +1,5 @@
 {
-  "name": "openclaw-channel-dingtalk",
+  "name": "dingtalk",
   "version": "0.1.0",
   "private": true,
   "description": "OpenClaw channel plugin for DingTalk messaging",
