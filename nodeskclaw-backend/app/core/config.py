@@ -104,6 +104,7 @@ class Settings(BaseSettings):
 
     # ── Agent API（AI 员工 Pod 回调后端的内网地址）────────
     AGENT_API_BASE_URL: str = "http://localhost:4510/api/v1"
+    GENE_CALLBACK_SECRET: str = ""
 
     # ── Agent Tunnel（实例通过 WebSocket 主动连接后端的地址）────
     TUNNEL_BASE_URL: str = ""

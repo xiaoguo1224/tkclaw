@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_db
+from app.core.exceptions import BadRequestError
 from app.core.security import get_current_user
 from app.models.user import User
 from app.schemas.common import ApiResponse, PaginatedResponse, Pagination
@@ -298,8 +299,14 @@ async def create_gene_from_agent(
 @router.post("/genes/learning-callback")
 async def learning_callback(
     payload: LearningCallbackPayload,
+    sig: str = Query(...),
+    instance_id: str = Query(...),
     db: AsyncSession = Depends(get_db),
 ):
+    if payload.instance_id != instance_id:
+        raise BadRequestError("回调实例与签名参数不匹配")
+    if not gene_service.verify_gene_callback_signature(payload, "learn", sig):
+        raise BadRequestError("回调签名无效")
     result = await gene_service.handle_learning_callback(db, payload)
     return ApiResponse(data=result)
 
@@ -307,8 +314,14 @@ async def learning_callback(
 @router.post("/genes/creation-callback")
 async def creation_callback(
     payload: LearningCallbackPayload,
+    sig: str = Query(...),
+    instance_id: str = Query(...),
     db: AsyncSession = Depends(get_db),
 ):
+    if payload.instance_id != instance_id:
+        raise BadRequestError("回调实例与签名参数不匹配")
+    if not gene_service.verify_gene_callback_signature(payload, "create", sig):
+        raise BadRequestError("回调签名无效")
     result = await gene_service.handle_creation_callback(db, payload)
     return ApiResponse(data=result)
 
@@ -316,8 +329,14 @@ async def creation_callback(
 @router.post("/genes/forgetting-callback")
 async def forgetting_callback(
     payload: LearningCallbackPayload,
+    sig: str = Query(...),
+    instance_id: str = Query(...),
     db: AsyncSession = Depends(get_db),
 ):
+    if payload.instance_id != instance_id:
+        raise BadRequestError("回调实例与签名参数不匹配")
+    if not gene_service.verify_gene_callback_signature(payload, "forget", sig):
+        raise BadRequestError("回调签名无效")
     result = await gene_service.handle_forgetting_callback(db, payload)
     return ApiResponse(data=result)
 
