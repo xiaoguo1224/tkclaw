@@ -1,6 +1,6 @@
 import type { ModelItem } from '@/components/shared/ModelSelect.vue'
 
-export const PROVIDERS = ['minimax-openai', 'minimax-anthropic', 'openai', 'anthropic', 'gemini', 'openrouter', 'codex'] as const
+export const PROVIDERS = ['minimax-openai', 'minimax-anthropic', 'openai', 'anthropic', 'gemini', 'openrouter', 'codex', 'bailian-code'] as const
 
 export const PROVIDER_LABELS: Record<string, string> = {
   codex: 'Codex CLI',
@@ -10,6 +10,7 @@ export const PROVIDER_LABELS: Record<string, string> = {
   openrouter: 'OpenRouter',
   'minimax-openai': 'MiniMax-OpenAI (CN)',
   'minimax-anthropic': 'MiniMax-Anthropic (CN)',
+  'bailian-code': '阿里云百炼 code plan',
 }
 
 export const PROVIDER_DEFAULT_URLS: Record<string, string> = {
@@ -20,10 +21,11 @@ export const PROVIDER_DEFAULT_URLS: Record<string, string> = {
   openrouter: 'https://openrouter.ai/api/v1',
   'minimax-openai': 'https://api.minimaxi.com/v1',
   'minimax-anthropic': 'https://api.minimaxi.com/anthropic',
+  'bailian-code': 'https://dashscope.aliyuncs.com/compatible-mode/v1',
 }
 
-export const BUILTIN_PROVIDERS = new Set(['codex', 'openai', 'anthropic', 'gemini', 'openrouter'])
-export const WORKING_PLAN_PROVIDERS = new Set(['minimax-openai', 'minimax-anthropic'])
+export const BUILTIN_PROVIDERS = new Set(['codex', 'openai', 'anthropic', 'gemini', 'openrouter', 'bailian-code'])
+export const WORKING_PLAN_PROVIDERS = new Set(['minimax-openai', 'minimax-anthropic', 'bailian-code'])
 export const ALL_KNOWN_PROVIDERS: Set<string> = new Set([...PROVIDERS])
 
 export const isCodexProvider = (provider: string) => provider === 'codex'

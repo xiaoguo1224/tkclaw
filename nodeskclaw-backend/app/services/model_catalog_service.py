@@ -28,12 +28,14 @@ PROVIDER_BASE_URLS: dict[str, str] = {
     "openrouter": "https://openrouter.ai/api",
     "minimax-openai": "https://api.minimaxi.com",
     "minimax-anthropic": "https://api.minimaxi.com/anthropic",
+    "bailian-code": "https://dashscope.aliyuncs.com/compatible-mode/v1",
 }
 
 PROVIDER_API_TYPE: dict[str, str] = {
     "gemini": "google-generative-ai",
     "minimax-openai": "openai-completions",
     "minimax-anthropic": "anthropic-messages",
+    "bailian-code": "openai-completions",
 }
 
 
@@ -220,4 +222,5 @@ _FETCHERS: dict[str, object] = {
     "openrouter": _fetch_openrouter,
     "minimax-openai": _fetch_minimax,
     "minimax-anthropic": _fetch_minimax,
+    "bailian-code": _fetch_openai_compatible,
 }

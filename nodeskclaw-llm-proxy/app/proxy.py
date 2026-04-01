@@ -34,9 +34,10 @@ PROVIDER_DEFAULTS: dict[str, dict] = {
     "openrouter": {"base_url": "https://openrouter.ai/api", "auth_type": "bearer"},
     "minimax-openai": {"base_url": "https://api.minimaxi.com", "auth_type": "bearer"},
     "minimax-anthropic": {"base_url": "https://api.minimaxi.com/anthropic", "auth_type": "bearer"},
+    "bailian-code": {"base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "auth_type": "bearer"},
 }
 
-_OPENAI_STREAM_PROVIDERS = {"openai", "openrouter", "minimax-openai"}
+_OPENAI_STREAM_PROVIDERS = {"openai", "openrouter", "minimax-openai", "bailian-code"}
 
 _http_client: httpx.AsyncClient | None = None
 
