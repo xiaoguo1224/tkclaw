@@ -1028,3 +1028,52 @@ async def rollback_instance(
     )
 
     return await update_config(instance_id, req, user_id, db, org_id)
+
+
+async def batch_upgrade_image_version(
+    target_version: str, user_id: str, db: AsyncSession, *, dry_run: bool = False,
+) -> dict:
+    """批量将所有 OpenClaw 实例的镜像版本对齐到 target_version。"""
+    excluded = [
+        InstanceStatus.creating,
+        InstanceStatus.deploying,
+        InstanceStatus.updating,
+        InstanceStatus.restarting,
+        InstanceStatus.deleting,
+    ]
+    result = await db.execute(
+        select(Instance).where(
+            Instance.runtime == "openclaw",
+            Instance.deleted_at.is_(None),
+            Instance.status.notin_([s.value for s in excluded]),
+        )
+    )
+    instances = list(result.scalars().all())
+
+    upgraded: list[dict] = []
+    skipped: list[dict] = []
+    failed: list[dict] = []
+
+    for instance in instances:
+        brief = {
+            "id": instance.id, "name": instance.name,
+            "slug": instance.slug, "current_version": instance.image_version,
+        }
+        if instance.image_version == target_version:
+            skipped.append(brief)
+            continue
+
+        if dry_run:
+            upgraded.append(brief)
+            continue
+
+        try:
+            await _execute_config_update(
+                instance, UpdateConfigRequest(image_version=target_version), user_id, db,
+            )
+            upgraded.append({**brief, "current_version": target_version})
+        except Exception as e:
+            logger.exception("批量升级实例 %s 失败", instance.name)
+            failed.append({**brief, "error": str(e)[:200]})
+
+    return {"upgraded": upgraded, "skipped": skipped, "failed": failed}

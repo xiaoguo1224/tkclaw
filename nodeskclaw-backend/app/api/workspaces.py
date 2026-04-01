@@ -1626,6 +1626,48 @@ async def repair_channel_accounts(
     return _ok(result)
 
 
+class BatchUpgradeRequest(BaseModel):
+    image_version: str
+    dry_run: bool = False
+    with_repair: bool = False
+
+
+@router.post("/maintenance/batch-upgrade-openclaw")
+async def batch_upgrade_openclaw(
+    body: BatchUpgradeRequest,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(_get_current_user_dep()),
+):
+    """Batch upgrade all OpenClaw instances to a target image version."""
+    if not user.is_super_admin:
+        raise HTTPException(status_code=403, detail={
+            "error_code": 40310,
+            "message_key": "errors.org.super_admin_required",
+            "message": "仅限平台管理员操作",
+        })
+    if not body.image_version.strip():
+        raise HTTPException(status_code=400, detail={
+            "error_code": 40001,
+            "message_key": "errors.validation.invalid_params",
+            "message": "image_version 不能为空",
+        })
+    from app.services import instance_service
+    upgrade_result = await instance_service.batch_upgrade_image_version(
+        body.image_version, user.id, db, dry_run=body.dry_run,
+    )
+
+    repair_result = None
+    if not body.dry_run and body.with_repair:
+        from app.services import llm_config_service
+        try:
+            repair_result = await llm_config_service.repair_channel_account_urls(db)
+        except Exception as e:
+            logger.exception("批量升级后 channel 修复失败")
+            repair_result = {"error": str(e)[:200]}
+
+    return _ok({"upgrade": upgrade_result, "repair": repair_result})
+
+
 @router.post("/maintenance/refresh-gene-skills")
 async def refresh_gene_skills(
     body: dict,
