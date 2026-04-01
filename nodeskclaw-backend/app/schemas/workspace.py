@@ -312,9 +312,20 @@ class FileInfo(BaseModel):
     updated_at: datetime
 
 
+class BlackboardFilePreviewInfo(BaseModel):
+    filename: str
+    content_type: str
+    preview_type: str
+    encoding: str = "unknown"
+    text_content: str | None = None
+    download_url: str | None = None
+    is_previewable: bool = False
+    file_size: int = 0
+
+
 class FileWriteRequest(BaseModel):
     parent_path: str = Field("/", max_length=1024)
-    content: str = Field(..., description="Base64-encoded file content")
+    content: str = Field(..., description="Base64-encoded file content or raw UTF-8 text")
     filename: str = Field(..., min_length=1, max_length=255)
     content_type: str = "application/octet-stream"
 

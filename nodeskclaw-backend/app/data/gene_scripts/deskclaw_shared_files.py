@@ -8,7 +8,7 @@ Actions:
   list_files [--path /]              List files in a directory
   read_file --file-id ID             Read file content (returns base64)
   write_file --filename NAME --content-b64 DATA [--parent-path /] [--content-type TYPE]
-                                     Upload a file (content in base64)
+                                     Upload a file (content can be raw UTF-8 text or base64)
   delete_file --file-id ID           Delete a file
   mkdir --name NAME [--parent-path /]  Create a directory
   get_file_url --file-id ID          Get download URL for a file
@@ -39,7 +39,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("write_file", help="Upload a file")
     sp.add_argument("--filename", required=True)
-    sp.add_argument("--content-b64", required=True, help="File content in base64 encoding")
+    sp.add_argument("--content-b64", required=True, help="File content in base64 encoding or raw UTF-8 text")
     sp.add_argument("--parent-path", default="/")
     sp.add_argument("--content-type", default="application/octet-stream")
 

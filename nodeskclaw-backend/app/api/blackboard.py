@@ -346,6 +346,20 @@ async def read_file_content(
     return _ok({"content": b64, "content_type": ct})
 
 
+@router.get("/{workspace_id}/blackboard/files/{file_id}/preview")
+async def preview_file_content(
+    workspace_id: str,
+    file_id: str,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(_get_current_user_or_agent_dep()),
+):
+    await wm_service.check_workspace_member(workspace_id, user, db)
+    result = await workspace_service.get_shared_file_preview(db, workspace_id, file_id)
+    if result is None:
+        return _ok(None, "not found")
+    return _ok(result.model_dump(mode="json"))
+
+
 @router.delete("/{workspace_id}/blackboard/files/{file_id}")
 async def delete_file(
     workspace_id: str,

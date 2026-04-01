@@ -5,6 +5,7 @@ import base64
 import binascii
 import io
 import logging
+import mimetypes
 import re
 import zipfile
 from typing import Coroutine
@@ -34,6 +35,7 @@ from app.schemas.workspace import (
     BlackboardInfo,
     BlackboardSectionPatch,
     BlackboardUpdate,
+    BlackboardFilePreviewInfo,
     FileInfo,
     FileWriteRequest,
     MentionInfo,
@@ -61,6 +63,34 @@ from app.schemas.workspace import (
 logger = logging.getLogger(__name__)
 
 _background_tasks: set[asyncio.Task] = set()
+_TEXT_PREVIEW_SIZE_LIMIT = 512 * 1024
+_TEXT_PREVIEW_EXTENSIONS = {
+    ".txt": "text/plain",
+    ".md": "text/markdown",
+    ".markdown": "text/markdown",
+    ".py": "text/x-python",
+    ".js": "text/javascript",
+    ".jsx": "text/javascript",
+    ".ts": "text/typescript",
+    ".tsx": "text/typescript",
+    ".json": "application/json",
+    ".yaml": "application/yaml",
+    ".yml": "application/yaml",
+    ".xml": "application/xml",
+    ".html": "text/html",
+    ".htm": "text/html",
+    ".css": "text/css",
+    ".sh": "text/x-shellscript",
+    ".sql": "application/sql",
+    ".java": "text/x-java-source",
+    ".go": "text/x-go",
+    ".rs": "text/x-rust",
+    ".vue": "text/x-vue",
+    ".log": "text/plain",
+    ".toml": "application/toml",
+    ".ini": "text/plain",
+    ".conf": "text/plain",
+}
 
 
 def _decode_shared_file_content(content: str, content_type: str) -> bytes:
@@ -84,6 +114,63 @@ def _decode_shared_file_content(content: str, content_type: str) -> bytes:
         return raw.encode("utf-8")
 
     raise BadRequestError("文件内容格式不正确，请传入 base64 编码内容")
+
+
+def _guess_content_type(filename: str, content_type: str) -> str:
+    normalized = (content_type or "").strip().lower()
+    if normalized and normalized != "application/octet-stream":
+        return content_type
+
+    ext = ""
+    if "." in filename:
+        ext = "." + filename.rsplit(".", 1)[1].lower()
+    guessed = _TEXT_PREVIEW_EXTENSIONS.get(ext)
+    if guessed:
+        return guessed
+
+    guessed, _ = mimetypes.guess_type(filename)
+    return guessed or "application/octet-stream"
+
+
+def _is_text_content_type(content_type: str) -> bool:
+    return (
+        content_type.startswith("text/")
+        or "json" in content_type
+        or "xml" in content_type
+        or "yaml" in content_type
+        or "javascript" in content_type
+        or "typescript" in content_type
+        or "shellscript" in content_type
+        or "toml" in content_type
+        or "sql" in content_type
+        or "x-python" in content_type
+        or "x-java" in content_type
+        or "x-go" in content_type
+        or "x-rust" in content_type
+        or "x-vue" in content_type
+    )
+
+
+def _preview_type_for_content_type(content_type: str) -> str:
+    if _is_text_content_type(content_type):
+        return "text"
+    if content_type.startswith("image/"):
+        return "image"
+    if content_type == "application/pdf":
+        return "pdf"
+    return "unsupported"
+
+
+def _decode_preview_text(content: bytes) -> tuple[str | None, str]:
+    if content.startswith(b"\xef\xbb\xbf"):
+        try:
+            return content.decode("utf-8-sig"), "utf-8-bom"
+        except UnicodeDecodeError:
+            return None, "unknown"
+    try:
+        return content.decode("utf-8"), "utf-8"
+    except UnicodeDecodeError:
+        return None, "unknown"
 
 
 def _fire_task(coro: Coroutine) -> asyncio.Task:
@@ -1906,9 +1993,10 @@ async def upload_shared_file(
     data: FileWriteRequest,
 ) -> FileInfo:
     parent_path = _validate_path(data.parent_path)
-    file_bytes = _decode_shared_file_content(data.content, data.content_type)
+    resolved_content_type = _guess_content_type(data.filename, data.content_type)
+    file_bytes = _decode_shared_file_content(data.content, resolved_content_type)
     storage_key = await storage_service.upload_file(
-        file_bytes, data.filename, data.content_type,
+        file_bytes, data.filename, resolved_content_type,
         workspace_id,
     )
     existing = (await db.execute(
@@ -1925,7 +2013,7 @@ async def upload_shared_file(
             await storage_service.delete_file(existing.storage_key)
         existing.storage_key = storage_key
         existing.file_size = len(file_bytes)
-        existing.content_type = data.content_type
+        existing.content_type = resolved_content_type
         existing.uploader_type = uploader_type
         existing.uploader_id = uploader_id
         existing.uploader_name = uploader_name
@@ -1939,7 +2027,7 @@ async def upload_shared_file(
         name=data.filename,
         is_directory=False,
         file_size=len(file_bytes),
-        content_type=data.content_type,
+        content_type=resolved_content_type,
         storage_key=storage_key,
         uploader_type=uploader_type,
         uploader_id=uploader_id,
@@ -2036,6 +2124,70 @@ async def read_shared_file(
 
     content = await storage_service.download_file(f.storage_key)
     return base64.b64encode(content).decode(), f.content_type
+
+
+async def get_shared_file_preview(
+    db: AsyncSession, workspace_id: str, file_id: str,
+) -> BlackboardFilePreviewInfo | None:
+    result = await db.execute(
+        select(BlackboardFile).where(
+            BlackboardFile.id == file_id,
+            BlackboardFile.workspace_id == workspace_id,
+            BlackboardFile.is_directory.is_(False),
+            BlackboardFile.deleted_at.is_(None),
+        )
+    )
+    file = result.scalar_one_or_none()
+    if file is None or not file.storage_key:
+        return None
+
+    content_type = _guess_content_type(file.name, file.content_type)
+    preview_type = _preview_type_for_content_type(content_type)
+    download_url = await storage_service.get_presigned_url(file.storage_key)
+
+    if preview_type == "unsupported":
+        return BlackboardFilePreviewInfo(
+            filename=file.name,
+            content_type=content_type,
+            preview_type=preview_type,
+            download_url=download_url,
+            file_size=file.file_size,
+            is_previewable=False,
+        )
+
+    if preview_type in {"image", "pdf"}:
+        return BlackboardFilePreviewInfo(
+            filename=file.name,
+            content_type=content_type,
+            preview_type=preview_type,
+            download_url=download_url,
+            file_size=file.file_size,
+            is_previewable=True,
+        )
+
+    if file.file_size > _TEXT_PREVIEW_SIZE_LIMIT:
+        return BlackboardFilePreviewInfo(
+            filename=file.name,
+            content_type=content_type,
+            preview_type="text",
+            encoding="unknown",
+            download_url=download_url,
+            file_size=file.file_size,
+            is_previewable=False,
+        )
+
+    content = await storage_service.download_file(file.storage_key)
+    text_content, encoding = _decode_preview_text(content)
+    return BlackboardFilePreviewInfo(
+        filename=file.name,
+        content_type=content_type,
+        preview_type=preview_type,
+        encoding=encoding,
+        text_content=text_content,
+        download_url=download_url,
+        file_size=file.file_size,
+        is_previewable=text_content is not None,
+    )
 
 
 async def delete_shared_file(
