@@ -5,7 +5,7 @@ import json
 import logging
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Coroutine, Optional
+from typing import Coroutine, Literal, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
@@ -18,6 +18,7 @@ from app.core import hooks
 from app.core.deps import async_session_factory, get_current_org, get_db
 from app.models.instance import Instance
 from app.models.workspace_agent import WorkspaceAgent
+from app.schemas.common import PaginatedResponse, Pagination
 from app.schemas.workspace import (
     AddAgentRequest,
     BlackboardSectionPatch,
@@ -349,10 +350,27 @@ async def list_tasks(
     workspace_id: str,
     status: str | None = Query(None),
     exclude_archived: bool = Query(True),
+    paginated: bool = Query(False),
+    bucket: Literal["active", "inactive"] = Query("active"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     user=Depends(_get_current_user_or_agent_dep()),
 ):
     await wm_service.check_workspace_member(workspace_id, user, db)
+    if paginated:
+        items, total = await workspace_service.list_tasks_paginated(
+            db,
+            workspace_id,
+            status=status,
+            bucket=bucket,
+            page=page,
+            page_size=page_size,
+        )
+        return PaginatedResponse(
+            data=[t.model_dump(mode="json") for t in items],
+            pagination=Pagination(page=page, page_size=page_size, total=total),
+        )
     tasks = await workspace_service.list_tasks(db, workspace_id, status, exclude_archived)
     return _ok([t.model_dump(mode="json") for t in tasks])
 

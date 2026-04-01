@@ -78,6 +78,17 @@ export interface TaskInfo {
   updated_at: string
 }
 
+export interface PaginationInfo {
+  page: number
+  page_size: number
+  total: number
+}
+
+export interface PaginatedTaskList {
+  items: TaskInfo[]
+  pagination: PaginationInfo
+}
+
 export interface ObjectiveInfo {
   id: string
   workspace_id: string
@@ -258,6 +269,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const currentWorkspace = ref<WorkspaceInfo | null>(null)
   const blackboard = ref<BlackboardInfo | null>(null)
   const schedules = ref<ScheduleInfo[]>([])
+  const taskEventVersion = ref(0)
+  const lastTaskEvent = ref<{ workspace_id: string; event: string } | null>(null)
   const schedulePresets = ref<PresetTemplate[]>([])
   const members = ref<WorkspaceMemberInfo[]>([])
   const loading = ref(false)
@@ -416,19 +429,53 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   async function fetchTasks(workspaceId: string, status?: string) {
-    const params = new URLSearchParams()
-    if (status) params.set('status', status)
-    const res = await api.get(`/workspaces/${workspaceId}/blackboard/tasks?${params.toString()}`)
+    const params: Record<string, string> = {}
+    if (status) params.status = status
+    const res = await api.get(`/workspaces/${workspaceId}/blackboard/tasks`, { params })
     return (res.data.data || []) as TaskInfo[]
+  }
+
+  async function fetchTasksPaginated(
+    workspaceId: string,
+    options: {
+      status?: string
+      bucket?: 'active' | 'inactive'
+      page?: number
+      pageSize?: number
+    } = {},
+  ) {
+    const params: Record<string, string | number | boolean> = {
+      paginated: true,
+      bucket: options.bucket || 'active',
+      page: options.page || 1,
+      page_size: options.pageSize || 20,
+    }
+    if (options.status) params.status = options.status
+    const res = await api.get(`/workspaces/${workspaceId}/blackboard/tasks`, { params })
+    return {
+      items: (res.data.data || []) as TaskInfo[],
+      pagination: (res.data.pagination || {
+        page: options.page || 1,
+        page_size: options.pageSize || 20,
+        total: 0,
+      }) as PaginationInfo,
+    } satisfies PaginatedTaskList
+  }
+
+  function notifyTaskEvent(workspaceId: string, event: string) {
+    lastTaskEvent.value = { workspace_id: workspaceId, event }
+    taskEventVersion.value += 1
   }
 
   async function createTask(workspaceId: string, data: { title: string; description?: string; priority?: string; assignee_id?: string; estimated_value?: number }) {
     const res = await api.post(`/workspaces/${workspaceId}/blackboard/tasks`, data)
+    notifyTaskEvent(workspaceId, 'task:created')
     return res.data.data as TaskInfo
   }
 
   async function updateTask(workspaceId: string, taskId: string, data: Record<string, unknown>) {
     const res = await api.put(`/workspaces/${workspaceId}/blackboard/tasks/${taskId}`, data)
+    notifyTaskEvent(workspaceId, 'task:updated')
     return res.data.data as TaskInfo
   }
 
@@ -920,6 +967,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       eventSource.addEventListener(evtName, (e: MessageEvent) => {
         try {
           const data = JSON.parse(e.data)
+          notifyTaskEvent(workspaceId, evtName)
           externalCallback?.(evtName, data)
         } catch { /* ignore */ }
       })
@@ -1297,6 +1345,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     currentWorkspace.value = null
     blackboard.value = null
     schedules.value = []
+    taskEventVersion.value = 0
+    lastTaskEvent.value = null
     schedulePresets.value = []
     topology.value = null
     members.value = []
@@ -1316,6 +1366,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     currentWorkspace,
     blackboard,
     schedules,
+    taskEventVersion,
+    lastTaskEvent,
     members,
     loading,
     chatMessages,
@@ -1355,6 +1407,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     fetchBlackboard,
     updateBlackboard,
     fetchTasks,
+    fetchTasksPaginated,
     createTask,
     updateTask,
     fetchObjectives,
