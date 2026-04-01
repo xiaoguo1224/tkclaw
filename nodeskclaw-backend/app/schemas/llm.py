@@ -142,6 +142,7 @@ class InstanceLlmConfigEntry(BaseModel):
     personal_key_masked: str | None = None
     base_url: str | None = None
     api_type: str | None = None
+    is_default: bool = False
 
 
 class InstanceLlmConfigItem(BaseModel):
@@ -154,3 +155,4 @@ class InstanceLlmConfigItem(BaseModel):
 
 class InstanceLlmConfigUpdate(BaseModel):
     configs: list[InstanceLlmConfigItem]
+    default_model_primary: str | None = None

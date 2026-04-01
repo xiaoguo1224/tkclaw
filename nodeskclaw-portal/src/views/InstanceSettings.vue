@@ -83,6 +83,7 @@ interface ProviderConfig {
   isCustom: boolean
   showBaseUrl: boolean
   selectedModel: ModelItem | null
+  isDefault: boolean
 }
 
 const orgKeyProviders = ref<Set<string>>(new Set())
@@ -147,6 +148,7 @@ async function loadAll() {
     const podConfigs: {
       provider: string; key_source: string; selected_models?: any[];
       personal_key_masked?: string; base_url?: string | null; api_type?: string | null;
+      is_default?: boolean;
     }[] = configsResult.status === 'fulfilled' ? (configsResult.value.data.data ?? []) : []
 
     const configs: ProviderConfig[] = []
@@ -166,7 +168,12 @@ async function loadAll() {
         isCustom,
         showBaseUrl: isCustom || !!(c.base_url || pk?.base_url),
         selectedModel: (c.selected_models ?? [])[0] ?? defaultModelForProvider(c.provider),
+        isDefault: !!c.is_default,
       })
+    }
+
+    if (!configs.some(c => c.isDefault) && configs.length > 0) {
+      configs[0].isDefault = true
     }
 
     for (const c of configs) {
@@ -202,6 +209,7 @@ function addProvider(provider: string) {
     isCustom,
     showBaseUrl: isCustom || !!pk?.base_url,
     selectedModel: defaultModelForProvider(provider),
+    isDefault: providerConfigs.value.length === 0,
   })
   newProviderOpen.value = false
   dirty.value = true
@@ -220,6 +228,7 @@ function addLocalModelProvider() {
     isCustom: true,
     showBaseUrl: true,
     selectedModel: { ...LOCAL_MODEL_DEFAULT },
+    isDefault: providerConfigs.value.length === 0,
   })
   newProviderOpen.value = false
   showCustomForm.value = false
@@ -251,6 +260,7 @@ function addCustomProvider() {
     isCustom: true,
     showBaseUrl: true,
     selectedModel: null,
+    isDefault: providerConfigs.value.length === 0,
   })
   customSlug.value = ''
   customSlugError.value = ''
@@ -280,12 +290,30 @@ async function handleFetchModels(provider: string, callback: (models: ModelItem[
 }
 
 function removeProvider(idx: number) {
+  const removedDefault = providerConfigs.value[idx]?.isDefault
   providerConfigs.value.splice(idx, 1)
+  if (removedDefault && providerConfigs.value.length > 0) {
+    providerConfigs.value[0].isDefault = true
+  }
   dirty.value = true
 }
 
 function markDirty() {
   dirty.value = true
+}
+
+function setDefaultProvider(provider: string) {
+  let changed = false
+  for (const cfg of providerConfigs.value) {
+    const next = cfg.provider === provider
+    if (cfg.isDefault !== next) {
+      cfg.isDefault = next
+      changed = true
+    }
+  }
+  if (changed) {
+    dirty.value = true
+  }
 }
 
 // ── Validation ──
@@ -350,6 +378,11 @@ async function handleSave() {
     }
 
     // 2. Write configs directly to Pod file
+    const defaultCfg = providerConfigs.value.find(c => c.isDefault) ?? providerConfigs.value[0]
+    const defaultModel = defaultCfg?.selectedModel ?? (defaultCfg ? defaultModelForProvider(defaultCfg.provider) : null)
+    const defaultModelPrimary = defaultCfg
+      ? (defaultModel?.id ? `${defaultCfg.provider}/${defaultModel.id}` : defaultCfg.provider)
+      : null
     await api.put(`/instances/${instanceId.value}/llm-configs`, {
       configs: providerConfigs.value.map(c => {
         const selectedModel = c.selectedModel ?? defaultModelForProvider(c.provider)
@@ -361,6 +394,7 @@ async function handleSave() {
           api_type: c.isCustom ? c.apiType : null,
         }
       }),
+      default_model_primary: defaultModelPrimary,
     })
 
     // 3. Restart runtime
@@ -510,6 +544,7 @@ watch(() => instanceId.value, (val) => {
               <div class="flex items-center gap-2">
                 <span class="font-medium text-sm">{{ PROVIDER_LABELS[cfg.provider] || cfg.provider }}</span>
                 <span v-if="cfg.isCustom" class="text-[10px] px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-400">{{ t('llm.customProvider') }}</span>
+                <span v-if="cfg.isDefault" class="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-500">{{ t('instanceSettings.currentDefaultModel') }}</span>
               </div>
               <button
                 class="text-muted-foreground hover:text-destructive transition-colors"
@@ -648,6 +683,18 @@ watch(() => instanceId.value, (val) => {
               @fetch-models="handleFetchModels"
               @update:model-value="markDirty"
             />
+            <div class="flex justify-end">
+              <button
+                type="button"
+                class="inline-flex items-center gap-1.5 text-xs transition-colors"
+                :class="cfg.isDefault ? 'text-amber-500' : 'text-muted-foreground hover:text-foreground'"
+                :disabled="!cfg.selectedModel"
+                @click="setDefaultProvider(cfg.provider)"
+              >
+                <Star class="w-3.5 h-3.5" :class="cfg.isDefault ? 'fill-amber-500 text-amber-500' : ''" />
+                {{ cfg.isDefault ? t('instanceSettings.currentDefaultModel') : t('instanceSettings.setDefaultModel') }}
+              </button>
+            </div>
             <p v-if="(cfg.isCustom || isCodexProvider(cfg.provider) || !BUILTIN_PROVIDERS.has(cfg.provider)) && !cfg.selectedModel" class="text-[10px] text-amber-500">
               {{ t('llm.modelRequired') }}
             </p>

@@ -292,6 +292,8 @@ const enUS = {
   },
   instanceSettings: {
     unsupportedRuntime: "LLM configuration is not supported by this engine",
+    setDefaultModel: "Set as Default Model",
+    currentDefaultModel: "Default Model",
   },
   evolutionLog: {
     unsupportedRuntime: "Evolution log is not supported by this engine",

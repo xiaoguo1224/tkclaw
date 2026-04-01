@@ -207,7 +207,7 @@ def _ensure_gateway_config(config: dict, instance: Instance) -> None:
     control_ui["dangerouslyAllowHostHeaderOriginFallback"] = True
 
 
-def _set_default_agent_model(config: dict, providers: dict) -> None:
+def _set_default_agent_model(config: dict, providers: dict, preferred_primary: str | None = None) -> None:
     """Set agents.defaults.model.primary from the first configured provider/model.
 
     OpenClaw uses this field to decide which model handles conversations.
@@ -216,22 +216,41 @@ def _set_default_agent_model(config: dict, providers: dict) -> None:
     if not providers:
         return
 
-    for provider_name, provider_cfg in providers.items():
-        models = provider_cfg.get("models", [])
-        if models:
-            model_id = models[0].get("id", "")
-            if model_id:
-                primary = f"{provider_name}/{model_id}"
-                agents = config.setdefault("agents", {})
-                defaults = agents.setdefault("defaults", {})
-                defaults["model"] = {"primary": primary}
-                return
+    primary_value = ""
+    if preferred_primary:
+        preferred_primary = preferred_primary.strip()
+        if preferred_primary:
+            if "/" in preferred_primary:
+                preferred_provider, preferred_model = preferred_primary.split("/", 1)
+                provider_cfg = providers.get(preferred_provider)
+                if provider_cfg:
+                    models = provider_cfg.get("models", [])
+                    if any((m.get("id") or "") == preferred_model for m in models):
+                        primary_value = f"{preferred_provider}/{preferred_model}"
+                    elif not models:
+                        primary_value = preferred_provider
+            elif preferred_primary in providers:
+                primary_value = preferred_primary
 
-    first_provider = next(iter(providers))
+    if not primary_value:
+        for provider_name, provider_cfg in providers.items():
+            models = provider_cfg.get("models", [])
+            if models:
+                model_id = models[0].get("id", "")
+                if model_id:
+                    primary_value = f"{provider_name}/{model_id}"
+                    break
+
+    if not primary_value:
+        primary_value = next(iter(providers))
+
     agents = config.setdefault("agents", {})
     defaults = agents.setdefault("defaults", {})
-    defaults["model"] = {"primary": first_provider}
+    defaults["model"] = {"primary": primary_value}
 
+    agent = config.setdefault("agent", {})
+    agent["default"] = primary_value
+    return
 
 async def _read_config_file(fs: RemoteFS) -> dict | None:
     """Read openclaw.json from Pod via exec.
@@ -370,6 +389,11 @@ async def read_instance_llm_configs(
     pod_providers: dict = raw_json.get("models", {}).get("providers", {})
     if not pod_providers:
         return []
+    default_primary = (
+        raw_json.get("agents", {}).get("defaults", {}).get("model", {}).get("primary")
+        or raw_json.get("agent", {}).get("default")
+        or ""
+    )
 
     proxy_hosts = [
         h for h in (
@@ -430,13 +454,19 @@ async def read_instance_llm_configs(
             "personal_key_masked": personal_key_masked,
             "base_url": (override.base_url if override else None) or (uk.base_url if uk else None),
             "api_type": (override.api_type if override else None) or (uk.api_type if uk else None),
+            "is_default": bool(
+                default_primary and (
+                    default_primary == provider or
+                    default_primary.startswith(f"{provider}/")
+                )
+            ),
         })
 
     return entries
 
 
 async def write_instance_llm_configs(
-    instance: Instance, db: AsyncSession, configs: list, current_user_id: str,
+    instance: Instance, db: AsyncSession, configs: list, current_user_id: str, default_model_primary: str | None = None,
 ) -> None:
     """Write LLM provider configs directly to Pod's openclaw.json.
 
@@ -517,7 +547,7 @@ async def write_instance_llm_configs(
         _ensure_gateway_config(existing_json, instance)
         if "codex" in providers:
             existing_json["gateway"].setdefault("mode", "local")
-        _set_default_agent_model(existing_json, providers)
+        _set_default_agent_model(existing_json, providers, preferred_primary=default_model_primary)
         await _write_config_file(fs, existing_json)
 
     logger.info(

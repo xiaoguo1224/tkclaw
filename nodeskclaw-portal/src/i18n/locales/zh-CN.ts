@@ -292,6 +292,8 @@ const zhCN = {
   },
   instanceSettings: {
     unsupportedRuntime: "当前 AI 员工引擎不支持大模型配置",
+    setDefaultModel: "设为默认模型",
+    currentDefaultModel: "默认模型",
   },
   evolutionLog: {
     unsupportedRuntime: "当前 AI 员工引擎不支持进化日志",

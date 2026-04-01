@@ -557,7 +557,13 @@ async def update_instance_llm_configs(
                 raise NotFoundError(f"{cfg.provider} 的个人 Key 不存在，请先配置")
 
     from app.services.llm_config_service import write_instance_llm_configs
-    await write_instance_llm_configs(instance, db, body.configs, current_user.id)
+    await write_instance_llm_configs(
+        instance,
+        db,
+        body.configs,
+        current_user.id,
+        default_model_primary=body.default_model_primary,
+    )
 
     owner_id = instance.created_by
     existing_result = await db.execute(
