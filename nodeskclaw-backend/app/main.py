@@ -116,6 +116,27 @@ for _uv_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
     _uv_logger.propagate = True
 
 
+class _HealthCheckLogFilter(logging.Filter):
+    """Suppress health-check access logs unless configured or response is an error."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if settings.LOG_HEALTH_CHECK:
+            return True
+        msg = record.getMessage()
+        if "/api/v1/health" not in msg:
+            return True
+        try:
+            status_code = record.args[-1]
+            if isinstance(status_code, int) and status_code >= 400:
+                return True
+        except (IndexError, TypeError):
+            return True
+        return False
+
+
+logging.getLogger("uvicorn.access").addFilter(_HealthCheckLogFilter())
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup / shutdown lifecycle."""

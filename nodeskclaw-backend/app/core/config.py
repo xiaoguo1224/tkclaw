@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     APP_VERSION: str = "dev"
     DEBUG: bool = False
     LOG_SQL: bool = False
+    LOG_HEALTH_CHECK: bool = False
 
     # ── Database ─────────────────────────────────────────
     DATABASE_URL: str = ""  # PostgreSQL，从 .env 读取
