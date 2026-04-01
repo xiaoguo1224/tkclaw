@@ -77,6 +77,38 @@ function jsonResult(payload: unknown) {
   };
 }
 
+function looksLikeBase64(content: string): boolean {
+  const normalized = content.replace(/\s+/g, "");
+  if (!normalized || normalized.length < 16 || normalized.length % 4 === 1) {
+    return false;
+  }
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(normalized)) {
+    return false;
+  }
+  try {
+    return Buffer.from(normalized, "base64").toString("base64").replace(/=+$/, "") === normalized.replace(/=+$/, "");
+  } catch {
+    return false;
+  }
+}
+
+function normalizeSharedFileContent(content: unknown): string {
+  if (typeof content !== "string") {
+    return Buffer.from(JSON.stringify(content ?? ""), "utf-8").toString("base64");
+  }
+  const raw = content.trim();
+  if (!raw) {
+    return "";
+  }
+  if (raw.startsWith("data:") && raw.includes(",")) {
+    return raw.split(",", 2)[1]!.replace(/\s+/g, "");
+  }
+  if (looksLikeBase64(raw)) {
+    return raw.replace(/\s+/g, "");
+  }
+  return Buffer.from(content, "utf-8").toString("base64");
+}
+
 function createBlackboardTool(cfg: ToolConfig): AnyAgentTool {
   return {
     name: "nodeskclaw_blackboard",
@@ -489,7 +521,7 @@ function createSharedFilesTool(cfg: ToolConfig): AnyAgentTool {
             await apiFetch(cfg, `/workspaces/${ws}/blackboard/files/upload`, "POST", {
               parent_path: p.parent_path || "/",
               filename: p.filename,
-              content: p.content,
+              content: normalizeSharedFileContent(p.content),
               content_type: p.content_type || "application/octet-stream",
             }),
           );

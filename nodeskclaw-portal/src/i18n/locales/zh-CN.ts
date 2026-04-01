@@ -504,6 +504,8 @@ const zhCN = {
     files: "共享文件",
     noFiles: "暂无文件",
     dirNamePlaceholder: "文件夹名称...",
+    downloadFile: "下载文件",
+    downloadFolder: "下载文件夹",
     create: "创建",
   },
   hexAction: {

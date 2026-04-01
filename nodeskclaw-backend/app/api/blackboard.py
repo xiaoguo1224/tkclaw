@@ -4,6 +4,7 @@ import logging
 from urllib.parse import urlparse, urlunparse
 
 from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_db
@@ -309,6 +310,25 @@ async def get_file_url(
                 )
             )
     return _ok({"url": url})
+
+
+@router.get("/{workspace_id}/blackboard/files/{file_id}/archive")
+async def download_directory_archive(
+    workspace_id: str,
+    file_id: str,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(_get_current_user_or_agent_dep()),
+):
+    await wm_service.check_workspace_member(workspace_id, user, db)
+    result = await workspace_service.get_shared_directory_archive(db, workspace_id, file_id)
+    if result is None:
+        return _ok(None, "not found")
+    archive_bytes, filename = result
+    return Response(
+        content=archive_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/{workspace_id}/blackboard/files/{file_id}/content")

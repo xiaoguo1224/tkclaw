@@ -504,6 +504,8 @@ const enUS = {
     files: "Shared Files",
     noFiles: "No files yet",
     dirNamePlaceholder: "Folder name...",
+    downloadFile: "Download file",
+    downloadFolder: "Download folder",
     create: "Create",
   },
   hexAction: {

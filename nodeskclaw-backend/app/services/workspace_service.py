@@ -2,13 +2,17 @@
 
 import asyncio
 import base64
+import binascii
+import io
 import logging
 import re
+import zipfile
 from typing import Coroutine
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import BadRequestError
 from app.models.base import not_deleted
 from app.models.blackboard import Blackboard
 from app.models.blackboard_file import BlackboardFile
@@ -57,6 +61,29 @@ from app.schemas.workspace import (
 logger = logging.getLogger(__name__)
 
 _background_tasks: set[asyncio.Task] = set()
+
+
+def _decode_shared_file_content(content: str, content_type: str) -> bytes:
+    raw = (content or "").strip()
+    if not raw:
+        raise BadRequestError("文件内容不能为空")
+
+    if raw.startswith("data:") and "," in raw:
+        raw = raw.split(",", 1)[1].strip()
+
+    normalized = re.sub(r"\s+", "", raw)
+    if normalized:
+        padded = normalized + ("=" * (-len(normalized) % 4))
+        for candidate in (normalized, padded):
+            try:
+                return base64.b64decode(candidate, validate=True)
+            except (binascii.Error, ValueError):
+                pass
+
+    if content_type.startswith("text/") or "json" in content_type or "xml" in content_type:
+        return raw.encode("utf-8")
+
+    raise BadRequestError("文件内容格式不正确，请传入 base64 编码内容")
 
 
 def _fire_task(coro: Coroutine) -> asyncio.Task:
@@ -1857,6 +1884,19 @@ async def create_shared_directory(
     return _file_to_info(d)
 
 
+def _child_path(parent_path: str, name: str) -> str:
+    return _validate_path(parent_path) + name + "/"
+
+
+def _archive_member_path(root_name: str, base_path: str, item: BlackboardFile) -> str:
+    relative_parent = item.parent_path.removeprefix(base_path).strip("/")
+    parts = [root_name]
+    if relative_parent:
+        parts.append(relative_parent)
+    parts.append(item.name)
+    return "/".join(parts)
+
+
 async def upload_shared_file(
     db: AsyncSession,
     workspace_id: str,
@@ -1866,7 +1906,7 @@ async def upload_shared_file(
     data: FileWriteRequest,
 ) -> FileInfo:
     parent_path = _validate_path(data.parent_path)
-    file_bytes = base64.b64decode(data.content)
+    file_bytes = _decode_shared_file_content(data.content, data.content_type)
     storage_key = await storage_service.upload_file(
         file_bytes, data.filename, data.content_type,
         workspace_id,
@@ -1928,6 +1968,56 @@ async def get_shared_file_url(
     return await storage_service.get_presigned_url(f.storage_key)
 
 
+async def get_shared_directory_archive(
+    db: AsyncSession, workspace_id: str, file_id: str,
+) -> tuple[bytes, str] | None:
+    result = await db.execute(
+        select(BlackboardFile).where(
+            BlackboardFile.id == file_id,
+            BlackboardFile.workspace_id == workspace_id,
+            BlackboardFile.is_directory.is_(True),
+            BlackboardFile.deleted_at.is_(None),
+        )
+    )
+    directory = result.scalar_one_or_none()
+    if directory is None:
+        return None
+
+    directory_path = _child_path(directory.parent_path, directory.name)
+    descendants = (await db.execute(
+        select(BlackboardFile).where(
+            BlackboardFile.workspace_id == workspace_id,
+            BlackboardFile.deleted_at.is_(None),
+            or_(
+                BlackboardFile.id == directory.id,
+                BlackboardFile.parent_path == directory_path,
+                BlackboardFile.parent_path.like(f"{directory_path}%"),
+            ),
+        ).order_by(
+            BlackboardFile.is_directory.desc(),
+            BlackboardFile.parent_path.asc(),
+            BlackboardFile.name.asc(),
+        )
+    )).scalars().all()
+
+    archive_buffer = io.BytesIO()
+    with zipfile.ZipFile(archive_buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(f"{directory.name}/", b"")
+        for item in descendants:
+            if item.id == directory.id:
+                continue
+            archive_path = _archive_member_path(directory.name, directory_path, item)
+            if item.is_directory:
+                archive.writestr(f"{archive_path}/", b"")
+                continue
+            if not item.storage_key:
+                continue
+            content = await storage_service.download_file(item.storage_key)
+            archive.writestr(archive_path, content)
+
+    return archive_buffer.getvalue(), f"{directory.name}.zip"
+
+
 async def read_shared_file(
     db: AsyncSession, workspace_id: str, file_id: str,
 ) -> tuple[str, str] | None:
@@ -1962,10 +2052,14 @@ async def delete_shared_file(
     if f is None:
         return False
     if f.is_directory:
+        directory_path = _child_path(f.parent_path, f.name)
         children = (await db.execute(
             select(BlackboardFile).where(
                 BlackboardFile.workspace_id == workspace_id,
-                BlackboardFile.parent_path == f.parent_path + f.name + "/",
+                or_(
+                    BlackboardFile.parent_path == directory_path,
+                    BlackboardFile.parent_path.like(f"{directory_path}%"),
+                ),
                 BlackboardFile.deleted_at.is_(None),
             )
         )).scalars().all()

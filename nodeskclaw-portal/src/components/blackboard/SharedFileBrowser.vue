@@ -121,6 +121,39 @@ async function downloadFile(item: FileItem) {
   }
 }
 
+function getDownloadFilename(contentDisposition: string | undefined, fallback: string) {
+  if (!contentDisposition) return fallback
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i)
+  if (utf8Match?.[1]) {
+    return decodeURIComponent(utf8Match[1])
+  }
+  const plainMatch = contentDisposition.match(/filename="?([^"]+)"?/i)
+  return plainMatch?.[1] || fallback
+}
+
+async function downloadDirectory(item: FileItem) {
+  try {
+    const res = await api.get(`/workspaces/${props.workspaceId}/blackboard/files/${item.id}/archive`, {
+      responseType: 'blob',
+    })
+    const blob = new Blob([res.data], { type: 'application/zip' })
+    const url = URL.createObjectURL(blob)
+    const filename = getDownloadFilename(
+      res.headers['content-disposition'],
+      `${item.name}.zip`,
+    )
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    console.error('download directory error:', e)
+  }
+}
+
 async function deleteFile(item: FileItem) {
   try {
     await api.delete(`/workspaces/${props.workspaceId}/blackboard/files/${item.id}`)
@@ -213,8 +246,17 @@ watch(() => props.workspaceId, () => { currentPath.value = '/'; fetchFiles() })
         <span class="text-xs text-muted-foreground shrink-0 hidden sm:inline">{{ item.uploader_name }}</span>
         <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
           <button
-            v-if="!item.is_directory"
+            v-if="item.is_directory"
             class="p-1 rounded hover:bg-muted transition-colors"
+            :title="t('blackboard.downloadFolder')"
+            @click.stop="downloadDirectory(item)"
+          >
+            <Download class="w-3.5 h-3.5" />
+          </button>
+          <button
+            v-else
+            class="p-1 rounded hover:bg-muted transition-colors"
+            :title="t('blackboard.downloadFile')"
             @click.stop="downloadFile(item)"
           >
             <Download class="w-3.5 h-3.5" />
