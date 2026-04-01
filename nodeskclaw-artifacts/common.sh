@@ -12,7 +12,7 @@ REGISTRY_NAMESPACE="tkclaw"
 
 registry_for() {
   local runtime="$1"
-  echo "${REGISTRY_HOST}/${REGISTRY_NAMESPACE}/deskclaw-${runtime}"
+  echo "${REGISTRY_HOST}/${REGISTRY_NAMESPACE}/tclaw-${runtime}"
 }
 
 # ── 日志 ────────────────────────────────────────
