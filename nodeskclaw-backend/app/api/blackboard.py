@@ -1,8 +1,9 @@
 """Blackboard BBS — post / reply / shared-file API endpoints."""
 
 import logging
+from urllib.parse import urlparse, urlunparse
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_db
@@ -285,6 +286,7 @@ async def upload_file(
 async def get_file_url(
     workspace_id: str,
     file_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user=Depends(_get_current_user_or_agent_dep()),
 ):
@@ -292,6 +294,20 @@ async def get_file_url(
     url = await workspace_service.get_shared_file_url(db, workspace_id, file_id)
     if url is None:
         return _ok(None, "not found")
+    parsed = urlparse(url)
+    if parsed.hostname in {"localhost", "127.0.0.1", "::1"}:
+        request_netloc = request.url.netloc
+        if request_netloc:
+            url = urlunparse(
+                (
+                    request.url.scheme,
+                    request_netloc,
+                    parsed.path,
+                    parsed.params,
+                    parsed.query,
+                    parsed.fragment,
+                )
+            )
     return _ok({"url": url})
 
 

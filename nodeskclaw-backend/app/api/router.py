@@ -98,7 +98,11 @@ async def serve_local_file(file_key: str, expires: str = "", sig: str = ""):
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="File not found")
 
-    return FileResponse(file_path)
+    return FileResponse(
+        file_path,
+        filename=file_path.name,
+        media_type="application/octet-stream",
+    )
 
 
 api_router.include_router(auth_router, prefix="/auth", tags=["认证"])
