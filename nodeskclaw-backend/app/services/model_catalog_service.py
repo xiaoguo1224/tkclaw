@@ -216,7 +216,17 @@ async def _fetch_openai_compatible(api_key: str, base_url: str) -> list[ModelInf
 
 
 async def _fetch_bailian_code(api_key: str) -> list[ModelInfo]:
-    return await _fetch_openai_compatible(api_key, "https://coding.dashscope.aliyuncs.com/v1")
+    _ = api_key
+    return [
+        ModelInfo(id="qwen3.5-plus", name="千问 qwen3.5-plus"),
+        ModelInfo(id="qwen3-max-2026-01-23", name="千问 qwen3-max-2026-01-23"),
+        ModelInfo(id="qwen3-coder-next", name="千问 qwen3-coder-next"),
+        ModelInfo(id="qwen3-coder-plus", name="千问 qwen3-coder-plus"),
+        ModelInfo(id="glm-5", name="智谱 glm-5"),
+        ModelInfo(id="glm-4.7", name="智谱 glm-4.7"),
+        ModelInfo(id="kimi-k2.5", name="Kimi kimi-k2.5"),
+        ModelInfo(id="MiniMax-M2.5", name="MiniMax MiniMax-M2.5"),
+    ]
 
 
 _FETCHERS: dict[str, object] = {
