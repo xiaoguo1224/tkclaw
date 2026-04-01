@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, computed } from 'vue'
-import { Folder, File, FolderPlus, Upload, Trash2, Download, Loader2, ChevronRight, Eye, X } from 'lucide-vue-next'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import {
+  ChevronRight, Download, File, FileCode, FileText,
+  Folder, FolderPlus, Loader2, Search, Trash2, Upload, X,
+} from 'lucide-vue-next'
 import api from '@/services/api'
-import { renderMarkdown } from '@/utils/markdown'
+import { resolveApiErrorMessage } from '@/i18n/error'
 
 const props = defineProps<{ workspaceId: string }>()
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 interface FileItem {
   id: string
@@ -18,64 +21,155 @@ interface FileItem {
   created_at: string
 }
 
-interface FilePreview {
-  filename: string
+interface FileContentResponse {
+  content: string
   content_type: string
-  preview_type: 'text' | 'image' | 'pdf' | 'unsupported'
-  encoding: 'utf-8' | 'utf-8-bom' | 'unknown'
-  text_content: string | null
-  download_url: string | null
-  is_previewable: boolean
-  file_size: number
 }
+
+const CODE_EXTENSIONS = new Set([
+  'ts', 'js', 'tsx', 'jsx', 'vue', 'py', 'sh', 'bash', 'css', 'scss', 'html', 'sql',
+])
+
+const TEXT_EXTENSIONS = new Set([
+  'md', 'txt', 'json', 'yaml', 'yml', 'toml', 'xml', 'csv', 'log', 'env',
+  'gitignore', 'dockerfile', 'conf', 'cfg', 'ini',
+])
+
+const TEXT_PREVIEW_LIMIT = 512 * 1024
 
 const currentPath = ref('/')
 const files = ref<FileItem[]>([])
 const loading = ref(false)
+const error = ref('')
+const filterText = ref('')
+
 const showMkdir = ref(false)
 const newDirName = ref('')
 const creating = ref(false)
 const uploading = ref(false)
 const fileInputRef = ref<HTMLInputElement | null>(null)
-const previewLoading = ref(false)
-const previewItem = ref<FilePreview | null>(null)
-const previewError = ref('')
+
+const panelVisible = ref(false)
+const panelLoading = ref(false)
+const panelContent = ref('')
+const panelFileName = ref('')
+const panelError = ref('')
+const panelTruncated = ref(false)
+const panelBinary = ref(false)
 
 const breadcrumbs = computed(() => {
   const parts = currentPath.value.split('/').filter(Boolean)
   const crumbs = [{ name: '/', path: '/' }]
   let acc = '/'
-  for (const p of parts) {
-    acc += p + '/'
-    crumbs.push({ name: p, path: acc })
+  for (const part of parts) {
+    acc += `${part}/`
+    crumbs.push({ name: part, path: acc })
   }
   return crumbs
 })
 
+const filteredItems = computed(() => {
+  if (!filterText.value.trim()) return files.value
+  const q = filterText.value.toLowerCase()
+  return files.value.filter(item => item.name.toLowerCase().includes(q))
+})
+
+function fileExt(name: string) {
+  return name.split('.').pop()?.toLowerCase() ?? ''
+}
+
+function getFileIcon(item: FileItem) {
+  if (item.is_directory) return Folder
+  const ext = fileExt(item.name)
+  if (CODE_EXTENSIONS.has(ext)) return FileCode
+  if (TEXT_EXTENSIONS.has(ext)) return FileText
+  return File
+}
+
+function isTextLike(item: FileItem) {
+  const normalized = (item.content_type || '').toLowerCase()
+  return (
+    normalized.startsWith('text/')
+    || normalized.includes('json')
+    || normalized.includes('xml')
+    || normalized.includes('yaml')
+    || normalized.includes('javascript')
+    || normalized.includes('typescript')
+    || normalized.includes('shellscript')
+    || normalized.includes('toml')
+    || normalized.includes('sql')
+    || normalized.includes('x-python')
+    || normalized.includes('x-java')
+    || normalized.includes('x-go')
+    || normalized.includes('x-rust')
+    || normalized.includes('x-vue')
+    || normalized.includes('markdown')
+    || TEXT_EXTENSIONS.has(fileExt(item.name))
+    || CODE_EXTENSIONS.has(fileExt(item.name))
+  )
+}
+
+function formatSize(bytes: number) {
+  if (bytes === 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  const i = Math.floor(Math.log(bytes) / Math.log(1024))
+  const val = bytes / Math.pow(1024, i)
+  return `${val < 10 ? val.toFixed(1) : Math.round(val)} ${units[i]}`
+}
+
+function formatTime(iso: string) {
+  const d = new Date(iso)
+  const loc = locale.value === 'zh-CN' ? 'zh-CN' : 'en-US'
+  return d.toLocaleDateString(loc, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function decodeBase64Utf8(content: string) {
+  const binary = window.atob(content)
+  const bytes = Uint8Array.from(binary, char => char.charCodeAt(0))
+  if (
+    bytes.length >= 3
+    && bytes[0] === 0xef
+    && bytes[1] === 0xbb
+    && bytes[2] === 0xbf
+  ) {
+    return new TextDecoder('utf-8').decode(bytes.slice(3))
+  }
+  return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+}
+
 async function fetchFiles() {
   loading.value = true
+  error.value = ''
   try {
     const res = await api.get(`/workspaces/${props.workspaceId}/blackboard/files`, {
       params: { parent_path: currentPath.value },
     })
     files.value = res.data.data || []
-  } catch (e) {
-    console.error('fetch files error:', e)
+  } catch (e: unknown) {
+    error.value = resolveApiErrorMessage(e)
   } finally {
     loading.value = false
   }
 }
 
-function navigate(item: FileItem) {
-  if (item.is_directory) {
-    currentPath.value = currentPath.value + item.name + '/'
-    fetchFiles()
-  }
-}
-
 function navigateTo(path: string) {
   currentPath.value = path
+  filterText.value = ''
   fetchFiles()
+}
+
+function handleItemClick(item: FileItem) {
+  if (item.is_directory) {
+    navigateTo(`${currentPath.value}${item.name}/`)
+    return
+  }
+  openPanel(item)
 }
 
 async function mkdir() {
@@ -86,8 +180,8 @@ async function mkdir() {
       parent_path: currentPath.value,
       name: newDirName.value.trim(),
     })
-    showMkdir.value = false
     newDirName.value = ''
+    showMkdir.value = false
     await fetchFiles()
   } catch (e) {
     console.error('mkdir error:', e)
@@ -100,7 +194,6 @@ async function uploadFile(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
-
   uploading.value = true
   try {
     const reader = new FileReader()
@@ -126,13 +219,12 @@ async function uploadFile(event: Event) {
   }
 }
 
-async function downloadFile(item: FileItem) {
+async function deleteFile(item: FileItem) {
   try {
-    const res = await api.get(`/workspaces/${props.workspaceId}/blackboard/files/${item.id}/url`)
-    const url = res.data.data?.url
-    if (url) window.open(url, '_blank')
+    await api.delete(`/workspaces/${props.workspaceId}/blackboard/files/${item.id}`)
+    await fetchFiles()
   } catch (e) {
-    console.error('download error:', e)
+    console.error('delete error:', e)
   }
 }
 
@@ -144,6 +236,17 @@ function getDownloadFilename(contentDisposition: string | undefined, fallback: s
   }
   const plainMatch = contentDisposition.match(/filename="?([^"]+)"?/i)
   return plainMatch?.[1] || fallback
+}
+
+async function downloadFile(item: FileItem) {
+  try {
+    const res = await api.get(`/workspaces/${props.workspaceId}/blackboard/files/${item.id}/url`)
+    const url = res.data.data?.url
+    if (!url) return
+    window.open(url, '_blank')
+  } catch (e) {
+    console.error('download error:', e)
+  }
 }
 
 async function downloadDirectory(item: FileItem) {
@@ -169,85 +272,75 @@ async function downloadDirectory(item: FileItem) {
   }
 }
 
-async function deleteFile(item: FileItem) {
+async function openPanel(item: FileItem) {
+  panelVisible.value = true
+  panelLoading.value = true
+  panelContent.value = ''
+  panelFileName.value = item.name
+  panelError.value = ''
+  panelTruncated.value = false
+  panelBinary.value = false
   try {
-    await api.delete(`/workspaces/${props.workspaceId}/blackboard/files/${item.id}`)
-    await fetchFiles()
-  } catch (e) {
-    console.error('delete error:', e)
-  }
-}
-
-async function previewFile(item: FileItem) {
-  previewLoading.value = true
-  previewError.value = ''
-  previewItem.value = null
-  try {
-    const res = await api.get(`/workspaces/${props.workspaceId}/blackboard/files/${item.id}/preview`)
-    previewItem.value = res.data.data || null
-  } catch (e) {
-    console.error('preview error:', e)
-    previewError.value = t('blackboard.previewLoadFailed')
+    if (!isTextLike(item)) {
+      panelBinary.value = true
+      return
+    }
+    if (item.file_size > TEXT_PREVIEW_LIMIT) {
+      panelTruncated.value = true
+      return
+    }
+    const { data } = await api.get(`/workspaces/${props.workspaceId}/blackboard/files/${item.id}/content`)
+    const result = data.data as FileContentResponse | null
+    if (!result?.content) {
+      panelBinary.value = true
+      return
+    }
+    try {
+      panelContent.value = decodeBase64Utf8(result.content)
+    } catch {
+      panelBinary.value = true
+    }
+  } catch (e: unknown) {
+    panelError.value = resolveApiErrorMessage(e)
   } finally {
-    previewLoading.value = false
+    panelLoading.value = false
   }
 }
 
-function closePreview() {
-  previewLoading.value = false
-  previewError.value = ''
-  previewItem.value = null
-}
-
-const previewMarkdownHtml = computed(() => {
-  if (!previewItem.value?.text_content || !isMarkdown(previewItem.value.content_type)) return ''
-  return renderMarkdown(previewItem.value.text_content)
-})
-
-function isMarkdown(contentType: string) {
-  return contentType.includes('markdown')
-}
-
-function formatContentType(contentType: string) {
-  return contentType || 'application/octet-stream'
-}
-
-function previewMessage(preview: FilePreview) {
-  if (preview.file_size > 512 * 1024) return t('blackboard.previewTooLarge')
-  if (preview.preview_type !== 'text') return t('blackboard.previewUnsupported')
-  if (preview.encoding === 'unknown' || !preview.is_previewable) return t('blackboard.previewEncodingUnknown')
-  return ''
-}
-
-function openPreviewDownload(url: string | null) {
-  if (!url) return
-  window.open(url, '_blank')
-}
-
-function formatSize(bytes: number) {
-  if (bytes === 0) return '-'
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / 1048576).toFixed(1)} MB`
+function closePanel() {
+  panelVisible.value = false
 }
 
 onMounted(fetchFiles)
-watch(() => props.workspaceId, () => { currentPath.value = '/'; fetchFiles() })
+watch(() => props.workspaceId, () => {
+  currentPath.value = '/'
+  filterText.value = ''
+  fetchFiles()
+})
 </script>
 
 <template>
-  <div class="space-y-3">
-    <div class="flex items-center justify-between">
-      <div class="flex items-center gap-0.5 text-sm text-muted-foreground overflow-x-auto">
-        <button
-          v-for="(crumb, idx) in breadcrumbs"
-          :key="crumb.path"
-          class="flex items-center gap-0.5 hover:text-foreground transition-colors shrink-0"
-          @click="navigateTo(crumb.path)"
-        >
-          <ChevronRight v-if="idx > 0" class="w-3 h-3" />
-          <span class="text-xs">{{ crumb.name }}</span>
-        </button>
+  <div>
+    <div class="flex items-center gap-1 mb-4 text-sm flex-wrap">
+      <button
+        v-for="(crumb, idx) in breadcrumbs"
+        :key="crumb.path"
+        class="flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
+        @click="navigateTo(crumb.path)"
+      >
+        <ChevronRight v-if="idx > 0" class="w-3 h-3 shrink-0" />
+        <span>{{ crumb.name }}</span>
+      </button>
+    </div>
+
+    <div class="flex items-center justify-between mb-4 gap-3">
+      <div class="relative max-w-xs flex-1">
+        <Search class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <input
+          v-model="filterText"
+          :placeholder="t('instanceFiles.filterPlaceholder')"
+          class="w-full pl-9 pr-3 py-2 rounded-lg border border-border bg-background text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+        />
       </div>
       <div class="flex items-center gap-1 shrink-0">
         <button
@@ -268,7 +361,7 @@ watch(() => props.workspaceId, () => { currentPath.value = '/'; fetchFiles() })
       </div>
     </div>
 
-    <div v-if="showMkdir" class="flex items-center gap-2">
+    <div v-if="showMkdir" class="flex items-center gap-2 mb-4">
       <input
         v-model="newDirName"
         class="flex-1 bg-background border border-border rounded px-2.5 py-1.5 text-sm outline-none focus:ring-1 focus:ring-primary/50"
@@ -284,115 +377,163 @@ watch(() => props.workspaceId, () => { currentPath.value = '/'; fetchFiles() })
       </button>
     </div>
 
-    <div v-if="loading && files.length === 0" class="flex items-center justify-center py-8">
-      <Loader2 class="w-5 h-5 animate-spin text-muted-foreground" />
+    <div v-if="loading" class="flex items-center justify-center py-20">
+      <Loader2 class="w-6 h-6 animate-spin text-muted-foreground" />
+      <span class="ml-2 text-sm text-muted-foreground">{{ t('instanceFiles.loading') }}</span>
     </div>
 
-    <div v-else-if="files.length === 0" class="text-sm text-muted-foreground py-6 text-center">
-      {{ t('blackboard.noFiles') }}
-    </div>
-
-    <div v-else class="space-y-0.5">
-      <div
-        v-for="item in files"
-        :key="item.id"
-        class="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-muted/50 transition-colors group"
-        :class="item.is_directory ? 'cursor-pointer' : ''"
-        @click="item.is_directory && navigate(item)"
+    <div v-else-if="error" class="text-center py-20 space-y-4">
+      <p class="text-sm text-red-400">{{ error }}</p>
+      <button
+        class="px-4 py-2 rounded-lg border border-border text-sm hover:bg-accent transition-colors"
+        @click="fetchFiles"
       >
-        <Folder v-if="item.is_directory" class="w-4 h-4 text-primary shrink-0" />
-        <File v-else class="w-4 h-4 text-muted-foreground shrink-0" />
-        <span class="text-sm flex-1 truncate">{{ item.name }}</span>
-        <span class="text-xs text-muted-foreground shrink-0">{{ formatSize(item.file_size) }}</span>
-        <span class="text-xs text-muted-foreground shrink-0 hidden sm:inline">{{ item.uploader_name }}</span>
-        <div class="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-          <button
-            v-if="!item.is_directory"
-            class="p-1 rounded hover:bg-muted transition-colors"
-            :title="t('blackboard.previewFile')"
-            @click.stop="previewFile(item)"
-          >
-            <Eye class="w-3.5 h-3.5" />
-          </button>
-          <button
-            v-if="item.is_directory"
-            class="p-1 rounded hover:bg-muted transition-colors"
-            :title="t('blackboard.downloadFolder')"
-            @click.stop="downloadDirectory(item)"
-          >
-            <Download class="w-3.5 h-3.5" />
-          </button>
-          <button
-            v-else
-            class="p-1 rounded hover:bg-muted transition-colors"
-            :title="t('blackboard.downloadFile')"
-            @click.stop="downloadFile(item)"
-          >
-            <Download class="w-3.5 h-3.5" />
-          </button>
-          <button
-            class="p-1 rounded hover:bg-destructive/20 text-destructive transition-colors"
-            @click.stop="deleteFile(item)"
-          >
-            <Trash2 class="w-3.5 h-3.5" />
-          </button>
-        </div>
-      </div>
+        {{ t('instanceList.retry') }}
+      </button>
     </div>
 
-    <div v-if="previewLoading || previewItem || previewError" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" @click.self="closePreview">
-      <div class="w-full max-w-4xl max-h-[85vh] overflow-hidden rounded-xl border border-border bg-card shadow-2xl flex flex-col">
-        <div class="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
-          <div class="min-w-0">
-            <h3 class="text-sm font-semibold truncate">{{ previewItem?.filename || t('blackboard.previewTitle') }}</h3>
-            <p v-if="previewItem" class="text-xs text-muted-foreground mt-1">
-              {{ t('blackboard.previewType') }}: {{ formatContentType(previewItem.content_type) }}
-              <span class="mx-2">·</span>
-              {{ t('blackboard.previewEncoding') }}: {{ previewItem.encoding }}
-            </p>
-          </div>
-          <button class="p-1.5 rounded hover:bg-muted transition-colors" @click="closePreview">
-            <X class="w-4 h-4" />
-          </button>
-        </div>
-
-        <div class="flex-1 min-h-0 overflow-auto p-4">
-          <div v-if="previewLoading" class="flex items-center justify-center py-16 text-muted-foreground">
-            <Loader2 class="w-5 h-5 animate-spin" />
-          </div>
-
-          <div v-else-if="previewError" class="text-sm text-destructive">
-            {{ previewError }}
-          </div>
-
-          <template v-else-if="previewItem">
-            <div v-if="previewItem.preview_type === 'image' && previewItem.download_url" class="flex items-center justify-center">
-              <img :src="previewItem.download_url" :alt="previewItem.filename" class="max-w-full max-h-[65vh] rounded-lg border border-border" />
-            </div>
-
-            <div v-else-if="previewItem.preview_type === 'pdf' && previewItem.download_url" class="h-[65vh] rounded-lg overflow-hidden border border-border">
-              <iframe :src="previewItem.download_url" class="w-full h-full bg-background" />
-            </div>
-
-            <div v-else-if="previewItem.preview_type === 'text' && previewItem.is_previewable && previewItem.text_content !== null">
-              <div v-if="isMarkdown(previewItem.content_type)" class="prose prose-sm prose-invert max-w-none" v-html="previewMarkdownHtml" />
-              <pre v-else class="rounded-lg border border-border bg-muted/40 p-4 text-sm leading-6 whitespace-pre-wrap break-words overflow-auto font-mono">{{ previewItem.text_content }}</pre>
-            </div>
-
-            <div v-else class="space-y-3">
-              <p class="text-sm text-muted-foreground">{{ previewMessage(previewItem) }}</p>
-              <button
-                v-if="previewItem.download_url"
-                class="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-                @click="openPreviewDownload(previewItem.download_url)"
-              >
-                <Download class="w-4 h-4" />
-                {{ t('blackboard.downloadFile') }}
-              </button>
-            </div>
-          </template>
-        </div>
-      </div>
+    <div
+      v-else-if="files.length === 0"
+      class="text-center py-20 text-sm text-muted-foreground"
+    >
+      {{ t('instanceFiles.emptyDir') }}
     </div>
+
+    <div v-else class="rounded-xl border border-border overflow-hidden">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-border bg-card/60">
+            <th class="text-left px-4 py-3 font-medium text-muted-foreground">
+              {{ t('instanceFiles.fileName') }}
+            </th>
+            <th class="text-left px-4 py-3 font-medium text-muted-foreground w-24">
+              {{ t('instanceFiles.fileSize') }}
+            </th>
+            <th class="text-left px-4 py-3 font-medium text-muted-foreground w-44">
+              {{ t('instanceFiles.fileModified') }}
+            </th>
+            <th class="w-24" />
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="item in filteredItems"
+            :key="item.id"
+            class="border-b border-border last:border-b-0 hover:bg-accent/50 transition-colors"
+            :class="item.is_directory ? 'cursor-pointer' : 'cursor-pointer'"
+            @click="handleItemClick(item)"
+          >
+            <td class="px-4 py-3">
+              <div class="flex items-center gap-2">
+                <component
+                  :is="getFileIcon(item)"
+                  class="w-4 h-4 shrink-0"
+                  :class="item.is_directory ? 'text-primary' : 'text-muted-foreground'"
+                />
+                <span class="truncate" :class="item.is_directory ? 'font-medium' : ''">
+                  {{ item.name }}
+                </span>
+              </div>
+            </td>
+            <td class="px-4 py-3 text-muted-foreground tabular-nums">
+              {{ item.is_directory ? '-' : formatSize(item.file_size) }}
+            </td>
+            <td class="px-4 py-3 text-muted-foreground">
+              {{ formatTime(item.created_at) }}
+            </td>
+            <td class="px-4 py-3 text-right">
+              <div class="flex items-center justify-end gap-1">
+                <button
+                  v-if="item.is_directory"
+                  class="p-1 rounded hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+                  :title="t('blackboard.downloadFolder')"
+                  @click.stop="downloadDirectory(item)"
+                >
+                  <Download class="w-4 h-4" />
+                </button>
+                <button
+                  v-else
+                  class="p-1 rounded hover:bg-accent transition-colors text-muted-foreground hover:text-foreground"
+                  :title="t('instanceFiles.download')"
+                  @click.stop="downloadFile(item)"
+                >
+                  <Download class="w-4 h-4" />
+                </button>
+                <button
+                  class="p-1 rounded hover:bg-destructive/20 text-destructive transition-colors"
+                  @click.stop="deleteFile(item)"
+                >
+                  <Trash2 class="w-4 h-4" />
+                </button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <Teleport to="body">
+      <Transition name="slide-right">
+        <div
+          v-if="panelVisible"
+          class="fixed inset-y-0 right-0 w-xl max-w-full bg-background border-l border-border shadow-xl z-50 flex flex-col"
+        >
+          <div class="flex items-center justify-between px-4 py-3 border-b border-border shrink-0">
+            <div class="flex items-center gap-2 min-w-0">
+              <h3 class="font-medium text-sm truncate">{{ panelFileName }}</h3>
+            </div>
+            <button
+              class="p-1 rounded hover:bg-accent transition-colors ml-1"
+              @click="closePanel"
+            >
+              <X class="w-4 h-4" />
+            </button>
+          </div>
+
+          <div class="flex-1 overflow-auto p-4">
+            <div v-if="panelLoading" class="flex items-center justify-center py-10">
+              <Loader2 class="w-5 h-5 animate-spin text-muted-foreground" />
+            </div>
+            <div v-else-if="panelError" class="text-sm text-red-400">{{ panelError }}</div>
+            <div v-else-if="panelTruncated" class="text-sm text-muted-foreground">
+              {{ t('instanceFiles.fileTooLarge') }}
+            </div>
+            <div v-else-if="panelBinary" class="text-sm text-muted-foreground">
+              {{ t('instanceFiles.binaryFile') }}
+            </div>
+            <pre
+              v-else
+              class="text-xs leading-relaxed font-mono whitespace-pre-wrap break-all text-foreground"
+            >{{ panelContent }}</pre>
+          </div>
+        </div>
+      </Transition>
+      <Transition name="fade">
+        <div
+          v-if="panelVisible"
+          class="fixed inset-0 bg-black/30 z-40"
+          @click="closePanel"
+        />
+      </Transition>
+    </Teleport>
   </div>
 </template>
+
+<style scoped>
+.slide-right-enter-active,
+.slide-right-leave-active {
+  transition: transform 0.25s ease;
+}
+.slide-right-enter-from,
+.slide-right-leave-to {
+  transform: translateX(100%);
+}
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.25s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+</style>
