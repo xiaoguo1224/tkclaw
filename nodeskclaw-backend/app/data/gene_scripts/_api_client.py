@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import uuid
 import urllib.error
 import urllib.request
 from typing import Any
@@ -50,6 +51,57 @@ def api_call(method: str, path: str, body: dict | None = None, *, ws: bool = Tru
     url = f"{base}{path}"
     data = json.dumps(body).encode() if body else None
     req = urllib.request.Request(url, data=data, headers=_headers(), method=method)
+    try:
+        with urllib.request.urlopen(req) as resp:
+            return json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode() if e.fp else ""
+        try:
+            err = json.loads(error_body)
+        except (json.JSONDecodeError, ValueError):
+            err = {"status": e.code, "detail": error_body}
+        _output({"error": True, **err})
+        sys.exit(1)
+    except (urllib.error.URLError, OSError) as e:
+        _output({"error": True, "detail": str(e)})
+        sys.exit(1)
+
+
+def api_upload_file(
+    path: str,
+    *,
+    fields: dict[str, str] | None = None,
+    filename: str,
+    file_content: bytes,
+    content_type: str = "application/octet-stream",
+    ws: bool = True,
+) -> Any:
+    base = _ws_base() if ws else API_URL
+    url = f"{base}{path}"
+    boundary = f"----DeskClawBoundary{uuid.uuid4().hex}"
+    parts: list[bytes] = []
+
+    for key, value in (fields or {}).items():
+        parts.extend([
+            f"--{boundary}\r\n".encode(),
+            f'Content-Disposition: form-data; name="{key}"\r\n\r\n'.encode(),
+            str(value).encode("utf-8"),
+            b"\r\n",
+        ])
+
+    parts.extend([
+        f"--{boundary}\r\n".encode(),
+        f'Content-Disposition: form-data; name="file"; filename="{filename}"\r\n'.encode(),
+        f"Content-Type: {content_type}\r\n\r\n".encode(),
+        file_content,
+        b"\r\n",
+        f"--{boundary}--\r\n".encode(),
+    ])
+
+    headers = _headers()
+    headers.pop("Content-Type", None)
+    headers["Content-Type"] = f"multipart/form-data; boundary={boundary}"
+    req = urllib.request.Request(url, data=b"".join(parts), headers=headers, method="POST")
     try:
         with urllib.request.urlopen(req) as resp:
             return json.loads(resp.read().decode())

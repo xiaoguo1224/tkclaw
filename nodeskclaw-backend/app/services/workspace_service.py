@@ -5,6 +5,7 @@ import base64
 import binascii
 import io
 import logging
+import mimetypes
 import re
 import zipfile
 from typing import Coroutine
@@ -61,6 +62,17 @@ from app.schemas.workspace import (
 logger = logging.getLogger(__name__)
 
 _background_tasks: set[asyncio.Task] = set()
+
+
+def _guess_content_type(filename: str, content_type: str | None) -> str:
+    normalized = (content_type or "").strip().lower()
+    if normalized and normalized != "application/octet-stream":
+        return content_type or "application/octet-stream"
+
+    guessed, _ = mimetypes.guess_type(filename)
+    if guessed:
+        return guessed
+    return content_type or "application/octet-stream"
 
 
 def _decode_shared_file_content(content: str, content_type: str) -> bytes:
@@ -1907,15 +1919,34 @@ async def upload_shared_file(
     parent_path = _validate_path(data.parent_path)
     resolved_content_type = _guess_content_type(data.filename, data.content_type)
     file_bytes = _decode_shared_file_content(data.content, resolved_content_type)
+    return await upload_shared_file_bytes(
+        db, workspace_id, uploader_type, uploader_id, uploader_name,
+        parent_path, data.filename, resolved_content_type, file_bytes,
+    )
+
+
+async def upload_shared_file_bytes(
+    db: AsyncSession,
+    workspace_id: str,
+    uploader_type: str,
+    uploader_id: str,
+    uploader_name: str,
+    parent_path: str,
+    filename: str,
+    content_type: str | None,
+    file_bytes: bytes,
+) -> FileInfo:
+    resolved_parent_path = _validate_path(parent_path)
+    resolved_content_type = _guess_content_type(filename, content_type)
     storage_key = await storage_service.upload_file(
-        file_bytes, data.filename, resolved_content_type,
+        file_bytes, filename, resolved_content_type,
         workspace_id,
     )
     existing = (await db.execute(
         select(BlackboardFile).where(
             BlackboardFile.workspace_id == workspace_id,
-            BlackboardFile.parent_path == parent_path,
-            BlackboardFile.name == data.filename,
+            BlackboardFile.parent_path == resolved_parent_path,
+            BlackboardFile.name == filename,
             BlackboardFile.deleted_at.is_(None),
         )
     )).scalar_one_or_none()
@@ -1935,8 +1966,8 @@ async def upload_shared_file(
 
     f = BlackboardFile(
         workspace_id=workspace_id,
-        parent_path=parent_path,
-        name=data.filename,
+        parent_path=resolved_parent_path,
+        name=filename,
         is_directory=False,
         file_size=len(file_bytes),
         content_type=resolved_content_type,

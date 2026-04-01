@@ -3,14 +3,13 @@
 import logging
 from urllib.parse import urlparse, urlunparse
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_db
 from app.core.security import get_auth_actor
 from app.schemas.workspace import (
-    FileWriteRequest,
     MkdirRequest,
     PostCreate,
     PostUpdate,
@@ -21,11 +20,17 @@ from app.services import workspace_service, workspace_member_service as wm_servi
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+MAX_UPLOAD_SIZE = 20 * 1024 * 1024
 
 
 def _ok(data=None, message: str = "success"):
     from app.api.workspaces import _ok as ws_ok
     return ws_ok(data, message)
+
+
+def _error(status_code: int, error_code: int, message_key: str, message: str):
+    from app.api.workspaces import _error as ws_error
+    return ws_error(status_code, error_code, message_key, message)
 
 
 def _get_current_user_or_agent_dep():
@@ -270,14 +275,22 @@ async def mkdir(
 @router.post("/{workspace_id}/blackboard/files/upload")
 async def upload_file(
     workspace_id: str,
-    data: FileWriteRequest,
+    file: UploadFile = File(...),
+    parent_path: str = Form("/"),
     db: AsyncSession = Depends(get_db),
     user=Depends(_get_current_user_or_agent_dep()),
 ):
     await wm_service.check_workspace_access(workspace_id, user, "edit_blackboard", db)
     utype, uid, uname = _caller_info()
-    info = await workspace_service.upload_shared_file(
-        db, workspace_id, utype, uid, uname, data,
+    content = await file.read()
+    if len(content) > MAX_UPLOAD_SIZE:
+        raise _error(400, 40002, "errors.file.too_large", "文件大小超过限制（最大 20MB）")
+    info = await workspace_service.upload_shared_file_bytes(
+        db, workspace_id, utype, uid, uname,
+        parent_path,
+        file.filename or "unnamed",
+        file.content_type or "application/octet-stream",
+        content,
     )
     _broadcast(workspace_id, "file:uploaded", info.model_dump(mode="json"))
     return _ok(info.model_dump(mode="json"))

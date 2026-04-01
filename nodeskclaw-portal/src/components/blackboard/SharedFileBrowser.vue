@@ -196,23 +196,16 @@ async function uploadFile(event: Event) {
   if (!file) return
   uploading.value = true
   try {
-    const reader = new FileReader()
-    const b64 = await new Promise<string>((resolve) => {
-      reader.onload = () => {
-        const result = reader.result as string
-        resolve(result.split(',')[1] || '')
-      }
-      reader.readAsDataURL(file)
-    })
-    await api.post(`/workspaces/${props.workspaceId}/blackboard/files/upload`, {
-      parent_path: currentPath.value,
-      filename: file.name,
-      content: b64,
-      content_type: file.type || 'application/octet-stream',
+    const formData = new FormData()
+    formData.append('parent_path', currentPath.value)
+    formData.append('file', file)
+    await api.post(`/workspaces/${props.workspaceId}/blackboard/files/upload`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000,
     })
     await fetchFiles()
-  } catch (e) {
-    console.error('upload error:', e)
+  } catch (e: unknown) {
+    error.value = resolveApiErrorMessage(e)
   } finally {
     uploading.value = false
     input.value = ''

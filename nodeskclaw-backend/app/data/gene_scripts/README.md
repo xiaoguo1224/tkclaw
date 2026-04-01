@@ -33,6 +33,7 @@ gene_scripts/
 python3 ~/.deskclaw/tools/deskclaw_blackboard.py list_tasks --status pending
 python3 ~/.deskclaw/tools/deskclaw_blackboard.py create_task --title "审查文档" --priority high
 python3 ~/.deskclaw/tools/deskclaw_shared_files.py list_files --path /
+python3 ~/.deskclaw/tools/deskclaw_shared_files.py write_file --filename hello.txt --content "Hello World" --parent-path /reports --content-type text/plain
 python3 ~/.deskclaw/tools/deskclaw_topology.py get_reachable --instance-id <id>
 python3 ~/.deskclaw/tools/deskclaw_gene_discovery.py search --keyword "blackboard"
 ```

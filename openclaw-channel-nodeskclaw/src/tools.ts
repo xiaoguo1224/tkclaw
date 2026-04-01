@@ -45,15 +45,22 @@ async function apiFetch(
   method = "GET",
   body?: unknown,
 ): Promise<unknown> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${cfg.token}`,
+  };
+  let requestBody: BodyInit | undefined;
+  if (body instanceof FormData) {
+    requestBody = body;
+  } else if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+    requestBody = JSON.stringify(body);
+  }
   let res: Response;
   try {
     res = await fetch(`${cfg.apiUrl}${path}`, {
       method,
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${cfg.token}`,
-      },
-      body: body ? JSON.stringify(body) : undefined,
+      headers,
+      body: requestBody,
     });
   } catch (err) {
     return { error: true, message: `Network error: ${(err as Error).message}` };
@@ -92,21 +99,47 @@ function looksLikeBase64(content: string): boolean {
   }
 }
 
-function normalizeSharedFileContent(content: unknown): string {
+function decodeBase64Content(content: string): Uint8Array | null {
+  let normalized = content.trim();
+  if (!normalized) {
+    return new Uint8Array();
+  }
+  if (normalized.startsWith("data:") && normalized.includes(",")) {
+    normalized = normalized.split(",", 2)[1] ?? "";
+  }
+  normalized = normalized.replace(/\s+/g, "");
+  if (!looksLikeBase64(normalized)) {
+    return null;
+  }
+  return Uint8Array.from(Buffer.from(normalized, "base64"));
+}
+
+function buildSharedFileFormData(
+  parentPath: string,
+  filename: string,
+  content: unknown,
+  contentType: string,
+): FormData {
+  const formData = new FormData();
+  formData.append("parent_path", parentPath);
+  const resolvedContentType = contentType || "application/octet-stream";
   if (typeof content !== "string") {
-    return Buffer.from(JSON.stringify(content ?? ""), "utf-8").toString("base64");
+    formData.append(
+      "file",
+      new Blob([JSON.stringify(content ?? "")], { type: resolvedContentType }),
+      filename,
+    );
+    return formData;
   }
-  const raw = content.trim();
-  if (!raw) {
-    return "";
+
+  const decoded = decodeBase64Content(content);
+  if (decoded) {
+    formData.append("file", new Blob([decoded], { type: resolvedContentType }), filename);
+    return formData;
   }
-  if (raw.startsWith("data:") && raw.includes(",")) {
-    return raw.split(",", 2)[1]!.replace(/\s+/g, "");
-  }
-  if (looksLikeBase64(raw)) {
-    return raw.replace(/\s+/g, "");
-  }
-  return Buffer.from(content, "utf-8").toString("base64");
+
+  formData.append("file", new Blob([content], { type: resolvedContentType }), filename);
+  return formData;
 }
 
 function createBlackboardTool(cfg: ToolConfig): AnyAgentTool {
@@ -500,7 +533,7 @@ function createSharedFilesTool(cfg: ToolConfig): AnyAgentTool {
         parent_path: { type: "string", description: "list_files / write_file / mkdir: directory path (default '/')." },
         file_id: { type: "string", description: "read_file / delete_file: target file ID." },
         filename: { type: "string", description: "write_file: file name." },
-        content: { type: "string", description: "write_file: raw text content or base64-encoded file content." },
+        content: { type: "string", description: "write_file: file content. Plain text is uploaded directly; legacy base64 input is still accepted for compatibility." },
         content_type: { type: "string", description: "write_file: MIME type. If omitted or generic, the backend infers it from the filename." },
         name: { type: "string", description: "mkdir: directory name." },
       },
@@ -517,13 +550,23 @@ function createSharedFilesTool(cfg: ToolConfig): AnyAgentTool {
         case "read_file":
           return jsonResult(await apiFetch(cfg, `/workspaces/${ws}/blackboard/files/${p.file_id}/content`));
         case "write_file":
+          if (typeof p.filename !== "string" || !p.filename) {
+            return jsonResult({ error: true, message: "filename is required" });
+          }
           return jsonResult(
-            await apiFetch(cfg, `/workspaces/${ws}/blackboard/files/upload`, "POST", {
-              parent_path: p.parent_path || "/",
-              filename: p.filename,
-              content: normalizeSharedFileContent(p.content),
-              content_type: p.content_type || "application/octet-stream",
-            }),
+            await apiFetch(
+              cfg,
+              `/workspaces/${ws}/blackboard/files/upload`,
+              "POST",
+              buildSharedFileFormData(
+                typeof p.parent_path === "string" && p.parent_path ? p.parent_path : "/",
+                p.filename,
+                typeof p.content === "string" ? p.content : p.content ?? "",
+                typeof p.content_type === "string" && p.content_type
+                  ? p.content_type
+                  : "application/octet-stream",
+              ),
+            ),
           );
         case "delete_file":
           return jsonResult(
