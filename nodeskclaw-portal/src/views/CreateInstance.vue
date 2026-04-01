@@ -103,7 +103,7 @@ const LOCAL_MODEL_DEFAULT: ModelItem = {
   name: 'Qwen3.5-122B-A10B-4bit',
 }
 
-const PROVIDERS = ['minimax-openai', 'minimax-anthropic', 'openai', 'anthropic', 'gemini', 'openrouter'] as const
+const PROVIDERS = ['minimax-openai', 'minimax-anthropic', 'openai', 'anthropic', 'gemini', 'openrouter', 'bailian-code'] as const
 const PROVIDER_LABELS: Record<string, string> = {
   openai: 'OpenAI',
   anthropic: 'Anthropic',
@@ -111,6 +111,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   openrouter: 'OpenRouter',
   'minimax-openai': 'MiniMax-OpenAI (CN)',
   'minimax-anthropic': 'MiniMax-Anthropic (CN)',
+  'bailian-code': '阿里百炼 Code Plan',
   [LOCAL_MODEL_PROVIDER]: t('llm.localModelLabel'),
 }
 
@@ -121,6 +122,7 @@ const PROVIDER_DEFAULT_URLS: Record<string, string> = {
   openrouter: 'https://openrouter.ai/api/v1',
   'minimax-openai': 'https://api.minimaxi.com/v1',
   'minimax-anthropic': 'https://api.minimaxi.com/anthropic',
+  'bailian-code': 'https://coding.dashscope.aliyuncs.com/v1',
 }
 
 const llmConfigs = ref<LlmConfigEntry[]>([])
@@ -1014,7 +1016,7 @@ async function handleDeploy() {
                   @click="addLocalModelProvider"
                 >
                   <div class="flex items-center gap-1.5">
-                    <Cpu class="w-3.5 h-3.5" />
+                   
                     {{ t('llm.addLocalModel') }}
                   </div>
                 </button>
@@ -1066,7 +1068,7 @@ async function handleDeploy() {
                 class="px-3 py-1.5 rounded-md border border-border text-sm hover:border-primary/50 hover:bg-primary/5 transition-colors flex items-center gap-1"
                 @click="addLocalModelProvider"
               >
-                <Cpu class="w-3.5 h-3.5" />
+            
                 {{ t('llm.addLocalModel') }}
               </button>
               <button

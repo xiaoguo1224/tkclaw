@@ -37,7 +37,7 @@ PROVIDER_BASE_URLS: dict[str, str] = {
     "openrouter": "https://openrouter.ai/api/v1",
     "minimax-openai": "https://api.minimaxi.com/v1",
     "minimax-anthropic": "https://api.minimaxi.com/anthropic",
-    "bailian-code": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "bailian-code": "https://coding.dashscope.aliyuncs.com/v1",
 }
 
 BUILTIN_PROVIDERS = {"openai", "anthropic", "gemini", "openrouter", "bailian-code"}

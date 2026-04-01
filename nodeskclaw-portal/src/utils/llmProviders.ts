@@ -10,7 +10,7 @@ export const PROVIDER_LABELS: Record<string, string> = {
   openrouter: 'OpenRouter',
   'minimax-openai': 'MiniMax-OpenAI (CN)',
   'minimax-anthropic': 'MiniMax-Anthropic (CN)',
-  'bailian-code': '阿里云百炼 code plan',
+  'bailian-code': '阿里百炼 Code Plan',
 }
 
 export const PROVIDER_DEFAULT_URLS: Record<string, string> = {
@@ -21,7 +21,7 @@ export const PROVIDER_DEFAULT_URLS: Record<string, string> = {
   openrouter: 'https://openrouter.ai/api/v1',
   'minimax-openai': 'https://api.minimaxi.com/v1',
   'minimax-anthropic': 'https://api.minimaxi.com/anthropic',
-  'bailian-code': 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  'bailian-code': 'https://coding.dashscope.aliyuncs.com/v1',
 }
 
 export const BUILTIN_PROVIDERS = new Set(['codex', 'openai', 'anthropic', 'gemini', 'openrouter', 'bailian-code'])

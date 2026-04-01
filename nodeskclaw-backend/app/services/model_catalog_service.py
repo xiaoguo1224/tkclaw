@@ -28,7 +28,7 @@ PROVIDER_BASE_URLS: dict[str, str] = {
     "openrouter": "https://openrouter.ai/api",
     "minimax-openai": "https://api.minimaxi.com",
     "minimax-anthropic": "https://api.minimaxi.com/anthropic",
-    "bailian-code": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "bailian-code": "https://coding.dashscope.aliyuncs.com/v1",
 }
 
 PROVIDER_API_TYPE: dict[str, str] = {
@@ -215,6 +215,10 @@ async def _fetch_openai_compatible(api_key: str, base_url: str) -> list[ModelInf
     return models
 
 
+async def _fetch_bailian_code(api_key: str) -> list[ModelInfo]:
+    return await _fetch_openai_compatible(api_key, "https://coding.dashscope.aliyuncs.com/v1")
+
+
 _FETCHERS: dict[str, object] = {
     "openai": _fetch_openai,
     "anthropic": _fetch_anthropic,
@@ -222,5 +226,5 @@ _FETCHERS: dict[str, object] = {
     "openrouter": _fetch_openrouter,
     "minimax-openai": _fetch_minimax,
     "minimax-anthropic": _fetch_minimax,
-    "bailian-code": _fetch_openai_compatible,
+    "bailian-code": _fetch_bailian_code,
 }
