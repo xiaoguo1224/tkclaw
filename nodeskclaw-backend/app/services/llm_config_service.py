@@ -248,8 +248,14 @@ def _set_default_agent_model(config: dict, providers: dict, preferred_primary: s
     defaults = agents.setdefault("defaults", {})
     defaults["model"] = {"primary": primary_value}
 
-    agent = config.setdefault("agent", {})
-    agent["default"] = primary_value
+    # OpenClaw 3.24+ rejects legacy `agent.*`; always clean it during write.
+    agent_cfg = config.get("agent")
+    if isinstance(agent_cfg, dict):
+        agent_cfg.pop("default", None)
+        if not agent_cfg:
+            config.pop("agent", None)
+    elif "agent" in config:
+        config.pop("agent", None)
     return
 
 async def _read_config_file(fs: RemoteFS) -> dict | None:
