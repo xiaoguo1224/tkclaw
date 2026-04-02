@@ -99,9 +99,18 @@ if [ -f "${CONFIG_FILE}" ]; then
       load.extraDirs = extraDirs;
       changed = true;
     }
+    const plugins = c.plugins ?? (c.plugins = {});
+    const allow = Array.isArray(plugins.allow) ? plugins.allow : [];
+    for (const pluginName of ['wecom-openclaw-plugin', 'openclaw-security-layer']) {
+      if (!allow.includes(pluginName)) {
+        allow.push(pluginName);
+        changed = true;
+      }
+    }
+    plugins.allow = allow;
     if (changed) {
       fs.writeFileSync(f, JSON.stringify(c, null, 2));
-      console.log('[entrypoint] 已补全 controlUi / skills 配置');
+      console.log('[entrypoint] 已补全 controlUi / skills / plugins 配置');
     }
   "
 fi

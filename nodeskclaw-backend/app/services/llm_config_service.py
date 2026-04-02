@@ -61,6 +61,10 @@ NODESKCLAW_TOOL_NAMES = (
     "nodeskclaw_gene_discovery",
     "nodeskclaw_shared_files",
 )
+BUILTIN_TRUSTED_PLUGIN_NAMES = (
+    "wecom-openclaw-plugin",
+    "openclaw-security-layer",
+)
 
 
 def _k8s_name(instance: Instance) -> str:
@@ -210,6 +214,19 @@ def _ensure_gateway_config(config: dict, instance: Instance) -> None:
     control_ui["dangerouslyDisableDeviceAuth"] = True
     if "dangerouslyAllowHostHeaderOriginFallback" in control_ui:
         control_ui["dangerouslyAllowHostHeaderOriginFallback"] = True
+
+
+def _ensure_plugin_allow(config: dict, *plugin_names: str) -> None:
+    plugins = config.setdefault("plugins", {})
+    allow = plugins.setdefault("allow", [])
+    if not isinstance(allow, list):
+        allow = []
+        plugins["allow"] = allow
+    existing = set(allow)
+    for plugin_name in (*BUILTIN_TRUSTED_PLUGIN_NAMES, *plugin_names):
+        if plugin_name and plugin_name not in existing:
+            allow.append(plugin_name)
+            existing.add(plugin_name)
 
 
 def _set_default_agent_model(config: dict, providers: dict, preferred_primary: str | None = None) -> None:
@@ -782,6 +799,7 @@ def _inject_channel_config(
     accounts["default"] = entry
 
     plugins = config.setdefault("plugins", {})
+    _ensure_plugin_allow(config, CHANNEL_PLUGIN_DIR)
     load = plugins.setdefault("load", {})
     paths = load.setdefault("paths", [])
     old_relative = f".openclaw/extensions/{CHANNEL_PLUGIN_DIR}"
@@ -1013,6 +1031,7 @@ def _inject_learning_channel_config(
     }
 
     plugins = config.setdefault("plugins", {})
+    _ensure_plugin_allow(config, LEARNING_PLUGIN_DIR)
     load = plugins.setdefault("load", {})
     paths = load.setdefault("paths", [])
     old_relative = f".openclaw/extensions/{LEARNING_PLUGIN_DIR}"
@@ -1096,6 +1115,7 @@ async def _deploy_dingtalk_plugin_files(fs: RemoteFS, plugin_source: Path) -> No
 
 def _inject_dingtalk_plugin_path(config: dict) -> None:
     plugins = config.setdefault("plugins", {})
+    _ensure_plugin_allow(config, DINGTALK_PLUGIN_DIR)
     load = plugins.setdefault("load", {})
     paths = load.setdefault("paths", [])
     old_relative = f".openclaw/extensions/{DINGTALK_PLUGIN_DIR}"

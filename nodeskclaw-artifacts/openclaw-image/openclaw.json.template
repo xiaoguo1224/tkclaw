@@ -20,5 +20,12 @@
 
   "logging": {
     "level": "${OPENCLAW_LOG_LEVEL}"
+  },
+
+  "plugins": {
+    "allow": [
+      "wecom-openclaw-plugin",
+      "openclaw-security-layer"
+    ]
   }
 }
