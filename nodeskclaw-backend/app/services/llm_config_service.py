@@ -37,15 +37,19 @@ PROVIDER_BASE_URLS: dict[str, str] = {
     "openrouter": "https://openrouter.ai/api/v1",
     "minimax-openai": "https://api.minimaxi.com/v1",
     "minimax-anthropic": "https://api.minimaxi.com/anthropic",
+    "bailian-code": "https://coding.dashscope.aliyuncs.com/v1",
+    "volcano-code": "https://ark.cn-beijing.volces.com/api/v3",
 }
 
-BUILTIN_PROVIDERS = {"openai", "anthropic", "gemini", "openrouter"}
+BUILTIN_PROVIDERS = {"openai", "anthropic", "gemini", "openrouter", "bailian-code", "volcano-code"}
 
 PROVIDER_API_TYPE: dict[str, str] = {
     "codex": "openai-completions",
     "gemini": "google-generative-ai",
     "minimax-openai": "openai-completions",
     "minimax-anthropic": "anthropic-messages",
+    "bailian-code": "openai-completions",
+    "volcano-code": "openai-completions",
 }
 
 TRUSTED_PROXY_CIDRS = ["10.0.0.0/8", "100.64.0.0/10", "192.168.0.0/16"]

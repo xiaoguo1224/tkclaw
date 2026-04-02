@@ -34,9 +34,11 @@ PROVIDER_DEFAULTS: dict[str, dict] = {
     "openrouter": {"base_url": "https://openrouter.ai/api", "auth_type": "bearer"},
     "minimax-openai": {"base_url": "https://api.minimaxi.com", "auth_type": "bearer"},
     "minimax-anthropic": {"base_url": "https://api.minimaxi.com/anthropic", "auth_type": "bearer"},
+    "bailian-code": {"base_url": "https://coding.dashscope.aliyuncs.com/v1", "auth_type": "bearer"},
+    "volcano-code": {"base_url": "https://ark.cn-beijing.volces.com/api/v3", "auth_type": "bearer"},
 }
 
-_OPENAI_STREAM_PROVIDERS = {"openai", "openrouter", "minimax-openai"}
+_OPENAI_STREAM_PROVIDERS = {"openai", "openrouter", "minimax-openai", "bailian-code", "volcano-code"}
 
 _http_client: httpx.AsyncClient | None = None
 
