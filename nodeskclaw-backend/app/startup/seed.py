@@ -372,6 +372,7 @@ DEFAULT_REQUIRED_GENE_SLUGS: list[str] = [
     "nodeskclaw-proposals",
     "nodeskclaw-gene-discovery",
     "nodeskclaw-shared-files",
+    "nodeskclaw-file-reader",
 ]
 
 

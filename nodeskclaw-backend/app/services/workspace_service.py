@@ -2051,8 +2051,8 @@ async def get_shared_directory_archive(
 
 async def read_shared_file(
     db: AsyncSession, workspace_id: str, file_id: str,
-) -> tuple[str, str] | None:
-    """Return (base64_content, content_type) for agent tool read_file."""
+) -> tuple[str, str, str] | None:
+    """Return (base64_content, content_type, filename) for agent tool read_file."""
     result = await db.execute(
         select(BlackboardFile).where(
             BlackboardFile.id == file_id,
@@ -2066,7 +2066,7 @@ async def read_shared_file(
         return None
 
     content = await storage_service.download_file(f.storage_key)
-    return base64.b64encode(content).decode(), f.content_type
+    return base64.b64encode(content).decode(), f.content_type, f.name
 
 
 async def delete_shared_file(

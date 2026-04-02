@@ -27,14 +27,15 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         git openssh-client ca-certificates \
         curl wget \
         python3 python3-pip \
-        jq procps net-tools && \
+        jq procps net-tools \
+        antiword && \
     ln -sf /usr/bin/python3 /usr/bin/python && \
     git config --global url."https://github.com/".insteadOf ssh://git@github.com/ && \
     git config --global --add url."https://github.com/".insteadOf git@github.com:
 
 # ---------- Python 依赖 ----------
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip3 install --break-system-packages requests tos
+    pip3 install --break-system-packages requests tos pypdf python-docx openpyxl xlrd
 
 # ---------- 全局安装 OpenClaw（BuildKit npm 缓存）----------
 RUN --mount=type=cache,target=/root/.npm \

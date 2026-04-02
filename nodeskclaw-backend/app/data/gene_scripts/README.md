@@ -9,6 +9,7 @@ gene_scripts/
   _api_client.py             # 公共 HTTP 客户端（认证、错误处理）
   deskclaw_blackboard.py     # 黑板操作（内容、任务、目标、帖子）
   deskclaw_shared_files.py   # 共享文件管理
+  deskclaw_file_reader.py    # 文档内容提取
   deskclaw_topology.py       # 拓扑查询
   deskclaw_performance.py    # 效能统计
   deskclaw_proposals.py      # 审批提案
@@ -34,6 +35,7 @@ python3 ~/.deskclaw/tools/deskclaw_blackboard.py list_tasks --status pending
 python3 ~/.deskclaw/tools/deskclaw_blackboard.py create_task --title "审查文档" --priority high
 python3 ~/.deskclaw/tools/deskclaw_shared_files.py list_files --path /
 python3 ~/.deskclaw/tools/deskclaw_shared_files.py write_file --filename hello.txt --content "Hello World" --parent-path /reports --content-type text/plain
+python3 ~/.deskclaw/tools/deskclaw_file_reader.py read --file-id <id>
 python3 ~/.deskclaw/tools/deskclaw_topology.py get_reachable --instance-id <id>
 python3 ~/.deskclaw/tools/deskclaw_gene_discovery.py search --keyword "blackboard"
 ```
@@ -42,7 +44,7 @@ python3 ~/.deskclaw/tools/deskclaw_gene_discovery.py search --keyword "blackboar
 
 ## 设计原则
 
-- 纯标准库（`urllib.request` + `json`），无需 `pip install`
+- 以标准库为主；少数脚本会使用镜像内预装的文档解析依赖
 - 输出 JSON，方便 agent 解析
 - 错误时返回非零退出码 + JSON 错误信息
 - 通过 `_api_client.py` 共享认证和 HTTP 请求逻辑

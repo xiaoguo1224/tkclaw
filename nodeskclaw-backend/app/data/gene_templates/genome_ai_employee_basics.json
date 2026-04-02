@@ -1,7 +1,7 @@
 {
   "name": "AI Employee Basics",
   "slug": "ai-employee-basics",
-  "description": "AI 员工基础技能包：黑板操作、拓扑感知、效能统计、审批提案、基因发现、共享文件",
+  "description": "AI 员工基础技能包：黑板操作、拓扑感知、效能统计、审批提案、基因发现、共享文件、文档读取",
   "category": "genome",
   "tags": ["genome", "tools", "self-management", "autonomy"],
   "gene_slugs": [
@@ -10,9 +10,10 @@
     "nodeskclaw-performance-reader",
     "nodeskclaw-proposals",
     "nodeskclaw-gene-discovery",
-    "nodeskclaw-shared-files"
+    "nodeskclaw-shared-files",
+    "nodeskclaw-file-reader"
   ],
   "config_override": {
-    "description": "Installing this genome gives the agent full workspace management capabilities: read/write blackboard (tasks, objectives, posts), understand topology, monitor performance, submit proposals, discover new genes, and manage shared files."
+    "description": "Installing this genome gives the agent full workspace management capabilities: read/write blackboard (tasks, objectives, posts), understand topology, monitor performance, submit proposals, discover new genes, manage shared files, and read office documents."
   }
 }

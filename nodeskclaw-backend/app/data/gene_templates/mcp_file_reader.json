@@ -1,0 +1,14 @@
+{
+  "name": "nodeskclaw-file-reader",
+  "slug": "nodeskclaw-file-reader",
+  "description": "Agent tools for reading shared files and extracting text from PDF, DOC, DOCX, XLS, and XLSX documents.",
+  "category": "tools",
+  "tags": ["tools", "shared-files", "document-reader", "self-management"],
+  "manifest": {
+    "skill": {
+      "name": "nodeskclaw-file-reader",
+      "content": "---\nname: nodeskclaw-file-reader\ndescription: Tools to read office documents and PDFs from workspace shared files\nalways: true\n---\n\nYou can extract readable text from workspace shared files via the deskclaw_file_reader.py script.\n\n## Usage\n\n```bash\npython3 ~/.deskclaw/tools/deskclaw_file_reader.py read --file-id ID\n```\n\n## Supported Formats\n\n- `pdf` -- Extract page text\n- `doc` -- Extract Word 97-2003 text\n- `docx` -- Extract Word document text and table rows\n- `xls` -- Extract Excel 97-2003 sheet rows\n- `xlsx` -- Extract Excel workbook sheet rows\n- `txt/md/csv/json` -- Decode as plain text\n\n## Image Files\n\n- `png/jpg/jpeg/webp/gif` must be recognized by the model itself\n- For image files, first get the file URL via `python3 ~/.deskclaw/tools/deskclaw_shared_files.py get_file_url --file-id ID`\n- Then let the model inspect the image directly; do not use OCR scripts\n\n## Usage Rules\n\n- Use `nodeskclaw-shared-files` to browse files and obtain the correct `file_id`\n- Prefer this tool when the file is document-like and you need text extraction\n- Large files are automatically truncated; if necessary, rerun with a larger `--max-chars`\n\n## Examples\n\n```bash\n# Read a PDF\npython3 ~/.deskclaw/tools/deskclaw_file_reader.py read --file-id <id>\n\n# Read a spreadsheet with larger limits\npython3 ~/.deskclaw/tools/deskclaw_file_reader.py read --file-id <id> --sheet-limit 8 --row-limit 400 --max-chars 20000\n```\n"
+    },
+    "scripts": ["deskclaw_file_reader.py"]
+  }
+}
