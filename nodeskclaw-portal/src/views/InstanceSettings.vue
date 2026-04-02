@@ -32,13 +32,13 @@ const dirty = ref(false)
 
 // ── Constants ──
 
-const LOCAL_MODEL_PROVIDER = 'taoke'
-const LOCAL_MODEL_BASE_URL = 'http://10.0.14.20:11434/v1'
-const LOCAL_MODEL_API_KEY = 'taoke'
+const LOCAL_MODEL_PROVIDER = 'volcengine-plan'
+const LOCAL_MODEL_BASE_URL = 'https://ark.cn-beijing.volces.com/api/coding/v3'
+const LOCAL_MODEL_API_KEY = '090f8038-0d0c-40f7-8d9b-8a2b35b6ad72'
 const LOCAL_MODEL_API_TYPE = 'openai-completions'
 const LOCAL_MODEL_DEFAULT: ModelItem = {
-  id: 'Qwen3.5-122B-A10B-4bit',
-  name: 'Qwen3.5-122B-A10B-4bit',
+  id: 'doubao-seed-2.0-pro',
+  name: 'doubao-seed-2.0-pro',
 }
 
 const PROVIDERS = ['minimax-openai', 'minimax-anthropic', 'openai', 'anthropic', 'gemini', 'openrouter', 'bailian-code', 'volcano-code'] as const
