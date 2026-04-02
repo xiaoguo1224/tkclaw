@@ -38,9 +38,10 @@ PROVIDER_BASE_URLS: dict[str, str] = {
     "minimax-openai": "https://api.minimaxi.com/v1",
     "minimax-anthropic": "https://api.minimaxi.com/anthropic",
     "bailian-code": "https://coding.dashscope.aliyuncs.com/v1",
+    "volcano-code": "https://ark.cn-beijing.volces.com/api/v3",
 }
 
-BUILTIN_PROVIDERS = {"openai", "anthropic", "gemini", "openrouter", "bailian-code"}
+BUILTIN_PROVIDERS = {"openai", "anthropic", "gemini", "openrouter", "bailian-code", "volcano-code"}
 
 PROVIDER_API_TYPE: dict[str, str] = {
     "codex": "openai-completions",
@@ -48,6 +49,7 @@ PROVIDER_API_TYPE: dict[str, str] = {
     "minimax-openai": "openai-completions",
     "minimax-anthropic": "anthropic-messages",
     "bailian-code": "openai-completions",
+    "volcano-code": "openai-completions",
 }
 
 TRUSTED_PROXY_CIDRS = ["10.0.0.0/8", "100.64.0.0/10", "192.168.0.0/16"]
@@ -206,10 +208,11 @@ def _ensure_gateway_config(config: dict, instance: Instance) -> None:
     control_ui = gw.setdefault("controlUi", {})
     control_ui["allowInsecureAuth"] = True
     control_ui["dangerouslyDisableDeviceAuth"] = True
-    control_ui["dangerouslyAllowHostHeaderOriginFallback"] = True
+    if "dangerouslyAllowHostHeaderOriginFallback" in control_ui:
+        control_ui["dangerouslyAllowHostHeaderOriginFallback"] = True
 
 
-def _set_default_agent_model(config: dict, providers: dict, preferred_primary: str | None = None) -> None:
+def _set_default_agent_model(config: dict, providers: dict) -> None:
     """Set agents.defaults.model.primary from the first configured provider/model.
 
     OpenClaw uses this field to decide which model handles conversations.
@@ -218,47 +221,22 @@ def _set_default_agent_model(config: dict, providers: dict, preferred_primary: s
     if not providers:
         return
 
-    primary_value = ""
-    if preferred_primary:
-        preferred_primary = preferred_primary.strip()
-        if preferred_primary:
-            if "/" in preferred_primary:
-                preferred_provider, preferred_model = preferred_primary.split("/", 1)
-                provider_cfg = providers.get(preferred_provider)
-                if provider_cfg:
-                    models = provider_cfg.get("models", [])
-                    if any((m.get("id") or "") == preferred_model for m in models):
-                        primary_value = f"{preferred_provider}/{preferred_model}"
-                    elif not models:
-                        primary_value = preferred_provider
-            elif preferred_primary in providers:
-                primary_value = preferred_primary
+    for provider_name, provider_cfg in providers.items():
+        models = provider_cfg.get("models", [])
+        if models:
+            model_id = models[0].get("id", "")
+            if model_id:
+                primary = f"{provider_name}/{model_id}"
+                agents = config.setdefault("agents", {})
+                defaults = agents.setdefault("defaults", {})
+                defaults["model"] = {"primary": primary}
+                return
 
-    if not primary_value:
-        for provider_name, provider_cfg in providers.items():
-            models = provider_cfg.get("models", [])
-            if models:
-                model_id = models[0].get("id", "")
-                if model_id:
-                    primary_value = f"{provider_name}/{model_id}"
-                    break
-
-    if not primary_value:
-        primary_value = next(iter(providers))
-
+    first_provider = next(iter(providers))
     agents = config.setdefault("agents", {})
     defaults = agents.setdefault("defaults", {})
-    defaults["model"] = {"primary": primary_value}
+    defaults["model"] = {"primary": first_provider}
 
-    # OpenClaw 3.24+ rejects legacy `agent.*`; always clean it during write.
-    agent_cfg = config.get("agent")
-    if isinstance(agent_cfg, dict):
-        agent_cfg.pop("default", None)
-        if not agent_cfg:
-            config.pop("agent", None)
-    elif "agent" in config:
-        config.pop("agent", None)
-    return
 
 async def _read_config_file(fs: RemoteFS) -> dict | None:
     """Read openclaw.json from Pod via exec.
@@ -397,11 +375,6 @@ async def read_instance_llm_configs(
     pod_providers: dict = raw_json.get("models", {}).get("providers", {})
     if not pod_providers:
         return []
-    default_primary = (
-        raw_json.get("agents", {}).get("defaults", {}).get("model", {}).get("primary")
-        or raw_json.get("agent", {}).get("default")
-        or ""
-    )
 
     proxy_hosts = [
         h for h in (
@@ -462,19 +435,13 @@ async def read_instance_llm_configs(
             "personal_key_masked": personal_key_masked,
             "base_url": (override.base_url if override else None) or (uk.base_url if uk else None),
             "api_type": (override.api_type if override else None) or (uk.api_type if uk else None),
-            "is_default": bool(
-                default_primary and (
-                    default_primary == provider or
-                    default_primary.startswith(f"{provider}/")
-                )
-            ),
         })
 
     return entries
 
 
 async def write_instance_llm_configs(
-    instance: Instance, db: AsyncSession, configs: list, current_user_id: str, default_model_primary: str | None = None,
+    instance: Instance, db: AsyncSession, configs: list, current_user_id: str,
 ) -> None:
     """Write LLM provider configs directly to Pod's openclaw.json.
 
@@ -555,7 +522,7 @@ async def write_instance_llm_configs(
         _ensure_gateway_config(existing_json, instance)
         if "codex" in providers:
             existing_json["gateway"].setdefault("mode", "local")
-        _set_default_agent_model(existing_json, providers, preferred_primary=default_model_primary)
+        _set_default_agent_model(existing_json, providers)
         await _write_config_file(fs, existing_json)
 
     logger.info(
@@ -787,9 +754,6 @@ def _inject_channel_config(
 
     entries = plugins.setdefault("entries", {})
     entries["nodeskclaw"] = {"enabled": True}
-    p_allow = plugins.setdefault("allow", [])
-    if "nodeskclaw" not in p_allow:
-        p_allow.append("nodeskclaw")
 
     gw = config.setdefault("gateway", {})
     http_cfg = gw.setdefault("http", {})
@@ -1052,8 +1016,7 @@ async def deploy_learning_channel_plugin(
 
 # ── DingTalk Channel Plugin ──────────────────────
 
-DINGTALK_PLUGIN_SOURCE_DIR = "openclaw-channel-dingtalk"
-DINGTALK_PLUGIN_DIR = "dingtalk"
+DINGTALK_PLUGIN_DIR = "openclaw-channel-dingtalk"
 DINGTALK_PLUGIN_FILES = [
     "index.ts",
     "package.json",
@@ -1068,8 +1031,8 @@ DINGTALK_PLUGIN_FILES = [
 
 def _get_dingtalk_plugin_source_dir() -> Path:
     candidates = [
-        Path(__file__).resolve().parents[3] / DINGTALK_PLUGIN_SOURCE_DIR,
-        Path("/app") / DINGTALK_PLUGIN_SOURCE_DIR,
+        Path(__file__).resolve().parents[3] / DINGTALK_PLUGIN_DIR,
+        Path("/app") / DINGTALK_PLUGIN_DIR,
     ]
     for p in candidates:
         if p.exists() and (p / "index.ts").exists():
@@ -1086,18 +1049,9 @@ async def _deploy_dingtalk_plugin_files(fs: RemoteFS, plugin_source: Path) -> No
     for rel_path in DINGTALK_PLUGIN_FILES:
         src = plugin_source / rel_path
         if src.exists():
-            content = src.read_text(encoding="utf-8")
-            if rel_path == "package.json":
-                try:
-                    pkg = json.loads(content)
-                    if isinstance(pkg, dict):
-                        pkg["name"] = "dingtalk"
-                        content = json.dumps(pkg, ensure_ascii=False, indent=2) + "\n"
-                except Exception:
-                    pass
             await fs.write_text(
                 f"{target_base}/{rel_path}",
-                content,
+                src.read_text(encoding="utf-8"),
             )
 
 
@@ -1105,32 +1059,14 @@ def _inject_dingtalk_plugin_path(config: dict) -> None:
     plugins = config.setdefault("plugins", {})
     load = plugins.setdefault("load", {})
     paths = load.setdefault("paths", [])
-    old_relatives = [
-        f".openclaw/extensions/{DINGTALK_PLUGIN_DIR}",
-        ".openclaw/extensions/openclaw-channel-dingtalk",
-    ]
-    for old_relative in old_relatives:
-        if old_relative in paths:
-            paths.remove(old_relative)
-    old_absolutes = [
-        f"/root/.openclaw/extensions/{DINGTALK_PLUGIN_DIR}",
-        "/root/.openclaw/extensions/openclaw-channel-dingtalk",
-    ]
-    for old_absolute in old_absolutes:
-        while old_absolute in paths:
-            paths.remove(old_absolute)
+    old_relative = f".openclaw/extensions/{DINGTALK_PLUGIN_DIR}"
+    if old_relative in paths:
+        paths.remove(old_relative)
     plugin_path = f"/root/.openclaw/extensions/{DINGTALK_PLUGIN_DIR}"
     if plugin_path not in paths:
         paths.append(plugin_path)
 
-    allow = plugins.setdefault("allow", [])
-    while "openclaw-channel-dingtalk" in allow:
-        allow.remove("openclaw-channel-dingtalk")
-    if "dingtalk" not in allow:
-        allow.append("dingtalk")
-
     entries = plugins.setdefault("entries", {})
-    entries.pop("openclaw-channel-dingtalk", None)
     entries["dingtalk"] = {"enabled": True}
 
 

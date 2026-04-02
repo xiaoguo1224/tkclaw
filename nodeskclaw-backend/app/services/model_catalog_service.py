@@ -29,6 +29,7 @@ PROVIDER_BASE_URLS: dict[str, str] = {
     "minimax-openai": "https://api.minimaxi.com",
     "minimax-anthropic": "https://api.minimaxi.com/anthropic",
     "bailian-code": "https://coding.dashscope.aliyuncs.com/v1",
+    "volcano-code": "https://ark.cn-beijing.volces.com/api/v3",
 }
 
 PROVIDER_API_TYPE: dict[str, str] = {
@@ -36,6 +37,7 @@ PROVIDER_API_TYPE: dict[str, str] = {
     "minimax-openai": "openai-completions",
     "minimax-anthropic": "anthropic-messages",
     "bailian-code": "openai-completions",
+    "volcano-code": "openai-completions",
 }
 
 
@@ -193,6 +195,34 @@ async def _fetch_minimax(_api_key: str) -> list[ModelInfo]:
     return list(_MINIMAX_TEXT_MODELS)
 
 
+async def _fetch_bailian_code(_api_key: str) -> list[ModelInfo]:
+    _ = _api_key
+    return [
+        ModelInfo(id="qwen3.5-plus", name="千问 qwen3.5-plus"),
+        ModelInfo(id="qwen3-max-2026-01-23", name="千问 qwen3-max-2026-01-23"),
+        ModelInfo(id="qwen3-coder-next", name="千问 qwen3-coder-next"),
+        ModelInfo(id="qwen3-coder-plus", name="千问 qwen3-coder-plus"),
+        ModelInfo(id="glm-5", name="智谱 glm-5"),
+        ModelInfo(id="glm-4.7", name="智谱 glm-4.7"),
+        ModelInfo(id="kimi-k2.5", name="Kimi kimi-k2.5"),
+        ModelInfo(id="MiniMax-M2.5", name="MiniMax MiniMax-M2.5"),
+    ]
+
+
+async def _fetch_volcano_code(_api_key: str) -> list[ModelInfo]:
+    """火山 Code Plan 模型列表，返回官方已知的模型。"""
+    return [
+        ModelInfo(id="doubao-seed-2.0-code", name="豆包 doubao-seed-2.0-code"),
+        ModelInfo(id="doubao-seed-2.0-pro", name="豆包 doubao-seed-2.0-pro"),
+        ModelInfo(id="doubao-seed-2.0-lite", name="豆包 doubao-seed-2.0-lite"),
+        ModelInfo(id="doubao-seed-code", name="豆包 doubao-seed-code"),
+        ModelInfo(id="minimax-m2.5", name="MiniMax minimax-m2.5"),
+        ModelInfo(id="glm-4.7", name="智谱 glm-4.7"),
+        ModelInfo(id="deepseek-v3.2", name="深度求索 deepseek-v3.2"),
+        ModelInfo(id="kimi-k2.5", name="Kimi kimi-k2.5"),
+    ]
+
+
 async def _fetch_openai_compatible(api_key: str, base_url: str) -> list[ModelInfo]:
     url = f"{base_url.rstrip('/')}/models"
     async with _make_client(timeout=15) as client:
@@ -215,20 +245,6 @@ async def _fetch_openai_compatible(api_key: str, base_url: str) -> list[ModelInf
     return models
 
 
-async def _fetch_bailian_code(api_key: str) -> list[ModelInfo]:
-    _ = api_key
-    return [
-        ModelInfo(id="qwen3.5-plus", name="千问 qwen3.5-plus"),
-        ModelInfo(id="qwen3-max-2026-01-23", name="千问 qwen3-max-2026-01-23"),
-        ModelInfo(id="qwen3-coder-next", name="千问 qwen3-coder-next"),
-        ModelInfo(id="qwen3-coder-plus", name="千问 qwen3-coder-plus"),
-        ModelInfo(id="glm-5", name="智谱 glm-5"),
-        ModelInfo(id="glm-4.7", name="智谱 glm-4.7"),
-        ModelInfo(id="kimi-k2.5", name="Kimi kimi-k2.5"),
-        ModelInfo(id="MiniMax-M2.5", name="MiniMax MiniMax-M2.5"),
-    ]
-
-
 _FETCHERS: dict[str, object] = {
     "openai": _fetch_openai,
     "anthropic": _fetch_anthropic,
@@ -237,4 +253,5 @@ _FETCHERS: dict[str, object] = {
     "minimax-openai": _fetch_minimax,
     "minimax-anthropic": _fetch_minimax,
     "bailian-code": _fetch_bailian_code,
+    "volcano-code": _fetch_volcano_code,
 }
