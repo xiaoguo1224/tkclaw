@@ -99,15 +99,27 @@ if [ -f "${CONFIG_FILE}" ]; then
       load.extraDirs = extraDirs;
       changed = true;
     }
+    const path = require('path');
     const plugins = c.plugins ?? (c.plugins = {});
     const allow = Array.isArray(plugins.allow) ? plugins.allow : [];
-    for (const pluginName of ['wecom-openclaw-plugin', 'openclaw-security-layer']) {
+    const pluginNames = ['wecom-openclaw-plugin'];
+    const securityPluginPath = path.join('${OPENCLAW_DIR}', 'extensions', 'openclaw-security-layer');
+    if (fs.existsSync(securityPluginPath)) {
+      pluginNames.push('openclaw-security-layer');
+    }
+    for (const pluginName of pluginNames) {
       if (!allow.includes(pluginName)) {
         allow.push(pluginName);
         changed = true;
       }
     }
-    plugins.allow = allow;
+    const hasSecurityPlugin = fs.existsSync(securityPluginPath);
+    if (!hasSecurityPlugin && allow.includes('openclaw-security-layer')) {
+      plugins.allow = allow.filter((name) => name !== 'openclaw-security-layer');
+      changed = true;
+    } else {
+      plugins.allow = allow;
+    }
     if (changed) {
       fs.writeFileSync(f, JSON.stringify(c, null, 2));
       console.log('[entrypoint] 已补全 controlUi / skills / plugins 配置');

@@ -63,7 +63,6 @@ NODESKCLAW_TOOL_NAMES = (
 )
 BUILTIN_TRUSTED_PLUGIN_NAMES = (
     "wecom-openclaw-plugin",
-    "openclaw-security-layer",
 )
 
 

@@ -24,8 +24,7 @@
 
   "plugins": {
     "allow": [
-      "wecom-openclaw-plugin",
-      "openclaw-security-layer"
+      "wecom-openclaw-plugin"
     ]
   }
 }
