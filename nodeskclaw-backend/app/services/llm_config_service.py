@@ -212,7 +212,7 @@ def _ensure_gateway_config(config: dict, instance: Instance) -> None:
         control_ui["dangerouslyAllowHostHeaderOriginFallback"] = True
 
 
-def _set_default_agent_model(config: dict, providers: dict) -> None:
+def _set_default_agent_model(config: dict, providers: dict, preferred_primary: str | None = None) -> None:
     """Set agents.defaults.model.primary from the first configured provider/model.
 
     OpenClaw uses this field to decide which model handles conversations.
@@ -220,6 +220,27 @@ def _set_default_agent_model(config: dict, providers: dict) -> None:
     """
     if not providers:
         return
+
+    if preferred_primary:
+        preferred_primary = preferred_primary.strip()
+        if preferred_primary:
+            preferred_provider, _sep, preferred_model = preferred_primary.partition("/")
+            provider_cfg = providers.get(preferred_provider)
+            if provider_cfg:
+                models = provider_cfg.get("models", [])
+                if preferred_model:
+                    for model in models:
+                        model_id = model.get("id", "")
+                        if model_id == preferred_model:
+                            agents = config.setdefault("agents", {})
+                            defaults = agents.setdefault("defaults", {})
+                            defaults["model"] = {"primary": preferred_primary}
+                            return
+                else:
+                    agents = config.setdefault("agents", {})
+                    defaults = agents.setdefault("defaults", {})
+                    defaults["model"] = {"primary": preferred_provider}
+                    return
 
     for provider_name, provider_cfg in providers.items():
         models = provider_cfg.get("models", [])
@@ -376,6 +397,13 @@ async def read_instance_llm_configs(
     if not pod_providers:
         return []
 
+    current_primary = (
+        raw_json.get("agents", {})
+        .get("defaults", {})
+        .get("model", {})
+        .get("primary", "")
+    )
+
     proxy_hosts = [
         h for h in (
             (settings.LLM_PROXY_INTERNAL_URL or "").rstrip("/"),
@@ -435,13 +463,24 @@ async def read_instance_llm_configs(
             "personal_key_masked": personal_key_masked,
             "base_url": (override.base_url if override else None) or (uk.base_url if uk else None),
             "api_type": (override.api_type if override else None) or (uk.api_type if uk else None),
+            "is_default": (
+                current_primary == provider
+                or (
+                    selected_models
+                    and current_primary == f"{provider}/{selected_models[0]['id']}"
+                )
+            ),
         })
 
     return entries
 
 
 async def write_instance_llm_configs(
-    instance: Instance, db: AsyncSession, configs: list, current_user_id: str,
+    instance: Instance,
+    db: AsyncSession,
+    configs: list,
+    current_user_id: str,
+    default_model_primary: str | None = None,
 ) -> None:
     """Write LLM provider configs directly to Pod's openclaw.json.
 
@@ -522,7 +561,7 @@ async def write_instance_llm_configs(
         _ensure_gateway_config(existing_json, instance)
         if "codex" in providers:
             existing_json["gateway"].setdefault("mode", "local")
-        _set_default_agent_model(existing_json, providers)
+        _set_default_agent_model(existing_json, providers, default_model_primary)
         await _write_config_file(fs, existing_json)
 
     logger.info(
