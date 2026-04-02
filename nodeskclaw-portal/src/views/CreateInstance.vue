@@ -103,7 +103,7 @@ const LOCAL_MODEL_DEFAULT: ModelItem = {
   name: 'Qwen3.5-122B-A10B-4bit',
 }
 
-const PROVIDERS = ['minimax-openai', 'minimax-anthropic', 'openai', 'anthropic', 'gemini', 'openrouter', 'bailian-code'] as const
+const PROVIDERS = ['minimax-openai', 'minimax-anthropic', 'openai', 'anthropic', 'gemini', 'openrouter', 'bailian-code', 'volcano-code'] as const
 const PROVIDER_LABELS: Record<string, string> = {
   openai: 'OpenAI',
   anthropic: 'Anthropic',
@@ -112,6 +112,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   'minimax-openai': 'MiniMax-OpenAI (CN)',
   'minimax-anthropic': 'MiniMax-Anthropic (CN)',
   'bailian-code': '阿里百炼 Code Plan',
+  'volcano-code': '火山 Code Plan',
   [LOCAL_MODEL_PROVIDER]: t('llm.localModelLabel'),
 }
 
@@ -123,6 +124,7 @@ const PROVIDER_DEFAULT_URLS: Record<string, string> = {
   'minimax-openai': 'https://api.minimaxi.com/v1',
   'minimax-anthropic': 'https://api.minimaxi.com/anthropic',
   'bailian-code': 'https://coding.dashscope.aliyuncs.com/v1',
+  'volcano-code': 'https://ark.cn-beijing.volces.com/api/v3',
 }
 
 const llmConfigs = ref<LlmConfigEntry[]>([])
