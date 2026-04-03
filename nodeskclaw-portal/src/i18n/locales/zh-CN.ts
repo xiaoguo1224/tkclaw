@@ -1491,6 +1491,8 @@ const zhCN = {
     noAvailableModels: "暂无可用模型",
     manualInputModel: "手动输入模型 ID",
     manualInputPlaceholder: "输入模型 ID，如 deepseek-chat",
+    manualContextWindowPlaceholder: "可选：输入上下文窗口，如 256000",
+    modelInputTypes: "输入类型",
     modelIdEmpty: "模型 ID 不能为空",
     codexCliHint: "使用服务端 Codex CLI 登录态，不需要填写 API Key",
     codexCliRuntimeHint: "保存后将通过 llm-proxy 调用当前服务端已登录的 codex CLI，请先确保运行环境已完成 codex login。",
