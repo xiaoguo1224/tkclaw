@@ -61,9 +61,7 @@ NODESKCLAW_TOOL_NAMES = (
     "nodeskclaw_gene_discovery",
     "nodeskclaw_shared_files",
 )
-BUILTIN_TRUSTED_PLUGIN_NAMES = (
-    "wecom-openclaw-plugin",
-)
+BUILTIN_TRUSTED_PLUGIN_NAMES = ("wecom-openclaw-plugin",)
 
 
 def _k8s_name(instance: Instance) -> str:
@@ -223,17 +221,30 @@ def _ensure_gateway_config(config: dict, instance: Instance) -> None:
         control_ui["dangerouslyAllowHostHeaderOriginFallback"] = True
 
 
-def _ensure_plugin_allow(config: dict, *plugin_names: str) -> None:
+def _ensure_plugin_allow(config: dict) -> None:
     plugins = config.setdefault("plugins", {})
     allow = plugins.setdefault("allow", [])
     if not isinstance(allow, list):
         allow = []
         plugins["allow"] = allow
     existing = set(allow)
-    for plugin_name in (*BUILTIN_TRUSTED_PLUGIN_NAMES, *plugin_names):
+    for plugin_name in BUILTIN_TRUSTED_PLUGIN_NAMES:
         if plugin_name and plugin_name not in existing:
             allow.append(plugin_name)
             existing.add(plugin_name)
+
+
+def _remove_plugin_allow(config: dict, *plugin_names: str) -> None:
+    plugins = config.get("plugins")
+    if not isinstance(plugins, dict):
+        return
+    allow = plugins.get("allow")
+    if not isinstance(allow, list):
+        return
+    to_remove = {name for name in plugin_names if name}
+    if not to_remove:
+        return
+    plugins["allow"] = [name for name in allow if name not in to_remove]
 
 
 def _set_default_agent_model(config: dict, providers: dict, preferred_primary: str | None = None) -> None:
@@ -808,7 +819,8 @@ def _inject_channel_config(
     accounts["default"] = entry
 
     plugins = config.setdefault("plugins", {})
-    _ensure_plugin_allow(config, CHANNEL_PLUGIN_DIR)
+    _ensure_plugin_allow(config)
+    _remove_plugin_allow(config, CHANNEL_PLUGIN_DIR)
     load = plugins.setdefault("load", {})
     paths = load.setdefault("paths", [])
     old_relative = f".openclaw/extensions/{CHANNEL_PLUGIN_DIR}"
@@ -941,6 +953,7 @@ async def remove_workspace_channel_account(
                     if p in paths:
                         paths.remove(p)
                 existing.get("plugins", {}).get("entries", {}).pop("nodeskclaw", None)
+                _remove_plugin_allow(existing, CHANNEL_PLUGIN_DIR)
 
             await _write_config_file(fs, existing)
         logger.info(
@@ -974,6 +987,7 @@ async def remove_nodeskclaw_channel_plugin(
                     paths.remove(p)
 
             existing.get("plugins", {}).get("entries", {}).pop("nodeskclaw", None)
+            _remove_plugin_allow(existing, CHANNEL_PLUGIN_DIR)
 
             await _write_config_file(fs, existing)
         logger.info("已移除 nodeskclaw channel 配置: instance=%s", instance.name)
@@ -1040,7 +1054,8 @@ def _inject_learning_channel_config(
     }
 
     plugins = config.setdefault("plugins", {})
-    _ensure_plugin_allow(config, LEARNING_PLUGIN_DIR)
+    _ensure_plugin_allow(config)
+    _remove_plugin_allow(config, LEARNING_PLUGIN_DIR)
     load = plugins.setdefault("load", {})
     paths = load.setdefault("paths", [])
     old_relative = f".openclaw/extensions/{LEARNING_PLUGIN_DIR}"
@@ -1124,7 +1139,8 @@ async def _deploy_dingtalk_plugin_files(fs: RemoteFS, plugin_source: Path) -> No
 
 def _inject_dingtalk_plugin_path(config: dict) -> None:
     plugins = config.setdefault("plugins", {})
-    _ensure_plugin_allow(config, DINGTALK_PLUGIN_DIR)
+    _ensure_plugin_allow(config)
+    _remove_plugin_allow(config, DINGTALK_PLUGIN_DIR)
     load = plugins.setdefault("load", {})
     paths = load.setdefault("paths", [])
     old_relative = f".openclaw/extensions/{DINGTALK_PLUGIN_DIR}"

@@ -103,6 +103,11 @@ if [ -f "${CONFIG_FILE}" ]; then
     const plugins = c.plugins ?? (c.plugins = {});
     const allow = Array.isArray(plugins.allow) ? plugins.allow : [];
     const pluginNames = ['wecom-openclaw-plugin'];
+    const staleAllowOnlyPlugins = [
+      'openclaw-channel-nodeskclaw',
+      'openclaw-channel-learning',
+      'openclaw-channel-dingtalk',
+    ];
     const securityPluginPath = path.join('${OPENCLAW_DIR}', 'extensions', 'openclaw-security-layer');
     if (fs.existsSync(securityPluginPath)) {
       pluginNames.push('openclaw-security-layer');
@@ -119,6 +124,11 @@ if [ -f "${CONFIG_FILE}" ]; then
       changed = true;
     } else {
       plugins.allow = allow;
+    }
+    const filteredAllow = plugins.allow.filter((name) => !staleAllowOnlyPlugins.includes(name));
+    if (filteredAllow.length !== plugins.allow.length) {
+      plugins.allow = filteredAllow;
+      changed = true;
     }
     if (changed) {
       fs.writeFileSync(f, JSON.stringify(c, null, 2));
