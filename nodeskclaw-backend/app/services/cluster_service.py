@@ -23,10 +23,13 @@ from app.schemas.cluster import ClusterCreate, ClusterInfo, ClusterUpdate, Conne
 logger = logging.getLogger(__name__)
 
 
-async def list_clusters(db: AsyncSession) -> list[ClusterInfo]:
-    result = await db.execute(
-        select(Cluster).where(Cluster.deleted_at.is_(None)).order_by(Cluster.created_at.desc())
-    )
+async def list_clusters(
+    db: AsyncSession, org_id: str | None = None,
+) -> list[ClusterInfo]:
+    stmt = select(Cluster).where(Cluster.deleted_at.is_(None))
+    if org_id:
+        stmt = stmt.where(Cluster.org_id == org_id)
+    result = await db.execute(stmt.order_by(Cluster.created_at.desc()))
     clusters = result.scalars().all()
     return [ClusterInfo.model_validate(c) for c in clusters]
 
