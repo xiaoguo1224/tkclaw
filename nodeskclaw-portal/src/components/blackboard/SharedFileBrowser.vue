@@ -192,18 +192,29 @@ async function mkdir() {
 
 async function uploadFile(event: Event) {
   const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
+  const selectedFiles = Array.from(input.files || [])
+  if (selectedFiles.length === 0) return
   uploading.value = true
   try {
-    const formData = new FormData()
-    formData.append('parent_path', currentPath.value)
-    formData.append('file', file)
-    await api.post(`/workspaces/${props.workspaceId}/blackboard/files/upload`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 120000,
-    })
-    await fetchFiles()
+    error.value = ''
+    let hasSuccess = false
+    for (const file of selectedFiles) {
+      try {
+        const formData = new FormData()
+        formData.append('parent_path', currentPath.value)
+        formData.append('file', file)
+        await api.post(`/workspaces/${props.workspaceId}/blackboard/files/upload`, formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+          timeout: 120000,
+        })
+        hasSuccess = true
+      } catch (e: unknown) {
+        error.value = resolveApiErrorMessage(e)
+      }
+    }
+    if (hasSuccess) {
+      await fetchFiles()
+    }
   } catch (e: unknown) {
     error.value = resolveApiErrorMessage(e)
   } finally {
@@ -350,7 +361,7 @@ watch(() => props.workspaceId, () => {
           <Loader2 v-if="uploading" class="w-3.5 h-3.5 animate-spin" />
           <Upload v-else class="w-3.5 h-3.5" />
         </button>
-        <input ref="fileInputRef" type="file" class="hidden" @change="uploadFile" />
+        <input ref="fileInputRef" type="file" multiple class="hidden" @change="uploadFile" />
       </div>
     </div>
 
