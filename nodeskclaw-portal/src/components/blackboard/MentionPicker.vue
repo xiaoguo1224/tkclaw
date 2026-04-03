@@ -123,7 +123,7 @@ defineExpose({ onInput, onKeydown })
       v-for="(c, idx) in filtered"
       :key="`${c.type}-${c.id}`"
       class="w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left transition-colors"
-      :class="idx === selectedIdx ? 'bg-accent text-accent-foreground' : 'hover:bg-muted'"
+      :class="idx === selectedIdx ? 'bg-white/[0.07] text-foreground' : 'hover:bg-white/[0.04]'"
       @mousedown.prevent="select(c)"
     >
       <Bot v-if="c.type === 'agent'" class="w-3.5 h-3.5 text-primary shrink-0" />

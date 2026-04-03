@@ -5,7 +5,7 @@ import json
 import logging
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Coroutine
+from typing import Coroutine, Literal, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
@@ -18,6 +18,7 @@ from app.core import hooks
 from app.core.deps import async_session_factory, get_current_org, get_db
 from app.models.instance import Instance
 from app.models.workspace_agent import WorkspaceAgent
+from app.schemas.common import PaginatedResponse, Pagination
 from app.schemas.workspace import (
     AddAgentRequest,
     BlackboardSectionPatch,
@@ -365,10 +366,27 @@ async def list_tasks(
     workspace_id: str,
     status: str | None = Query(None),
     exclude_archived: bool = Query(True),
+    paginated: bool = Query(False),
+    bucket: Literal["active", "inactive", "column"] = Query("active"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     user=Depends(_get_current_user_or_agent_dep()),
 ):
     await wm_service.check_workspace_member(workspace_id, user, db)
+    if paginated:
+        items, total = await workspace_service.list_tasks_paginated(
+            db,
+            workspace_id,
+            status=status,
+            bucket=bucket,
+            page=page,
+            page_size=page_size,
+        )
+        return PaginatedResponse(
+            data=[t.model_dump(mode="json") for t in items],
+            pagination=Pagination(page=page, page_size=page_size, total=total),
+        )
     tasks = await workspace_service.list_tasks(db, workspace_id, status, exclude_archived)
     return _ok([t.model_dump(mode="json") for t in tasks])
 
@@ -423,7 +441,6 @@ async def archive_task(
     task = await workspace_service.archive_task(db, workspace_id, task_id)
     if task is None:
         raise _error(404, 40434, "errors.workspace.task_not_found", "任务不存在")
-    broadcast_event(workspace_id, "task:archived", task.model_dump(mode="json"))
     return _ok(task.model_dump(mode="json"))
 
 
@@ -1648,6 +1665,68 @@ async def repair_channel_accounts(
     from app.services import llm_config_service
     result = await llm_config_service.repair_channel_account_urls(db)
     return _ok(result)
+
+
+class BatchUpgradeRequest(BaseModel):
+    runtime: str
+    image_version: str
+    dry_run: bool = False
+    with_repair: Optional[bool] = None
+
+
+@router.post("/maintenance/batch-upgrade-instances")
+async def batch_upgrade_instances(
+    body: BatchUpgradeRequest,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(_get_current_user_dep()),
+):
+    """Batch upgrade all instances of a given runtime to a target image version."""
+    if not user.is_super_admin:
+        raise HTTPException(status_code=403, detail={
+            "error_code": 40310,
+            "message_key": "errors.org.super_admin_required",
+            "message": "仅限平台管理员操作",
+        })
+
+    runtime = body.runtime.strip()
+    if not runtime:
+        raise HTTPException(status_code=400, detail={
+            "error_code": 40001,
+            "message_key": "errors.validation.invalid_params",
+            "message": "runtime 不能为空",
+        })
+
+    from app.services.runtime.registries.runtime_registry import RUNTIME_REGISTRY
+    runtime_spec = RUNTIME_REGISTRY.get(runtime)
+    if runtime_spec is None:
+        raise HTTPException(status_code=400, detail={
+            "error_code": 40003,
+            "message_key": "errors.validation.invalid_runtime",
+            "message": f"不支持的 runtime: {runtime}",
+        })
+
+    if not body.image_version.strip():
+        raise HTTPException(status_code=400, detail={
+            "error_code": 40001,
+            "message_key": "errors.validation.invalid_params",
+            "message": "image_version 不能为空",
+        })
+
+    from app.services import instance_service
+    upgrade_result = await instance_service.batch_upgrade_image_version(
+        runtime, body.image_version, user.id, db, dry_run=body.dry_run,
+    )
+
+    repair_result = None
+    if not body.dry_run and body.with_repair is True and runtime_spec.supports_channel_plugins:
+        from app.services import llm_config_service
+        try:
+            repair_result = await llm_config_service.repair_channel_account_urls(db)
+        except Exception as e:
+            logger.exception("批量升级后 channel 修复失败")
+            repair_result = {"error": str(e)[:200]}
+
+    return _ok({"upgrade": upgrade_result, "repair": repair_result})
 
 
 @router.post("/maintenance/refresh-gene-skills")

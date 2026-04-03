@@ -77,6 +77,15 @@ class InstanceHealthChecker:
             return
 
         handle = self._build_handle(instance)
+
+        if instance.compute_provider == "k8s" and instance.cluster_id:
+            from app.models.cluster import Cluster
+            cluster = await db.get(Cluster, instance.cluster_id)
+            if cluster and cluster.credentials_encrypted:
+                handle.extra["credentials_encrypted"] = cluster.credentials_encrypted
+            if not handle.extra.get("slug"):
+                handle.extra["name"] = instance.name
+
         try:
             probe = await spec.provider.health_check(handle)
             new_health = self._probe_to_health(probe)

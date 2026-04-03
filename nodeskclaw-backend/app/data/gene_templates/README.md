@@ -4,7 +4,7 @@
 
 **配置 `SEED_GENES=true`（默认）时，后端启动自动从本地模板导入种子基因到数据库。**
 
-- 幂等：slug 已存在则跳过，不覆盖已有数据
+- 幂等：slug 已存在时自动对比并更新 manifest（Gene）/ gene_slugs + config_override + description（Genome）字段；name/tags 等用户可自定义字段不覆盖
 - 关闭：设置 `SEED_GENES=false` 后重启即可跳过导入
 - GeneHub 同步脚本：`scripts/upload_seeds_to_genehub.py`
 
@@ -29,7 +29,7 @@ gene_templates/
 ├── meta_gene_innovation.json        # 创新探索元基因
 ├── meta_gene_akr_decomposer.json    # AKR 分解元基因（O -> KR -> Task）
 ├── genome_self_management.json      # 自管理基因组（捆绑 6 个工具基因，旧版）
-├── genome_ai_employee_basics.json   # AI 员工基础技能基因组（捆绑 7 个工具基因）
+├── genome_ai_employee_basics.json   # AI 员工基础技能基因组（捆绑 7 个工具基因 + 1 个元基因）
 ├── workflow_genome_example.json     # 内容创作流水线基因组（含拓扑推荐）
 └── workflow_step_template.json      # 工作流步骤基因的 manifest 模板（不入库）
 ```
@@ -49,7 +49,7 @@ gene_templates/
 
 | 类型 | 文件 | slug | GeneHub 状态 |
 |------|------|------|-------------|
-| 工具基因 | mcp_blackboard_tools.json | nodeskclaw-blackboard-tools | 已上传 |
+| 工具基因 | mcp_blackboard_tools.json | nodeskclaw-blackboard-tools | 待更新 |
 | 工具基因 | mcp_topology_awareness.json | nodeskclaw-topology-awareness | 已上传 |
 | 工具基因 | mcp_performance_reader.json | nodeskclaw-performance-reader | 已上传 |
 | 工具基因 | mcp_proposals.json | nodeskclaw-proposals | 已上传 |
@@ -61,8 +61,8 @@ gene_templates/
 | 元基因 | meta_gene_culture.json | team-culture-concise | 已上传 |
 | 元基因 | meta_gene_self_improve.json | self-improvement | 已上传 |
 | 元基因 | meta_gene_innovation.json | innovation-scout | 已上传 |
-| 元基因 | meta_gene_akr_decomposer.json | akr-decomposer | 已上传 |
+| 元基因 | meta_gene_akr_decomposer.json | akr-decomposer | 待更新 |
 | 基因组 | genome_self_management.json | nodeskclaw-self-management | 已上传 |
-| 基因组 | genome_ai_employee_basics.json | ai-employee-basics | 待上传 |
+| 基因组 | genome_ai_employee_basics.json | ai-employee-basics | 待更新 |
 | 基因组 | workflow_genome_example.json | content-creation-pipeline | 未上传 |
 | 模板 | workflow_step_template.json | -- | 不入库 |

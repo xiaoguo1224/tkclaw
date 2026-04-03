@@ -373,6 +373,7 @@ DEFAULT_REQUIRED_GENE_SLUGS: list[str] = [
     "nodeskclaw-gene-discovery",
     "nodeskclaw-shared-files",
     "nodeskclaw-file-reader",
+    "akr-decomposer",
 ]
 
 
@@ -463,3 +464,50 @@ async def _ensure_workspace_schedules(session_factory: async_sessionmaker[AsyncS
                 ))
         await db.commit()
         logger.info("种子数据：已为 %d 个工作区检查/补建定时巡检定时器", len(all_ws))
+
+
+async def backfill_cluster_org_id(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """为 org_id 为空的活跃集群回填组织 ID（幂等）。
+
+    仅当系统中只有一个活跃组织时自动回填；多组织场景打 WARNING 跳过。
+    """
+    from app.models.cluster import Cluster
+    from app.models.organization import Organization
+
+    async with session_factory() as db:
+        orphan_result = await db.execute(
+            select(func.count()).select_from(Cluster).where(
+                Cluster.org_id.is_(None),
+                Cluster.deleted_at.is_(None),
+            )
+        )
+        orphan_count = orphan_result.scalar_one()
+        if orphan_count == 0:
+            return
+
+        org_result = await db.execute(
+            select(Organization).where(Organization.deleted_at.is_(None))
+        )
+        orgs = org_result.scalars().all()
+
+        if len(orgs) == 0:
+            logger.warning("集群 org_id 回填跳过：系统中无活跃组织")
+            return
+
+        if len(orgs) > 1:
+            logger.warning(
+                "集群 org_id 回填跳过：系统中有 %d 个活跃组织，需管理员手动分配 %d 个无组织集群",
+                len(orgs), orphan_count,
+            )
+            return
+
+        default_org = orgs[0]
+        await db.execute(
+            update(Cluster)
+            .where(Cluster.org_id.is_(None), Cluster.deleted_at.is_(None))
+            .values(org_id=default_org.id)
+        )
+        await db.commit()
+        logger.info("集群 org_id 回填完成：%d 个集群已关联到组织 %s", orphan_count, default_org.name)

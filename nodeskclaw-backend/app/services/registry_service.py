@@ -12,6 +12,7 @@ import re
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.exceptions import RegistryError
 from app.services.config_service import get_config
 from app.services.runtime.registries.runtime_registry import RUNTIME_REGISTRY
 
@@ -161,7 +162,7 @@ async def list_image_tags(
 
     except httpx.HTTPStatusError as e:
         logger.warning("Registry 返回错误 %s: %s", e.response.status_code, tags_url)
-        return []
+        raise RegistryError(f"Registry 返回 HTTP {e.response.status_code}")
     except Exception as e:
         logger.warning("Registry 请求失败 (%s): %s", tags_url, e)
-        return []
+        raise RegistryError(f"Registry 请求失败: {e}")

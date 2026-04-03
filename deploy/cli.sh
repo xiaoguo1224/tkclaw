@@ -6,19 +6,20 @@
 #   ./deploy/cli.sh <command> [target] [options]
 #
 # 命令:
-#   deploy [target]     构建 + 部署（默认 all，默认 staging）
-#   release <version>   打 git tag + 创建 GitHub Pre-release
+#   deploy [target]     构建 + 部署（默认 CE 模式，不含 admin）
+#   release <version>   构建镜像 + 打 git tag + 创建 GitHub Pre-release
 #   promote <version>   staging 镜像 -> 生产
 #   init                首次环境初始化
 #
 # 目标 (deploy 命令):
-#   all       backend + admin + portal + proxy（默认）
+#   all       backend + portal + proxy（默认；--ee 时加 admin）
 #   backend   后端
-#   admin     Admin 前端
+#   admin     Admin 前端（需 --ee）
 #   portal    Portal 前端
 #   proxy     LLM Proxy
 #
 # 选项:
+#   --ee            EE 模式（包含 admin，启用 ee/ 代码注入）
 #   --staging       staging 环境（默认，可省略）
 #   --prod          生产环境（需交互确认）
 #   --context CTX   覆盖默认 K8s 上下文
@@ -31,7 +32,8 @@
 #   --force         init 时跳过 Secret 差异确认
 #
 # 前置条件:
-#   - deploy/.env.local 已配置 REGISTRY 和 KUBE_CONTEXT
+#   - deploy/.env.local 已配置 REGISTRY（必填）和 KUBE_CONTEXT
+#   - PUBLIC_REGISTRY 可选（配置后 backend/portal/proxy 使用公开仓库，admin 始终用 REGISTRY）
 #   - docker login 已完成
 #   - gh CLI 已安装并认证（release 命令需要）
 # ============================================================
@@ -41,6 +43,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 REGISTRY="<YOUR_REGISTRY>/<YOUR_NAMESPACE>"
+PUBLIC_REGISTRY=""   # 可选：公开镜像仓库（配置后 deploy 默认使用此仓库）
 KUBE_CONTEXT=""
 STAGING_NS="nodeskclaw-staging"
 PROD_NS="nodeskclaw-system"
@@ -51,12 +54,24 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
+BLUE='\033[0;34m'
+AMBER='\033[0;33m'
 NC='\033[0m'
 
 log()  { echo -e "${CYAN}[NoDeskClaw]${NC} $*"; }
 ok()   { echo -e "${GREEN}[  OK  ]${NC} $*"; }
 warn() { echo -e "${YELLOW}[ WARN ]${NC} $*"; }
 err()  { echo -e "${RED}[ERROR ]${NC} $*" >&2; }
+
+ctag() {
+  case "$1" in
+    backend) echo -e "${BLUE}backend${NC}" ;;
+    admin)   echo -e "${RED}admin${NC}" ;;
+    portal)  echo -e "${GREEN}portal${NC}" ;;
+    proxy)   echo -e "${AMBER}proxy${NC}" ;;
+    *)       echo "$1" ;;
+  esac
+}
 
 confirm() {
   echo ""
@@ -111,6 +126,13 @@ get_k8s_container() {
   case "$1" in
     proxy) echo "llm-proxy" ;;
     *)     get_image_name "$1" ;;
+  esac
+}
+
+get_component_registry() {
+  case "$1" in
+    admin) echo "$REGISTRY" ;;
+    *)     echo "${PUBLIC_REGISTRY:-$REGISTRY}" ;;
   esac
 }
 
@@ -175,12 +197,13 @@ sys.exit(0)
 build_and_push() {
   local component="$1"
   local image_name; image_name="$(get_image_name "$component")"
-  local image="${REGISTRY}/${image_name}:${TAG}"
+  local comp_registry; comp_registry="$(get_component_registry "$component")"
+  local image="${comp_registry}/${image_name}:${TAG}"
   local context; context="$(get_build_context "$component")"
   local dockerfile; dockerfile="$(get_dockerfile "$component")"
   local extra_args=""
 
-  if [[ "$component" != "proxy" && -d "$PROJECT_ROOT/ee" ]]; then
+  if [[ "$CE_ONLY" != true && "$component" != "proxy" && -d "$PROJECT_ROOT/ee" ]]; then
     local ee_df
     ee_df="$(mktemp)"
     case "$component" in
@@ -191,7 +214,7 @@ build_and_push() {
         ;;
       admin)
         if [[ ! -d "$PROJECT_ROOT/ee/nodeskclaw-frontend" ]]; then
-          warn "[$component] ee/nodeskclaw-frontend 不存在，跳过 admin 构建"
+          warn "[$(ctag "$component")] ee/nodeskclaw-frontend 不存在，跳过 admin 构建"
           return 0
         fi
         ;;
@@ -217,9 +240,9 @@ EODF
         extra_args="--build-context ee=$PROJECT_ROOT/ee"
         ;;
     esac
-    log "[$component] 检测到 ee/ 目录，构建 EE 版镜像"
+    log "[$(ctag "$component")] 检测到 ee/ 目录，构建 EE 版镜像"
   elif [[ "$component" == "admin" && ! -d "$PROJECT_ROOT/ee" ]]; then
-    warn "[$component] ee/ 目录不存在（CE 版本），跳过 admin 构建"
+    warn "[$(ctag "$component")] ee/ 目录不存在（CE 版本），跳过 admin 构建"
     return 0
   fi
 
@@ -229,7 +252,7 @@ EODF
       ;;
   esac
 
-  log "[$component] 构建镜像: $image"
+  log "[$(ctag "$component")] 构建镜像: $image"
   if ! docker build --platform linux/amd64 \
     $NO_CACHE \
     $extra_args \
@@ -240,17 +263,17 @@ EODF
     --build-arg HTTPS_PROXY= \
     -t "$image" \
     "$context"; then
-    err "[$component] 镜像构建失败"
+    err "[$(ctag "$component")] 镜像构建失败"
     return 1
   fi
 
-  log "[$component] 推送镜像..."
+  log "[$(ctag "$component")] 推送镜像..."
   if ! docker push "$image"; then
-    err "[$component] 镜像推送失败"
+    err "[$(ctag "$component")] 镜像推送失败"
     return 1
   fi
 
-  ok "[$component] $image"
+  ok "[$(ctag "$component")] $image"
 }
 
 # ── K8s 部署 ─────────────────────────────────────────────
@@ -258,38 +281,39 @@ EODF
 deploy_to_k8s() {
   local component="$1"
   local image_name; image_name="$(get_image_name "$component")"
-  local image="${REGISTRY}/${image_name}:${TAG}"
+  local comp_registry; comp_registry="$(get_component_registry "$component")"
+  local image="${comp_registry}/${image_name}:${TAG}"
   local deployment; deployment="$(get_k8s_deployment "$component")"
   local container; container="$(get_k8s_container "$component")"
 
-  log "[$component] 更新 Deployment: $deployment -> $image (context: $KUBE_CONTEXT)"
+  log "[$(ctag "$component")] 更新 Deployment: $deployment -> $image (context: $KUBE_CONTEXT)"
 
   if ! $KUBECTL -n "$NAMESPACE" get deployment "$deployment" &>/dev/null; then
-    warn "[$component] Deployment 不存在，执行首次部署..."
+    warn "[$(ctag "$component")] Deployment 不存在，执行首次部署..."
     if [[ "$component" == "proxy" ]]; then
       local proxy_dir="$PROJECT_ROOT/nodeskclaw-llm-proxy/deploy"
       [[ -f "$proxy_dir/deployment.yaml" ]] && \
-        sed "s|<YOUR_REGISTRY>/<YOUR_NAMESPACE>|${REGISTRY}|g" "$proxy_dir/deployment.yaml" \
+        sed "s|<YOUR_REGISTRY>/<YOUR_NAMESPACE>|${comp_registry}|g" "$proxy_dir/deployment.yaml" \
           | $KUBECTL -n "$NAMESPACE" apply -f -
       [[ -f "$proxy_dir/service.yaml" ]] && \
         $KUBECTL -n "$NAMESPACE" apply -f "$proxy_dir/service.yaml"
     else
       local manifest="$SCRIPT_DIR/k8s/${component}.yaml"
       [[ -f "$manifest" ]] && \
-        sed "s|<YOUR_REGISTRY>/<YOUR_NAMESPACE>|${REGISTRY}|g" "$manifest" \
+        sed "s|<YOUR_REGISTRY>/<YOUR_NAMESPACE>|${comp_registry}|g" "$manifest" \
           | $KUBECTL -n "$NAMESPACE" apply -f -
     fi
   fi
 
   $KUBECTL -n "$NAMESPACE" set image "deployment/$deployment" "$container=$image"
 
-  log "[$component] 等待滚动更新完成..."
+  log "[$(ctag "$component")] 等待滚动更新完成..."
   local timeout=180
   [[ "$component" == "proxy" ]] && timeout=120
   if $KUBECTL -n "$NAMESPACE" rollout status "deployment/$deployment" --timeout="${timeout}s"; then
-    ok "[$component] 部署完成"
+    ok "[$(ctag "$component")] 部署完成"
   else
-    err "[$component] 部署超时，请检查 Pod 状态"
+    err "[$(ctag "$component")] 部署超时，请检查 Pod 状态"
     $KUBECTL -n "$NAMESPACE" get pods -l "app=$deployment"
     return 1
   fi
@@ -297,7 +321,7 @@ deploy_to_k8s() {
 
 get_all_targets() {
   local targets=(backend portal)
-  [[ -d "$PROJECT_ROOT/ee" ]] && targets=(backend admin portal)
+  [[ "$EE_MODE" == true ]] && targets=(backend admin portal)
   [[ "$SKIP_PROXY" != true ]] && targets+=(proxy)
   echo "${targets[@]}"
 }
@@ -309,9 +333,15 @@ cmd_deploy() {
     require_context
   fi
 
-  if [[ "$TARGET" == "admin" && ! -d "$PROJECT_ROOT/ee" ]]; then
-    err "admin 组件需要 ee/ 目录（仅 EE 版本可用）"
-    exit 1
+  if [[ "$TARGET" == "admin" ]]; then
+    if [[ "$EE_MODE" != true ]]; then
+      err "admin 组件需要 --ee 参数"
+      exit 1
+    fi
+    if [[ ! -d "$PROJECT_ROOT/ee" ]]; then
+      err "admin 组件需要 ee/ 目录（仅 EE 版本可用）"
+      exit 1
+    fi
   fi
   local targets=()
   if [[ "$TARGET" == "all" ]]; then
@@ -320,8 +350,13 @@ cmd_deploy() {
     targets=("$TARGET")
   fi
 
+  local colored_targets=""
+  for _t in "${targets[@]}"; do
+    [[ -n "$colored_targets" ]] && colored_targets+=" "
+    colored_targets+="$(ctag "$_t")"
+  done
   log "镜像标签: ${TAG}"
-  log "目标组件: ${targets[*]}"
+  log "目标组件: ${colored_targets}"
   log "Namespace: $NAMESPACE"
   [[ -n "$KUBE_CONTEXT" ]] && log "K8s 上下文: $KUBE_CONTEXT"
   echo ""
@@ -331,14 +366,14 @@ cmd_deploy() {
 
     if [[ "$DEPLOY_ONLY" != true ]]; then
       if ! build_and_push "$t"; then
-        err "[$t] 构建失败，中止后续组件"
+        err "[$(ctag "$t")] 构建失败，中止后续组件"
         exit 1
       fi
     fi
 
     if [[ "$BUILD_ONLY" != true ]]; then
       if ! deploy_to_k8s "$t"; then
-        err "[$t] 部署失败，中止后续组件"
+        err "[$(ctag "$t")] 部署失败，中止后续组件"
         exit 1
       fi
     fi
@@ -390,13 +425,17 @@ generate_changelog() {
 
 cmd_release() {
   require_gh
-  REGISTRY="$(echo "$REGISTRY" | sed 's|/[^/]*$|/public|')"
+  local ce_registry="${PUBLIC_REGISTRY:-$REGISTRY}"
+  local has_admin=false
+  [[ "$EE_MODE" == true ]] && has_admin=true
+
   log "=== RELEASE: 构建镜像 + 创建 GitHub Release ${VERSION} ==="
-  log "公开镜像仓库: ${REGISTRY}"
+  log "镜像仓库: ${ce_registry}"
+  [[ "$has_admin" == true ]] && log "Admin 仓库: ${REGISTRY}"
   echo ""
 
-  local targets
-  read -ra targets <<< "$(get_all_targets)"
+  local targets=(backend portal)
+  [[ "$SKIP_PROXY" != true ]] && targets+=(proxy)
 
   log "生成 changelog..."
   local notes_file; notes_file="$(generate_changelog "$VERSION")"
@@ -405,13 +444,18 @@ cmd_release() {
   cat "$notes_file"
   echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-  confirm "即将构建镜像（${targets[*]}）、创建 git tag ${VERSION} 并发布 GitHub Pre-release"
+  local confirm_msg="即将构建镜像（${targets[*]} → ${ce_registry}"
+  [[ "$has_admin" == true ]] && confirm_msg+="，admin → ${REGISTRY}"
+  confirm_msg+="）、创建 git tag ${VERSION} 并发布 GitHub Pre-release"
+  confirm "$confirm_msg"
+
+  [[ "$has_admin" == true ]] && targets+=(admin)
 
   log "构建并推送镜像（标签: ${TAG}）..."
   for t in "${targets[@]}"; do
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     if ! build_and_push "$t"; then
-      err "[$t] 镜像构建失败，中止 release"
+      err "[$(ctag "$t")] 镜像构建失败，中止 release"
       exit 1
     fi
   done
@@ -432,7 +476,8 @@ cmd_release() {
 
   echo ""
   ok "GitHub Pre-release 已创建: ${VERSION}"
-  log "镜像已推送: ${REGISTRY}/*:${TAG}"
+  log "镜像: ${ce_registry}/*:${TAG}"
+  [[ "$has_admin" == true ]] && log "Admin 镜像: ${REGISTRY}/nodeskclaw-admin:${TAG}"
   log "验证地址: https://github.com/NoDeskAI/nodeskclaw/releases/tag/${VERSION}"
   log "准备好升级生产环境后，运行:"
   echo "  ./deploy/cli.sh promote ${VERSION}"
@@ -456,7 +501,7 @@ cmd_promote() {
   for t in "${targets[@]}"; do
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     if ! deploy_to_k8s "$t"; then
-      err "[$t] 部署失败，中止后续组件"
+      err "[$(ctag "$t")] 部署失败，中止后续组件"
       exit 1
     fi
   done
@@ -498,7 +543,7 @@ cmd_init() {
   ok "Namespace $NAMESPACE 就绪"
 
   local clean_env; clean_env=$(mktemp)
-  trap 'rm -f "$clean_env"' EXIT
+  trap 'rm -f "$clean_env" "${clean_env}.tmp"' EXIT
 
   while IFS= read -r line; do
     stripped="${line%%#*}"
@@ -511,6 +556,13 @@ cmd_init() {
     err ".env 文件中没有有效的键值对"
     exit 1
   fi
+
+  local edition_val="ce"
+  [[ "$EE_MODE" == true ]] && edition_val="ee"
+  grep -v '^NODESKCLAW_EDITION=' "$clean_env" > "${clean_env}.tmp" || true
+  mv "${clean_env}.tmp" "$clean_env"
+  echo "NODESKCLAW_EDITION=${edition_val}" >> "$clean_env"
+  log "NODESKCLAW_EDITION=${edition_val}（由 --ee 标志决定）"
 
   local env_count; env_count=$(wc -l < "$clean_env" | xargs)
   local secret_name="nodeskclaw-backend-env"
@@ -540,9 +592,11 @@ cmd_init() {
 
   log "应用 K8s 部署清单（Deployment + Service）..."
   for f in backend.yaml admin.yaml portal.yaml; do
-    [[ "$f" == "admin.yaml" && ! -d "$PROJECT_ROOT/ee" ]] && continue
+    [[ "$f" == "admin.yaml" && "$EE_MODE" != true ]] && continue
     if [[ -f "$SCRIPT_DIR/k8s/$f" ]]; then
-      sed "s|<YOUR_REGISTRY>/<YOUR_NAMESPACE>|${REGISTRY}|g" "$SCRIPT_DIR/k8s/$f" \
+      local comp_name="${f%.yaml}"
+      local comp_reg; comp_reg="$(get_component_registry "$comp_name")"
+      sed "s|<YOUR_REGISTRY>/<YOUR_NAMESPACE>|${comp_reg}|g" "$SCRIPT_DIR/k8s/$f" \
         | $KUBECTL -n "$NAMESPACE" apply -f -
       ok "$f"
     fi
@@ -567,19 +621,20 @@ usage() {
 用法: $0 <command> [target] [options]
 
 命令:
-  deploy [target]     构建 + 部署（默认 all，默认 staging）
-  release <version>   打 git tag + 创建 GitHub Pre-release
+  deploy [target]     构建 + 部署（默认 CE 模式，不含 admin）
+  release <version>   构建镜像 + 打 git tag + 创建 GitHub Pre-release
   promote <version>   staging 镜像 -> 生产
   init                首次环境初始化
 
 目标 (deploy 命令):
-  all       backend + portal + proxy（默认；含 ee/ 时加 admin）
+  all       backend + portal + proxy（默认；--ee 时加 admin）
   backend   后端
-  admin     Admin 前端（需 ee/ 目录）
+  admin     Admin 前端（需 --ee）
   portal    Portal 前端
   proxy     LLM Proxy
 
 选项:
+  --ee            EE 模式（包含 admin，启用 ee/ 代码注入）
   --staging       staging 环境（默认，可省略）
   --prod          生产环境（需交互确认）
   --context CTX   覆盖默认 K8s 上下文
@@ -608,6 +663,8 @@ SKIP_PROXY=false
 ENV_FILE=""
 FORCE=false
 IS_PROD=false
+EE_MODE=false
+CE_ONLY=""
 
 case "$COMMAND" in
   deploy)
@@ -646,6 +703,7 @@ while [[ $# -gt 0 ]]; do
     --no-cache)    NO_CACHE="--no-cache" ;;
     --env-file)    ENV_FILE="$2"; shift ;;
     --force)       FORCE=true ;;
+    --ee)          EE_MODE=true ;;
     *)             err "未知参数: $1"; usage ;;
   esac
   shift
@@ -674,6 +732,15 @@ fi
 if [[ "$DEPLOY_ONLY" == true && -z "$CUSTOM_TAG" && -z "$VERSION" ]]; then
   err "--deploy-only 需要通过 --tag 指定镜像标签"
   exit 1
+fi
+
+if [[ "$EE_MODE" == true ]]; then
+  if [[ ! -d "$PROJECT_ROOT/ee" ]]; then
+    err "--ee 模式需要 ee/ 目录（仅 EE 开发环境可用）"
+    exit 1
+  fi
+else
+  CE_ONLY=true
 fi
 
 KUBECTL="kubectl"

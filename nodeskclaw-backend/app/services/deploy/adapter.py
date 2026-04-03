@@ -19,17 +19,9 @@ EE (FullK8sAdapter):
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
-
-
-@dataclass
-class EgressPolicyConfig:
-    """Egress NetworkPolicy 配置，由 adapter 根据 CE/EE 模式组装。"""
-    deny_cidrs: list[str] = field(default_factory=list)
-    allow_ports: list[int] = field(default_factory=lambda: [80, 443])
 
 
 class DeploymentAdapter(ABC):
@@ -107,10 +99,3 @@ class DeploymentAdapter(ABC):
         EE: 有 proxy 时返回 None（TLS 由网关集群处理）
         """
 
-    @abstractmethod
-    def get_egress_config(self, advanced_config: dict | None) -> EgressPolicyConfig:
-        """获取 Egress NetworkPolicy 配置。
-
-        CE: 返回全局环境变量配置
-        EE: 合并全局 + advanced_config.network.egress 覆盖
-        """

@@ -3,14 +3,15 @@
 import asyncio
 import base64
 import binascii
+from collections.abc import Sequence
 import io
 import logging
 import mimetypes
 import re
 import zipfile
-from typing import Coroutine
+from typing import Coroutine, Literal
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import BadRequestError
@@ -96,6 +97,7 @@ def _decode_shared_file_content(content: str, content_type: str) -> bytes:
         return raw.encode("utf-8")
 
     raise BadRequestError("文件内容格式不正确，请传入 base64 编码内容")
+
 
 def _fire_task(coro: Coroutine) -> asyncio.Task:
     task = asyncio.create_task(coro)
@@ -936,15 +938,25 @@ async def _send_welcome_message(workspace_id: str, inst: Instance) -> None:
 
 # ── Blackboard ───────────────────────────────────────
 
-def _task_to_info(t: WorkspaceTask, assignee_name: str | None = None) -> TaskInfo:
+def _task_to_info(
+    t: WorkspaceTask,
+    assignee_name: str | None = None,
+    *,
+    column_status: str | None = None,
+) -> TaskInfo:
+    if t.status == "archived":
+        status = column_status or "done"
+    else:
+        status = t.status
+    completed_at = t.completed_at or (t.archived_at if t.status == "archived" else None)
     return TaskInfo(
         id=t.id, workspace_id=t.workspace_id, title=t.title,
-        description=t.description, status=t.status, priority=t.priority,
+        description=t.description, status=status, priority=t.priority,
         assignee_instance_id=t.assignee_instance_id, assignee_name=assignee_name,
         created_by_instance_id=t.created_by_instance_id,
         estimated_value=t.estimated_value, actual_value=t.actual_value,
         token_cost=t.token_cost, blocker_reason=t.blocker_reason,
-        completed_at=t.completed_at, archived_at=t.archived_at,
+        completed_at=completed_at, archived_at=t.archived_at,
         created_at=t.created_at, updated_at=t.updated_at,
     )
 
@@ -974,7 +986,6 @@ async def get_blackboard(db: AsyncSession, workspace_id: str) -> BlackboardInfo 
         select(WorkspaceTask).where(
             WorkspaceTask.workspace_id == workspace_id,
             WorkspaceTask.deleted_at.is_(None),
-            WorkspaceTask.archived_at.is_(None),
         ).order_by(WorkspaceTask.created_at.desc())
     )).scalars().all()
 
@@ -1070,8 +1081,59 @@ async def patch_blackboard_section(
 
 # ── Tasks ────────────────────────────────────────────
 
-VALID_TASK_STATUSES = {"pending", "in_progress", "done", "blocked", "archived"}
+VALID_TASK_STATUSES = {"pending", "in_progress", "done", "blocked"}
 VALID_TASK_PRIORITIES = {"low", "medium", "high", "urgent"}
+VALID_TASK_BUCKETS = {"active", "inactive", "column"}
+
+
+async def _build_task_assignee_map(
+    db: AsyncSession,
+    rows: Sequence[WorkspaceTask],
+) -> dict[str, str]:
+    instance_ids = {t.assignee_instance_id for t in rows if t.assignee_instance_id}
+    if not instance_ids:
+        return {}
+
+    insts = (await db.execute(
+        select(Instance.id, Instance.name).where(
+            Instance.id.in_(instance_ids),
+            Instance.deleted_at.is_(None),
+        )
+    )).all()
+    return {r.id: r.name for r in insts}
+
+
+def _task_order_by(
+    bucket: Literal["active", "inactive", "column"],
+    status: str | None,
+):
+    if bucket == "column":
+        return (
+            case((WorkspaceTask.status != "archived", 0), else_=1).asc(),
+            case(
+                (WorkspaceTask.status == "done", func.coalesce(WorkspaceTask.completed_at, WorkspaceTask.updated_at)),
+                (WorkspaceTask.status == "archived", func.coalesce(WorkspaceTask.archived_at, WorkspaceTask.updated_at)),
+                else_=WorkspaceTask.created_at,
+            ).desc(),
+            WorkspaceTask.updated_at.desc(),
+            WorkspaceTask.created_at.desc(),
+        )
+    if bucket == "inactive":
+        return (
+            func.coalesce(WorkspaceTask.archived_at, WorkspaceTask.updated_at).desc(),
+            WorkspaceTask.updated_at.desc(),
+            WorkspaceTask.created_at.desc(),
+        )
+    if status == "done":
+        return (
+            func.coalesce(WorkspaceTask.completed_at, WorkspaceTask.updated_at).desc(),
+            WorkspaceTask.updated_at.desc(),
+            WorkspaceTask.created_at.desc(),
+        )
+    return (
+        WorkspaceTask.created_at.desc(),
+        WorkspaceTask.updated_at.desc(),
+    )
 
 
 async def list_tasks(
@@ -1082,25 +1144,86 @@ async def list_tasks(
         WorkspaceTask.workspace_id == workspace_id,
         WorkspaceTask.deleted_at.is_(None),
     )
-    if exclude_archived:
-        q = q.where(WorkspaceTask.archived_at.is_(None))
     if status:
-        q = q.where(WorkspaceTask.status == status)
+        if status == "done":
+            q = q.where(WorkspaceTask.status.in_(["done", "archived"]))
+        else:
+            q = q.where(WorkspaceTask.status == status)
     q = q.order_by(WorkspaceTask.created_at.desc())
     rows = (await db.execute(q)).scalars().all()
 
-    instance_ids = {t.assignee_instance_id for t in rows if t.assignee_instance_id}
-    assignee_map: dict[str, str] = {}
-    if instance_ids:
-        insts = (await db.execute(
-            select(Instance.id, Instance.name).where(
-                Instance.id.in_(instance_ids),
-                Instance.deleted_at.is_(None),
-            )
-        )).all()
-        assignee_map = {r.id: r.name for r in insts}
+    assignee_map = await _build_task_assignee_map(db, rows)
 
     return [_task_to_info(t, assignee_map.get(t.assignee_instance_id)) for t in rows]
+
+
+async def list_tasks_paginated(
+    db: AsyncSession,
+    workspace_id: str,
+    status: str | None = None,
+    bucket: Literal["active", "inactive", "column"] = "active",
+    page: int = 1,
+    page_size: int = 20,
+) -> tuple[list[TaskInfo], int]:
+    if bucket not in VALID_TASK_BUCKETS:
+        return [], 0
+
+    column_status: str | None = None
+
+    if bucket == "inactive":
+        if status not in {None, "done", "archived"}:
+            return [], 0
+        filters = [
+            WorkspaceTask.workspace_id == workspace_id,
+            WorkspaceTask.deleted_at.is_(None),
+            WorkspaceTask.status == "archived",
+        ]
+    elif bucket == "column":
+        if status is None or status not in VALID_TASK_STATUSES:
+            return [], 0
+        column_status = status
+        filters = [
+            WorkspaceTask.workspace_id == workspace_id,
+            WorkspaceTask.deleted_at.is_(None),
+            or_(
+                WorkspaceTask.status == status,
+                and_(
+                    WorkspaceTask.status == "archived",
+                    WorkspaceTask.archived_from_status == status,
+                ),
+            ),
+        ]
+    else:
+        filters = [
+            WorkspaceTask.workspace_id == workspace_id,
+            WorkspaceTask.deleted_at.is_(None),
+        ]
+        if status == "archived":
+            return [], 0
+        if status is not None:
+            if status not in VALID_TASK_STATUSES:
+                return [], 0
+            filters.append(WorkspaceTask.status == status)
+        else:
+            filters.append(WorkspaceTask.status.in_(tuple(sorted(VALID_TASK_STATUSES))))
+
+    total = int((await db.execute(
+        select(func.count()).select_from(WorkspaceTask).where(*filters)
+    )).scalar_one())
+
+    q = (
+        select(WorkspaceTask)
+        .where(*filters)
+        .order_by(*_task_order_by(bucket, status))
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    rows = (await db.execute(q)).scalars().all()
+    assignee_map = await _build_task_assignee_map(db, rows)
+    return [
+        _task_to_info(t, assignee_map.get(t.assignee_instance_id), column_status=column_status)
+        for t in rows
+    ], total
 
 
 async def create_task(
@@ -1154,12 +1277,13 @@ async def update_task(
         task.title = data.title
     if data.description is not None:
         task.description = data.description
-    if data.status is not None and data.status in VALID_TASK_STATUSES:
-        task.status = data.status
-        if data.status == "done" and task.completed_at is None:
+    normalized_status = "done" if data.status == "archived" else data.status
+    if normalized_status is not None and normalized_status in VALID_TASK_STATUSES:
+        task.status = normalized_status
+        if normalized_status == "done" and task.completed_at is None:
             task.completed_at = datetime.now(tz.utc)
-        if data.status == "archived" and task.archived_at is None:
-            task.archived_at = datetime.now(tz.utc)
+        if normalized_status != "done":
+            task.archived_at = None
     if data.priority is not None and data.priority in VALID_TASK_PRIORITIES:
         task.priority = data.priority
     if data.assignee_id is not None:
@@ -1194,8 +1318,6 @@ async def update_task(
 
 
 async def archive_task(db: AsyncSession, workspace_id: str, task_id: str) -> TaskInfo | None:
-    from datetime import datetime, timezone as tz
-
     result = await db.execute(
         select(WorkspaceTask).where(
             WorkspaceTask.id == task_id,
@@ -1206,10 +1328,6 @@ async def archive_task(db: AsyncSession, workspace_id: str, task_id: str) -> Tas
     task = result.scalar_one_or_none()
     if task is None:
         return None
-    task.status = "archived"
-    task.archived_at = datetime.now(tz.utc)
-    await db.commit()
-    await db.refresh(task)
     return _task_to_info(task)
 
 

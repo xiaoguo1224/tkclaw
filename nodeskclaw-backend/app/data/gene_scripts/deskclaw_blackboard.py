@@ -12,7 +12,6 @@ Actions:
   list_tasks [--status STATUS]                     List tasks (pending/in_progress/done/blocked)
   create_task --title TITLE [options]               Create a new task
   update_task --task-id ID [options]                Update a task
-  archive_task --task-id ID                         Archive a completed task
 
   list_objectives                                  List OKR objectives
   create_objective --title TITLE [options]          Create an objective
@@ -56,7 +55,6 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("list_tasks", help="List tasks")
     sp.add_argument("--status", choices=["pending", "in_progress", "done", "blocked"])
-    sp.add_argument("--include-archived", action="store_true")
 
     sp = sub.add_parser("create_task", help="Create a task")
     sp.add_argument("--title", required=True)
@@ -76,9 +74,6 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--actual-value", type=float)
     sp.add_argument("--token-cost", type=int)
     sp.add_argument("--blocker-reason")
-
-    sp = sub.add_parser("archive_task", help="Archive a task")
-    sp.add_argument("--task-id", required=True)
 
     sub.add_parser("list_objectives", help="List OKR objectives")
 
@@ -157,8 +152,6 @@ def main() -> None:
         params = []
         if args.status:
             params.append(f"status={args.status}")
-        if not args.include_archived:
-            params.append("exclude_archived=true")
         qs = f"?{'&'.join(params)}" if params else ""
         _output(api_call("GET", f"{bb}/tasks{qs}"))
 
@@ -180,9 +173,6 @@ def main() -> None:
             ("token_cost", "token_cost"), ("blocker_reason", "blocker_reason"),
         ])
         _output(api_call("PUT", f"{bb}/tasks/{args.task_id}", body))
-
-    elif action == "archive_task":
-        _output(api_call("POST", f"{bb}/tasks/{args.task_id}/archive"))
 
     elif action == "list_objectives":
         _output(api_call("GET", f"{bb}/objectives"))

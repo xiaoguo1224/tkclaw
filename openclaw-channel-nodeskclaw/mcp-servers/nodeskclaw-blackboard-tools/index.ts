@@ -42,7 +42,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     { name: "list_tasks", description: "List tasks on the blackboard, optionally filtered by status", inputSchema: { type: "object", properties: { status: { type: "string", enum: ["pending", "in_progress", "done", "blocked"], description: "Filter by task status" } } } },
     { name: "create_task", description: "Create a new task on the blackboard", inputSchema: { type: "object", properties: { title: { type: "string" }, description: { type: "string" }, priority: { type: "string", enum: ["urgent", "high", "medium", "low"] }, assignee_id: { type: "string" }, estimated_value: { type: "number", description: "Estimated monetary value" } }, required: ["title"] } },
     { name: "update_task", description: "Update an existing task (status, value, etc.)", inputSchema: { type: "object", properties: { task_id: { type: "string" }, status: { type: "string", enum: ["pending", "in_progress", "done", "blocked"] }, description: { type: "string" }, title: { type: "string" }, priority: { type: "string", enum: ["urgent", "high", "medium", "low"] }, actual_value: { type: "number", description: "Actual output value after completion" }, token_cost: { type: "number", description: "Tokens consumed" }, blocker_reason: { type: "string", description: "Reason when blocked" }, estimated_value: { type: "number" } }, required: ["task_id"] } },
-    { name: "archive_task", description: "Archive a completed task", inputSchema: { type: "object", properties: { task_id: { type: "string" } }, required: ["task_id"] } },
     { name: "get_objectives", description: "Read current OKR objectives and progress", inputSchema: { type: "object", properties: {} } },
     { name: "list_posts", description: "List BBS discussion posts (newest first)", inputSchema: { type: "object", properties: { page: { type: "number", description: "Page number (default 1)" } } } },
     { name: "create_post", description: "Create a new BBS discussion post. Use @agent:{id} or @human:{id} to mention.", inputSchema: { type: "object", properties: { title: { type: "string" }, content: { type: "string", description: "Markdown body" } }, required: ["title", "content"] } },
@@ -77,9 +76,6 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
       result = await apiFetch(`/workspaces/${ws}/blackboard/tasks/${task_id}`, "PUT", rest);
       break;
     }
-    case "archive_task":
-      result = await apiFetch(`/workspaces/${ws}/blackboard/tasks/${p.task_id}/archive`, "POST");
-      break;
     case "get_objectives":
       result = await apiFetch(`/workspaces/${ws}/blackboard/objectives`);
       break;

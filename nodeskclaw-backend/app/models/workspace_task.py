@@ -30,6 +30,7 @@ class WorkspaceTask(BaseModel):
     blocker_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    archived_from_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     workspace = relationship("Workspace", foreign_keys=[workspace_id])
     assignee = relationship("Instance", foreign_keys=[assignee_instance_id])

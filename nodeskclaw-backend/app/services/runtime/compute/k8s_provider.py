@@ -16,6 +16,30 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def evaluate_k8s_health(
+    tunnel_connected: bool,
+    pods: list[dict] | None,
+) -> dict:
+    """K8s 健康评估 — 单一来源。
+
+    优先级: tunnel connected > pod ready > unknown。
+    Returns {"healthy": bool | None, "detail": str}
+    """
+    if tunnel_connected:
+        return {"healthy": True, "detail": "tunnel connected"}
+    if pods is not None:
+        has_ready = any(
+            all(c.get("ready", False) for c in p.get("containers", []))
+            and len(p.get("containers", [])) > 0
+            for p in pods
+        )
+        if has_ready:
+            return {"healthy": True, "detail": "pod ready (tunnel not connected)"}
+        if pods:
+            return {"healthy": False, "detail": "no ready pod"}
+    return {"healthy": None, "detail": "unable to determine (no pods data)"}
+
+
 class K8sComputeProvider:
     """Kubernetes-based compute provider.
 
@@ -189,6 +213,24 @@ class K8sComputeProvider:
 
     async def health_check(self, handle: ComputeHandle) -> dict:
         from app.services.tunnel import tunnel_adapter
-        if handle.instance_id in tunnel_adapter.connected_instances:
-            return {"healthy": True, "detail": "tunnel connected"}
-        return {"healthy": False, "detail": "tunnel not connected"}
+        tunnel_connected = handle.instance_id in tunnel_adapter.connected_instances
+
+        pods = None
+        if not tunnel_connected:
+            cluster_id = (handle.extra or {}).get("cluster_id")
+            creds = (handle.extra or {}).get("credentials_encrypted")
+            if cluster_id and creds:
+                try:
+                    from app.services.k8s.client_manager import k8s_manager
+                    from app.services.k8s.k8s_client import K8sClient
+
+                    api_client = await k8s_manager.get_or_create(cluster_id, creds)
+                    k8s = K8sClient(api_client)
+                    k8s_name = (handle.extra or {}).get("slug") or (handle.extra or {}).get("name", "")
+                    if k8s_name:
+                        label = f"app.kubernetes.io/name={k8s_name}"
+                        pods = await k8s.list_pods(handle.namespace, label)
+                except Exception as e:
+                    logger.warning("K8s pod check failed for %s: %s", handle.instance_id, e)
+
+        return evaluate_k8s_health(tunnel_connected, pods)

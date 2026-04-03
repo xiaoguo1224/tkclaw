@@ -6,7 +6,7 @@ services:
       NODESKCLAW_EDITION: ee
 
   nodeskclaw-admin:
-    image: nodesk-center-cn-beijing.cr.volces.com/public/nodeskclaw-admin:${DESKCLAW_VERSION}
+    image: nodesk-center-cn-beijing.cr.volces.com/base-image/nodeskclaw-admin:${DESKCLAW_VERSION}
     build:
       context: ee/nodeskclaw-frontend
     depends_on:

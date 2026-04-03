@@ -70,6 +70,11 @@ class K8sError(AppException):
         super().__init__(code=50010, message=message, status_code=502, message_key=message_key)
 
 
+class RegistryError(AppException):
+    def __init__(self, message: str = "镜像仓库请求失败", message_key: str = "errors.registry.request_failed"):
+        super().__init__(code=50220, message=message, status_code=502, message_key=message_key)
+
+
 HTTP_STATUS_DEFAULT_CODES: dict[int, int] = {
     400: 40000,
     401: 40100,

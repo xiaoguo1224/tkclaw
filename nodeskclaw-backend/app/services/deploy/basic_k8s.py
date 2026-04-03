@@ -10,8 +10,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import settings
-from app.services.deploy.adapter import DeploymentAdapter, EgressPolicyConfig
+from app.services.deploy.adapter import DeploymentAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -49,9 +48,3 @@ class BasicK8sAdapter(DeploymentAdapter):
         self, tls_secret_name: str | None, has_proxy: bool,
     ) -> str | None:
         return tls_secret_name
-
-    def get_egress_config(self, advanced_config: dict | None) -> EgressPolicyConfig:
-        return EgressPolicyConfig(
-            deny_cidrs=[c.strip() for c in settings.EGRESS_DENY_CIDRS.split(",") if c.strip()],
-            allow_ports=[int(p.strip()) for p in settings.EGRESS_ALLOW_PORTS.split(",") if p.strip()],
-        )

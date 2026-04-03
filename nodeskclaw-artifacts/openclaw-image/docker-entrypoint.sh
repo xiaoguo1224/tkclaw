@@ -140,7 +140,7 @@ fi
 # ---- 2. 凭证注入 ----
 
 if [ -n "${OPENCLAW_CREDENTIALS_JSON:-}" ]; then
-  mkdir -p "${CREDENTIALS_DIR}"
+  mkdir -p -m 700 "${CREDENTIALS_DIR}"
   echo "${OPENCLAW_CREDENTIALS_JSON}" > "${CREDENTIALS_DIR}/default.json"
   echo "[entrypoint] 凭证已写入: ${CREDENTIALS_DIR}/default.json"
 fi
@@ -148,6 +148,11 @@ fi
 # ---- 3. 清理编译缓存 ----
 
 rm -rf /tmp/jiti/* 2>/dev/null || true
+
+# ---- 3.5 文件权限收紧 ----
+
+chmod 700 "${OPENCLAW_DIR}" 2>/dev/null || true
+[ -d "${CREDENTIALS_DIR}" ] && chmod 700 "${CREDENTIALS_DIR}"
 
 # ---- 4. 前台启动 ----
 

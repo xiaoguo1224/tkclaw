@@ -1,4 +1,4 @@
-"""K8s events endpoints (Admin — platform-level, no org filtering)."""
+"""Portal K8s events endpoints — org-scoped."""
 
 from __future__ import annotations
 
@@ -10,9 +10,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_db
-from app.core.security import get_current_user
-from app.models.user import User
+from app.core.deps import get_current_org, get_db
 from app.services import cluster_service
 from app.services.k8s.k8s_client import K8sClient
 from app.services.runtime.registries.compute_registry import require_k8s_client
@@ -51,9 +49,10 @@ async def events_recent(
     namespace: str = Query("", description="命名空间，留空则查询所有"),
     limit: int = Query(100, ge=1, le=500, description="返回条数上限"),
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    org_ctx=Depends(get_current_org),
 ):
-    cluster = await cluster_service.get_cluster(cluster_id, db)
+    _current_user, org = org_ctx
+    cluster = await cluster_service.get_cluster(cluster_id, db, org.id)
 
     if not cluster.is_k8s:
         return JSONResponse({"data": []})
@@ -75,12 +74,13 @@ async def events_recent(
 async def events_stream(
     cluster_id: str = Query(..., description="集群 ID"),
     namespace: str = Query("", description="命名空间，留空则监听所有"),
-    _current_user: User = Depends(get_current_user),
+    org_ctx=Depends(get_current_org),
 ):
     from app.core.deps import async_session_factory
 
+    _current_user, org = org_ctx
     async with async_session_factory() as db:
-        cluster = await cluster_service.get_cluster(cluster_id, db)
+        cluster = await cluster_service.get_cluster(cluster_id, db, org.id)
     k8s = await require_k8s_client(cluster)
 
     async def generate():

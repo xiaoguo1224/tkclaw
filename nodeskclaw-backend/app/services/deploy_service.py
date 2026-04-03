@@ -420,6 +420,16 @@ async def deploy_instance(
                 message_key="errors.deploy.localhost_not_reachable",
             )
 
+        from app.services.config_service import get_config
+        _ingress_domain = await get_config("ingress_base_domain", db)
+        if not _ingress_domain:
+            raise BadRequestError(
+                message="K8s 部署需要配置访问域名（ingress_base_domain），"
+                        "否则 AI 员工将无法通过浏览器访问 Web UI。"
+                        "请在系统设置中配置后再部署。",
+                message_key="errors.deploy.ingress_base_domain_required",
+            )
+
     env_vars = dict(req.env_vars) if req.env_vars else {}
     gateway_token = env_vars.get("GATEWAY_TOKEN") or env_vars.get("OPENCLAW_GATEWAY_TOKEN")
     if not gateway_token:
@@ -604,7 +614,7 @@ async def execute_deploy_pipeline(ctx: _DeployContext) -> None:
         _unregister_deploy_task(ctx.record_id)
 
 
-DOCKER_DEPLOY_STEPS = ["环境预检查", "启动容器", "部署完成"]
+DOCKER_DEPLOY_STEPS = ["环境预检查", "启动容器", "等待容器就绪", "部署完成"]
 
 
 async def _execute_via_compute_provider(ctx: _DeployContext) -> None:
@@ -668,7 +678,7 @@ async def _execute_via_compute_provider(ctx: _DeployContext) -> None:
         DeployProgress(
             deploy_id=ctx.record_id, step=2, total_steps=total,
             current_step=step_names[1], status="in_progress",
-            message=None, percent=40,
+            message=None, percent=30,
         ).model_dump(),
     )
 
@@ -684,6 +694,60 @@ async def _execute_via_compute_provider(ctx: _DeployContext) -> None:
                 deploy_id=ctx.record_id, step=total, total_steps=total,
                 current_step="失败", status="failed",
                 message=str(e)[:200], percent=100,
+            ).model_dump(),
+        )
+        return
+
+    # ── 等待容器就绪（对齐 K8s Step 9 的 readiness 门控） ──
+    probe_path = rt_spec.health_probe_path if rt_spec else "/healthz"
+    container_ready = False
+
+    event_bus.publish(
+        "deploy_progress",
+        DeployProgress(
+            deploy_id=ctx.record_id, step=3, total_steps=total,
+            current_step=step_names[2], status="in_progress",
+            message=None, percent=50,
+        ).model_dump(),
+    )
+
+    if probe_path and result.endpoint:
+        from app.services.runtime.compute.base import http_probe
+
+        for tick in range(30):  # 30 x 2s = 60s
+            probe_result = await http_probe(result.endpoint, path=probe_path)
+            if probe_result.get("healthy"):
+                container_ready = True
+                break
+            pct = 50 + min(tick, 15)  # 50 → 65, 不超过 65
+            event_bus.publish(
+                "deploy_progress",
+                DeployProgress(
+                    deploy_id=ctx.record_id, step=3, total_steps=total,
+                    current_step=step_names[2], status="in_progress",
+                    message=f"等待容器健康检查通过... ({(tick + 1) * 2}s/60s)",
+                    percent=pct,
+                ).model_dump(),
+            )
+            await asyncio.sleep(2)
+    else:
+        await asyncio.sleep(5)
+        container_ready = True
+
+    if not container_ready:
+        timeout_msg = "容器健康检查超时（60s）"
+        logger.error("Docker 部署超时: instance=%s endpoint=%s path=%s", ctx.name, result.endpoint, probe_path)
+        try:
+            await provider.destroy_instance(result)
+        except Exception:
+            logger.warning("健康检查超时后清理容器失败", exc_info=True)
+        await _mark_deploy_failed(ctx, timeout_msg)
+        event_bus.publish(
+            "deploy_progress",
+            DeployProgress(
+                deploy_id=ctx.record_id, step=total, total_steps=total,
+                current_step="失败", status="failed",
+                message=timeout_msg, percent=100,
             ).model_dump(),
         )
         return
@@ -939,7 +1003,7 @@ async def _execute_deploy_inner(ctx, async_session_factory, get_config, total, s
                 await db.commit()
                 await adapter.setup_proxy(ctx, ingress_host)
             else:
-                logger.info("未配置 ingress_base_domain，跳过 Ingress 创建（Tunnel 模式无需 Ingress）")
+                logger.error("ingress_base_domain 未配置但部署已进入异步管道（前置校验应已拦截）")
 
             # Step 8: 配置网络策略（多租户隔离）
             _publish(8, steps[7])
@@ -954,13 +1018,26 @@ async def _execute_deploy_inner(ctx, async_session_factory, get_config, total, s
                     if peer_inst:
                         peer_namespaces.append(peer_inst.namespace)
 
-            egress_cfg = adapter.get_egress_config(ctx.advanced_config)
+            deny_str = await get_config("egress_deny_cidrs", db) or ""
+            ports_str = await get_config("egress_allow_ports", db) or ""
+
+            deny_cidrs = [c.strip() for c in deny_str.split(",") if c.strip()]
+            allow_ports = [int(p.strip()) for p in ports_str.split(",") if p.strip()]
+
+            if ctx.advanced_config:
+                inst_egress = ctx.advanced_config.get("network", {}).get("egress", {})
+                if inst_egress.get("deny_cidrs") is not None:
+                    deny_cidrs = inst_egress["deny_cidrs"]
+                if inst_egress.get("allow_ports") is not None:
+                    allow_ports = inst_egress["allow_ports"]
+
             np = build_network_policy(
                 f"{ctx.name}-isolation", ctx.namespace, labels,
                 peer_namespaces,
                 org_id=adapter.get_network_policy_org_id(ctx.org_id),
-                egress_deny_cidrs=egress_cfg.deny_cidrs,
-                egress_allow_ports=egress_cfg.allow_ports,
+                egress_deny_cidrs=deny_cidrs,
+                egress_allow_ports=allow_ports,
+                platform_namespace=settings.PLATFORM_NAMESPACE,
             )
             try:
                 await k8s.networking.create_namespaced_network_policy(ctx.namespace, np)

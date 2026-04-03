@@ -1,0 +1,45 @@
+---
+description: Plan 技术改动步骤禁止使用行号定位代码，改用语义化定位（类/函数/文件/功能块）
+alwaysApply: true
+---
+
+# Plan 代码定位方式
+
+## 核心规则
+
+**Plan 中描述代码改动位置时，禁止使用行号。** 多个 Plan 可能并发执行，任何一个 Plan 的改动都会导致其他 Plan 中的行号偏移失效。
+
+## 定位方式
+
+用语义化锚点描述改动位置，从粗到细：
+
+1. **文件** — `nodeskclaw-backend/app/services/deploy_service.py`
+2. **类/函数/方法** — `DeployService.create_deployment()`
+3. **功能块** — "`create_deployment()` 中构建 env_vars 的逻辑"、"`router.post('/instances')` 的请求校验部分"
+
+三层按需组合，精确到执行者能无歧义定位即可。
+
+## 改动描述格式
+
+每条改动必须包含：
+
+- **位置**：用上述语义化锚点定位
+- **操作**：新增 / 修改 / 删除 / 替换 / 重命名 / 移动
+- **内容**：具体改什么（如"新增参数 `timeout`"、"将硬编码 URL 替换为配置项"、"删除废弃的兼容逻辑"）
+
+```
+示例（正确）:
+- `DeployService.create_deployment()` — 修改：env_vars 序列化方式从 `str()` 改为 `json.dumps()`
+- `nodeskclaw-portal/src/views/Instance/Create.vue` 的 `onSubmit()` — 新增：提交前校验 slug 唯一性
+- `resource_builder.py` 的 `build_deployment_spec()` 中资源限制部分 — 修改：memory limit 从硬编码改为读取集群配置
+
+示例（禁止）:
+- `deploy_service.py` 第 142-158 行 — 修改 env_vars 序列化逻辑
+- 在 `Create.vue` 的 L89 后插入校验逻辑
+```
+
+## 禁止
+
+- **禁止出现行号**：`第 N 行`、`L42`、`line 42-58`、`第 142-158 行` 等任何形式
+- **禁止用行号范围描述改动范围**：如"修改第 100-200 行的逻辑"
+- **禁止用行号作为唯一定位手段**：即使附带了函数名，也不要加行号（冗余且会误导）

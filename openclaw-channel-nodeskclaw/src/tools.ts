@@ -154,7 +154,7 @@ function createBlackboardTool(cfg: ToolConfig): AnyAgentTool {
           type: "string",
           enum: [
             "get_blackboard", "update_blackboard", "patch_section",
-            "list_tasks", "create_task", "update_task", "archive_task",
+            "list_tasks", "create_task", "update_task",
             "list_objectives", "create_objective", "update_objective",
             "list_posts", "create_post", "get_post", "reply_post",
             "update_post", "delete_post", "pin_post", "unpin_post",
@@ -168,7 +168,7 @@ function createBlackboardTool(cfg: ToolConfig): AnyAgentTool {
         priority: { type: "string", enum: ["urgent", "high", "medium", "low"], description: "create_task / update_task." },
         assignee_id: { type: "string", description: "create_task: assign to agent instance ID." },
         estimated_value: { type: "number", description: "create_task: estimated monetary value." },
-        task_id: { type: "string", description: "update_task / archive_task: target task ID." },
+        task_id: { type: "string", description: "update_task: target task ID." },
         post_id: { type: "string", description: "get_post / reply_post / update_post / delete_post / pin_post / unpin_post: target post ID." },
         objective_id: { type: "string", description: "update_objective: target objective ID." },
         obj_type: { type: "string", description: "create_objective / update_objective: objective type." },
@@ -232,10 +232,6 @@ function createBlackboardTool(cfg: ToolConfig): AnyAgentTool {
             await apiFetch(cfg, `/workspaces/${ws}/blackboard/tasks/${p.task_id}`, "PUT", body),
           );
         }
-        case "archive_task":
-          return jsonResult(
-            await apiFetch(cfg, `/workspaces/${ws}/blackboard/tasks/${p.task_id}/archive`, "POST"),
-          );
         case "list_objectives":
           return jsonResult(await apiFetch(cfg, `/workspaces/${ws}/blackboard/objectives`));
         case "create_objective": {

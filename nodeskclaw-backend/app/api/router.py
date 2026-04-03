@@ -43,6 +43,8 @@ from app.api.portal.deploy import router as portal_deploy_router
 from app.api.portal.channel_configs import router as portal_channel_config_router
 from app.api.portal.mcp import router as portal_mcp_router
 from app.api.portal.instance_files import router as portal_instance_files_router
+from app.api.portal.clusters import router as portal_cluster_router, write_router as portal_cluster_write_router
+from app.api.portal.events import router as portal_events_router
 
 # ── Portal 公共 API（/api/v1）──────────────────────────────
 # Portal 使用 portal/ 下的独立路由，内置实例级权限检查。
@@ -109,9 +111,11 @@ api_router.include_router(auth_router, prefix="/auth", tags=["认证"])
 api_router.include_router(org_router, prefix="/orgs", tags=["组织"])
 api_router.include_router(org_settings_router, prefix="/orgs", tags=["组织设置"])
 api_router.include_router(audit_router, prefix="/orgs", tags=["操作审计"])
-api_router.include_router(cluster_router, prefix="/clusters", tags=["集群"])
+api_router.include_router(portal_cluster_router, prefix="/clusters", tags=["集群"])
+api_router.include_router(portal_cluster_write_router, prefix="/clusters", tags=["集群"],
+    dependencies=[Depends(require_ce_edition), Depends(require_org_admin)])
 api_router.include_router(portal_deploy_router, prefix="/deploy", tags=["部署"])
-api_router.include_router(events_router, prefix="/events", tags=["事件"])
+api_router.include_router(portal_events_router, prefix="/events", tags=["事件"])
 api_router.include_router(portal_instance_router, prefix="/instances", tags=["实例"])
 api_router.include_router(portal_instance_members_router, prefix="/instances", tags=["实例成员"])
 api_router.include_router(portal_channel_config_router, prefix="/instances", tags=["Channel 配置"])

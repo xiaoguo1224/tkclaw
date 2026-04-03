@@ -329,15 +329,13 @@ async def get_instance_detail(instance_id: str, db: AsyncSession) -> InstanceDet
 
             if instance.status == InstanceStatus.running:
                 from app.services.tunnel import tunnel_adapter
-                if instance.id in tunnel_adapter.connected_instances:
+                from app.services.runtime.compute.k8s_provider import evaluate_k8s_health
+                tunnel_connected = instance.id in tunnel_adapter.connected_instances
+                probe = evaluate_k8s_health(tunnel_connected, pods)
+                if probe["healthy"] is True:
                     detail.health_status = "healthy"
-                elif pods:
-                    has_ready_pod = any(
-                        all(c.get("ready", False) for c in p.get("containers", []))
-                        and len(p.get("containers", [])) > 0
-                        for p in pods
-                    )
-                    detail.health_status = "healthy" if has_ready_pod else "unhealthy"
+                elif probe["healthy"] is False:
+                    detail.health_status = "unhealthy"
                 else:
                     detail.health_status = "unknown"
         except Exception as e:
@@ -1021,3 +1019,53 @@ async def rollback_instance(
     )
 
     return await update_config(instance_id, req, user_id, db)
+
+
+async def batch_upgrade_image_version(
+    runtime: str, target_version: str, user_id: str, db: AsyncSession,
+    *, dry_run: bool = False,
+) -> dict:
+    """批量将指定 runtime 的所有实例镜像版本对齐到 target_version。"""
+    excluded = [
+        InstanceStatus.creating,
+        InstanceStatus.deploying,
+        InstanceStatus.updating,
+        InstanceStatus.restarting,
+        InstanceStatus.deleting,
+    ]
+    result = await db.execute(
+        select(Instance).where(
+            Instance.runtime == runtime,
+            Instance.deleted_at.is_(None),
+            Instance.status.notin_([s.value for s in excluded]),
+        )
+    )
+    instances = list(result.scalars().all())
+
+    upgraded: list[dict] = []
+    skipped: list[dict] = []
+    failed: list[dict] = []
+
+    for instance in instances:
+        brief = {
+            "id": instance.id, "name": instance.name,
+            "slug": instance.slug, "current_version": instance.image_version,
+        }
+        if instance.image_version == target_version:
+            skipped.append(brief)
+            continue
+
+        if dry_run:
+            upgraded.append(brief)
+            continue
+
+        try:
+            await _execute_config_update(
+                instance, UpdateConfigRequest(image_version=target_version), user_id, db,
+            )
+            upgraded.append({**brief, "current_version": target_version})
+        except Exception as e:
+            logger.exception("批量升级实例 %s 失败", instance.name)
+            failed.append({**brief, "error": str(e)[:200]})
+
+    return {"upgraded": upgraded, "skipped": skipped, "failed": failed}

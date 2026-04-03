@@ -21,7 +21,7 @@ os.makedirs(_LOG_DIR, exist_ok=True)
 
 _app_version = settings.APP_VERSION
 _log_formatter = logging.Formatter(
-    f"%(asctime)s %(levelname)-5s [v{_app_version}] [%(name)s] %(message)s",
+    f"%(asctime)s %(levelname)-5s [{_app_version}] [%(name)s] %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
@@ -38,7 +38,7 @@ class _ColorFormatter(logging.Formatter):
 
     def __init__(self):
         super().__init__(
-            f"%(asctime)s %(colored_level)s [v{_app_version}] [%(name)s] %(message)s",
+            f"%(asctime)s %(colored_level)s [{_app_version}] [%(name)s] %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         )
 
@@ -78,6 +78,8 @@ class _PoolDisconnectFilter(logging.Filter):
     """CancelledError -> single-line WARNING; GC cleanup -> WARNING; real errors untouched."""
 
     def filter(self, record: logging.LogRecord) -> bool:
+        if not record.name.startswith("sqlalchemy.pool"):
+            return True
         if record.exc_info and record.exc_info[1]:
             if isinstance(record.exc_info[1], asyncio.CancelledError):
                 record.levelno = logging.WARNING
@@ -95,8 +97,9 @@ class _PoolDisconnectFilter(logging.Filter):
         return True
 
 
-for _pool_logger_name in ("sqlalchemy.pool", "sqlalchemy.pool.impl"):
-    logging.getLogger(_pool_logger_name).addFilter(_PoolDisconnectFilter())
+_pool_filter = _PoolDisconnectFilter()
+_console_handler.addFilter(_pool_filter)
+_file_handler.addFilter(_pool_filter)
 
 import warnings  # noqa: E402
 from sqlalchemy.exc import SAWarning  # noqa: E402
@@ -111,6 +114,27 @@ for _uv_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
     _uv_logger = logging.getLogger(_uv_name)
     _uv_logger.handlers.clear()
     _uv_logger.propagate = True
+
+
+class _HealthCheckLogFilter(logging.Filter):
+    """Suppress health-check access logs unless configured or response is an error."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if settings.LOG_HEALTH_CHECK:
+            return True
+        msg = record.getMessage()
+        if "/api/v1/health" not in msg:
+            return True
+        try:
+            status_code = record.args[-1]
+            if isinstance(status_code, int) and status_code >= 400:
+                return True
+        except (IndexError, TypeError):
+            return True
+        return False
+
+
+logging.getLogger("uvicorn.access").addFilter(_HealthCheckLogFilter())
 
 
 @asynccontextmanager
@@ -130,7 +154,7 @@ async def lifespan(app: FastAPI):
     from app.utils.oauth_providers.registry import register_provider
 
     logger = logging.getLogger(__name__)
-    logger.info("NoDeskClaw v%s starting (Python %s)", settings.APP_VERSION, sys.version.split()[0])
+    logger.info("NoDeskClaw %s starting (Python %s)", settings.APP_VERSION, sys.version.split()[0])
 
     # ── EE Model 注册（在 Alembic 迁移之前导入，使其加入 Base.metadata）──
     from app.core.feature_gate import feature_gate as _fg
@@ -222,9 +246,27 @@ async def lifespan(app: FastAPI):
             logger.exception("数据库迁移失败，应用无法启动")
             raise
 
+    # ── Egress 配置迁移：env vars → system_configs（幂等）──
+    from app.models.system_config import SystemConfig
+    from app.services import config_service
+
+    _EGRESS_SEEDS = {
+        "egress_deny_cidrs": os.environ.get("EGRESS_DENY_CIDRS", "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"),
+        "egress_allow_ports": os.environ.get("EGRESS_ALLOW_PORTS", "80,443"),
+    }
+    async with async_session_factory() as db:
+        for _eg_key, _eg_value in _EGRESS_SEEDS.items():
+            _eg_row = (await db.execute(
+                select(SystemConfig).where(SystemConfig.key == _eg_key, SystemConfig.deleted_at.is_(None))
+            )).scalar_one_or_none()
+            if _eg_row is None:
+                await config_service.set_config(_eg_key, _eg_value, db)
+                logger.info("Egress 配置迁移: %s = %s", _eg_key, _eg_value)
+
     # ── 种子数据（幂等，每次启动执行）──
-    from app.startup.seed import run_seed
+    from app.startup.seed import run_seed, backfill_cluster_org_id
     _seed_credentials = await run_seed(async_session_factory, is_ee=_fg.is_ee)
+    await backfill_cluster_org_id(async_session_factory)
 
     # ── gene_slugs → template_items 迁移（幂等）──
     async with async_session_factory() as db:
@@ -332,6 +374,7 @@ async def lifespan(app: FastAPI):
                 ]
 
                 _seeded_genes = 0
+                _updated_genes = 0
                 for _fname in _gene_files:
                     _tpl_path = _seed_dir / _fname
                     if not _tpl_path.exists():
@@ -356,8 +399,14 @@ async def lifespan(app: FastAPI):
                             source_registry="local",
                         ))
                         _seeded_genes += 1
+                    else:
+                        _new_manifest = _seed_json.dumps(_tpl.get("manifest", {}), ensure_ascii=False)
+                        if _existing.manifest != _new_manifest:
+                            _existing.manifest = _new_manifest
+                            _updated_genes += 1
 
                 _seeded_genomes = 0
+                _updated_genomes = 0
                 for _fname in _genome_files:
                     _tpl_path = _seed_dir / _fname
                     if not _tpl_path.exists():
@@ -377,12 +426,26 @@ async def lifespan(app: FastAPI):
                             is_published=True,
                         ))
                         _seeded_genomes += 1
+                    else:
+                        _new_slugs = _seed_json.dumps(_tpl.get("gene_slugs", []), ensure_ascii=False)
+                        _new_override = _seed_json.dumps(_tpl.get("config_override", {}), ensure_ascii=False)
+                        _new_desc = _tpl.get("description")
+                        if (_existing.gene_slugs != _new_slugs
+                                or _existing.config_override != _new_override
+                                or _existing.description != _new_desc):
+                            _existing.gene_slugs = _new_slugs
+                            _existing.config_override = _new_override
+                            _existing.description = _new_desc
+                            _updated_genomes += 1
 
-                if _seeded_genes or _seeded_genomes:
+                if _seeded_genes or _seeded_genomes or _updated_genes or _updated_genomes:
                     await _seed_db.commit()
-                    logger.info("种子基因导入完成: %d gene + %d genome", _seeded_genes, _seeded_genomes)
+                    logger.info(
+                        "种子基因导入完成: %d 新增 + %d 更新 gene, %d 新增 + %d 更新 genome",
+                        _seeded_genes, _updated_genes, _seeded_genomes, _updated_genomes,
+                    )
                 else:
-                    logger.info("种子基因检查完成，无需导入（均已存在）")
+                    logger.info("种子基因检查完成，无需导入或更新（均已是最新）")
         except Exception as _seed_err:
             logger.warning("种子基因导入失败: %s", _seed_err)
 
@@ -796,7 +859,11 @@ class _NoCacheAPIMiddleware:
         async def _send(message: Message) -> None:
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
-                if "cache-control" not in headers:
+                ct = headers.get("content-type", "")
+                if "text/event-stream" in ct:
+                    headers["X-Accel-Buffering"] = "no"
+                    headers["Cache-Control"] = "no-cache"
+                elif "cache-control" not in headers:
                     headers.append("Cache-Control", "no-store")
             await send(message)
 

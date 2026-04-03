@@ -1059,8 +1059,8 @@ function updateSuggestionIndex(state: SuggestionState, idx: number) {
             <button
               v-for="(item, idx) in mentionState.items"
               :key="item.id"
-              class="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent transition-colors text-left"
-              :class="idx === mentionState.selectedIndex ? 'bg-accent' : ''"
+              class="w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors text-left"
+              :class="idx === mentionState.selectedIndex ? 'bg-white/[0.07]' : 'hover:bg-white/[0.04]'"
               @mousedown.prevent="selectSuggestionItem(mentionState!, item)"
               @mouseenter="updateSuggestionIndex(mentionState!, idx)"
             >
@@ -1089,8 +1089,8 @@ function updateSuggestionIndex(state: SuggestionState, idx: number) {
             <button
               v-for="(item, idx) in commandState.items"
               :key="item.id"
-              class="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-accent transition-colors text-left"
-              :class="idx === commandState.selectedIndex ? 'bg-accent' : ''"
+              class="w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors text-left"
+              :class="idx === commandState.selectedIndex ? 'bg-white/[0.07]' : 'hover:bg-white/[0.04]'"
               @mousedown.prevent="selectSuggestionItem(commandState!, item)"
               @mouseenter="updateSuggestionIndex(commandState!, idx)"
             >

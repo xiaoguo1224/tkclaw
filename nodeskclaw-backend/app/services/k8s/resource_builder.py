@@ -417,6 +417,7 @@ def _build_egress_rules(
     peer_namespaces: list[str],
     deny_cidrs: list[str],
     allow_ports: list[int],
+    platform_namespace: str = "nodeskclaw-system",
 ) -> list[dict]:
     """构建 Egress 规则列表（允许列表模式，未匹配流量默认拒绝）。"""
     rules: list[dict] = []
@@ -430,9 +431,9 @@ def _build_egress_rules(
         ],
     })
 
-    # 2. 平台服务 — nodeskclaw-system（LLM Proxy / Ingress Controller 等）
+    # 2. 平台服务（由 PLATFORM_NAMESPACE 配置决定，默认 nodeskclaw-system）
     rules.append({
-        "to": [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "nodeskclaw-system"}}}],
+        "to": [{"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": platform_namespace}}}],
     })
 
     # 3. 同 Namespace 内 Pod 互访
@@ -470,18 +471,19 @@ def build_network_policy(
     org_id: str | None = None,
     egress_deny_cidrs: list[str] | None = None,
     egress_allow_ports: list[int] | None = None,
+    platform_namespace: str = "nodeskclaw-system",
 ) -> dict:
     """Build NetworkPolicy for multi-tenant isolation + egress restriction.
 
     Ingress 策略:
     - 允许来自同 Namespace 内的 Pod 访问
-    - 允许来自 Ingress Controller 命名空间（nodeskclaw-system）的流量
+    - 允许来自平台服务命名空间（由 platform_namespace 参数决定）的流量
     - 允许同组织其他 Namespace 的流量（通过 peer_namespaces）
     - 拒绝其他所有入站流量
 
     Egress 策略:
     - 允许 DNS（kube-system, 端口 53）
-    - 允许平台服务（nodeskclaw-system, 全端口）
+    - 允许平台服务（platform_namespace, 全端口）
     - 允许同 Namespace 内 Pod 互访
     - 允许 Peer Namespaces（已配置的互访实例）
     - 允许公网出站（0.0.0.0/0 except deny_cidrs, 限 allow_ports）
@@ -489,7 +491,7 @@ def build_network_policy(
     """
     ingress_from: list[dict] = [
         {"podSelector": {}},
-        {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": "nodeskclaw-system"}}},
+        {"namespaceSelector": {"matchLabels": {"kubernetes.io/metadata.name": platform_namespace}}},
     ]
 
     for ns in peer_namespaces:
@@ -510,6 +512,7 @@ def build_network_policy(
             peer_namespaces=peer_namespaces,
             deny_cidrs=egress_deny_cidrs or [],
             allow_ports=egress_allow_ports or [80, 443],
+            platform_namespace=platform_namespace,
         ),
     }
 

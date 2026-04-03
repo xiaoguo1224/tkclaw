@@ -57,7 +57,8 @@ const enrichedTopologyNodes = computed(() =>
 
 const { activeMode, isTransitioning, transitionTo2D, transitionTo3D } = useViewTransition()
 
-const chatOpen = ref(false)
+const CHAT_OPEN_KEY = 'workspace-chat-open'
+const chatOpen = ref(localStorage.getItem(CHAT_OPEN_KEY) === 'true')
 const chatSidebarTab = ref<'blackboard' | 'collab-flow'>('blackboard')
 const collabTimelineRef = ref<InstanceType<typeof CollaborationTimeline> | null>(null)
 const collabPanelOpen = ref(false)
@@ -120,7 +121,8 @@ function toggleFocusMode() {
 
 watch(chatOpen, (v) => {
   store.setChatVisible(v)
-})
+  localStorage.setItem(CHAT_OPEN_KEY, String(v))
+}, { immediate: true })
 
 interface SelectedHex {
   q: number
