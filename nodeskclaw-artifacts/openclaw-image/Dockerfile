@@ -12,12 +12,26 @@ FROM node:${NODE_VERSION}-bookworm-slim
 # ---------- 构建参数 ----------
 ARG OPENCLAW_VERSION=2026.3.24
 ARG IMAGE_VERSION=v2026.3.24
+ARG APT_MIRROR=http://mirrors.tuna.tsinghua.edu.cn
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ARG PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn
+ARG NPM_REGISTRY=https://registry.npmmirror.com
 
 # ---------- 元数据标签 ----------
 LABEL maintainer="Xy718Labs"
 LABEL org.opencontainers.image.title="OpenClaw"
 LABEL org.opencontainers.image.version="${IMAGE_VERSION}"
 LABEL org.opencontainers.image.description="OpenClaw AI Agent 平台 - NoDeskClaw 定制镜像"
+
+ENV PIP_INDEX_URL=${PIP_INDEX_URL} \
+    PIP_TRUSTED_HOST=${PIP_TRUSTED_HOST} \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    NPM_CONFIG_REGISTRY=${NPM_REGISTRY}
+
+RUN printf 'Types: deb\nURIs: %s/debian\nSuites: bookworm bookworm-updates\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n\nTypes: deb\nURIs: %s/debian-security\nSuites: bookworm-security\nComponents: main\nSigned-By: /usr/share/keyrings/debian-archive-keyring.gpg\n' "${APT_MIRROR}" "${APT_MIRROR}" > /etc/apt/sources.list.d/debian.sources && \
+    mkdir -p /root/.config/pip /root/.npm && \
+    printf '[global]\nindex-url = %s\ntrusted-host = %s\ndisable-pip-version-check = true\n' "${PIP_INDEX_URL}" "${PIP_TRUSTED_HOST}" > /root/.config/pip/pip.conf && \
+    npm config set registry "${NPM_REGISTRY}"
 
 # ---------- 系统依赖（BuildKit apt 缓存，重复构建秒过）----------
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
