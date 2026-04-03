@@ -1319,6 +1319,8 @@ const zhCN = {
       member_not_found: "该用户不是当前组织的成员",
     },
     cluster: {
+      id_required: "请先选择集群",
+      not_found: "集群不存在",
       single_cluster_limit: "已配置集群，当前仅支持单集群",
       docker_cli_not_found: "Docker CLI 未安装，请参照部署文档配置 Docker 环境",
       docker_socket_unavailable: "无法连接 Docker，请确认 Docker Desktop 或 Docker daemon 正在运行",

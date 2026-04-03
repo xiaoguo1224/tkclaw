@@ -8,7 +8,8 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import get_db
+from app.core.deps import get_current_org, get_db
+from app.core.exceptions import BadRequestError, NotFoundError
 from app.core.security import get_current_user
 from app.models.cluster import Cluster
 from app.models.user import User
@@ -31,16 +32,37 @@ class StorageClassInfo(BaseModel):
     enabled: bool = False  # 是否被管理员启用（在 NoDeskClaw 允许列表中）
 
 
-async def _fetch_all_storage_classes(db: AsyncSession) -> list[StorageClassInfo]:
-    """从已连接集群获取全部 StorageClass。"""
+async def _resolve_storage_cluster(
+    db: AsyncSession, cluster_id: str | None, org_id: str,
+) -> Cluster | None:
+    """解析 StorageClass 查询目标集群。"""
+    filters = [
+        Cluster.org_id == org_id,
+        Cluster.status == "connected",
+        Cluster.compute_provider == "k8s",
+        Cluster.deleted_at.is_(None),
+    ]
+    if cluster_id:
+        result = await db.execute(select(Cluster).where(*filters, Cluster.id == cluster_id))
+        cluster = result.scalar_one_or_none()
+        if not cluster:
+            raise NotFoundError("集群不存在", "errors.cluster.not_found")
+        return cluster
+
     result = await db.execute(
-        select(Cluster).where(
-            Cluster.status == "connected",
-            Cluster.compute_provider == "k8s",
-            Cluster.deleted_at.is_(None),
-        )
+        select(Cluster).where(*filters).order_by(Cluster.created_at.asc(), Cluster.id.asc())
     )
-    cluster = result.scalars().first()
+    clusters = result.scalars().all()
+    if len(clusters) > 1:
+        raise BadRequestError("请先选择集群", "errors.cluster.id_required")
+    return clusters[0] if clusters else None
+
+
+async def _fetch_all_storage_classes(
+    db: AsyncSession, cluster_id: str | None, org_id: str,
+) -> list[StorageClassInfo]:
+    """从指定已连接集群获取全部 StorageClass。"""
+    cluster = await _resolve_storage_cluster(db, cluster_id, org_id)
     if not cluster:
         return []
 
@@ -81,15 +103,18 @@ async def _fetch_all_storage_classes(db: AsyncSession) -> list[StorageClassInfo]
 @router.get("", response_model=ApiResponse[list[StorageClassInfo]])
 async def list_storage_classes(
     scope: str = Query("allowed", description="allowed=仅启用的, all=全部"),
+    cluster_id: str | None = Query(None, description="目标集群 ID"),
     db: AsyncSession = Depends(get_db),
     _current_user: User = Depends(get_current_user),
+    org_ctx=Depends(get_current_org),
 ):
     """获取 StorageClass 列表。
 
     - scope=allowed（默认）: 仅返回管理员启用的 SC（部署页使用）
     - scope=all: 返回集群中全部 SC 并标记启用状态（设置页使用）
     """
-    all_scs = await _fetch_all_storage_classes(db)
+    _current_user, org = org_ctx
+    all_scs = await _fetch_all_storage_classes(db, cluster_id, org.id)
 
     if scope == "all":
         return ApiResponse(data=all_scs)

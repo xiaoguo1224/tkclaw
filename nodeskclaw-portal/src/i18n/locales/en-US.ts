@@ -1319,6 +1319,8 @@ const enUS = {
       member_not_found: "This user is not a member of the current organization",
     },
     cluster: {
+      id_required: "Please select a cluster first",
+      not_found: "Cluster not found",
       single_cluster_limit: "A cluster is already configured. Only one cluster is supported.",
       docker_cli_not_found: "Docker CLI not installed. Please set up Docker per the deployment guide.",
       docker_socket_unavailable: "Cannot connect to Docker. Ensure Docker Desktop or Docker daemon is running.",

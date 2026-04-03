@@ -123,6 +123,19 @@ function addProvider(p: string) {
   newProviderOpen.value = false
 }
 
+async function loadStorageClasses(clusterId: string) {
+  const scRes = await api.get('/storage-classes', {
+    params: {
+      scope: 'all',
+      cluster_id: clusterId,
+    },
+  })
+  const items = (scRes.data.data ?? []) as StorageClassItem[]
+  storageClasses.value = items
+  const def = items.find(sc => sc.is_default)
+  selectedStorageClass.value = def ? def.name : (items[0]?.name ?? null)
+}
+
 function addCustomProvider() {
   const slug = customSlug.value.trim()
   if (!slug) return
@@ -342,13 +355,10 @@ onMounted(async () => {
       selectedRuntime.value = engines.value[0].runtime_id
     }
     clusters.value = (clustersRes.data.data ?? []).filter((c: any) => c.status === 'connected')
-    if (isK8sCluster.value) {
+    const activeCluster = clusters.value[0]
+    if (activeCluster?.compute_provider === 'k8s') {
       try {
-        const scRes = await api.get('/storage-classes?scope=all')
-        const items = (scRes.data.data ?? []) as StorageClassItem[]
-        storageClasses.value = items
-        const def = items.find(sc => sc.is_default)
-        selectedStorageClass.value = def ? def.name : (items[0]?.name ?? null)
+        await loadStorageClasses(activeCluster.id)
       } catch {
         // StorageClass 列表获取失败不阻塞创建流程
       }
