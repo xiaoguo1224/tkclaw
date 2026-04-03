@@ -130,8 +130,8 @@ const LOCAL_MODEL_BASE_URL = 'https://ark.cn-beijing.volces.com/api/coding/v3'
 const LOCAL_MODEL_API_KEY = '090f8038-0d0c-40f7-8d9b-8a2b35b6ad72'
 const LOCAL_MODEL_API_TYPE = 'openai-completions'
 const LOCAL_MODEL_DEFAULT: ModelItem = {
-  id: 'doubao-seed-2.0-pro',
-  name: 'doubao-seed-2.0-pro',
+  id: 'kimi-k2.5',
+  name: 'kimi-k2.5',
 }
 
 const PROVIDERS = ['minimax-openai', 'minimax-anthropic', 'openai', 'anthropic', 'gemini', 'openrouter', 'bailian-code', 'volcano-code'] as const
