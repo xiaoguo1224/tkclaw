@@ -69,6 +69,16 @@ async def _deferred_pv_cleanup(k8s: K8sClient, namespace: str) -> None:
             )
 
 
+async def _cleanup_backup_s3_objects(keys: list[str]) -> None:
+    """异步清理已软删除的备份在 S3 上的对象。"""
+    from app.services import storage_service
+    for key in keys:
+        try:
+            await storage_service.delete_raw(key)
+        except Exception as e:
+            logger.warning("清理备份 S3 对象失败 (key=%s): %s", key, e)
+
+
 def _sanitize_name(name: str) -> str:
     """将实例名称清洗为 RFC 1123 格式（与 deploy_service 逻辑保持一致）。"""
     safe = _re.sub(r"[^a-z0-9-]", "-", name.lower()).strip("-")
@@ -436,7 +446,24 @@ async def delete_instance(instance_id: str, db: AsyncSession, delete_k8s: bool =
         .where(DeployRecord.instance_id == instance.id, DeployRecord.deleted_at.is_(None))
         .values(deleted_at=func.now())
     )
+    # 级联逻辑删除关联的备份记录并异步清理 S3 对象
+    from app.models.backup import InstanceBackup
+    backup_result = await db.execute(
+        select(InstanceBackup.storage_key).where(
+            InstanceBackup.instance_id == instance.id,
+            InstanceBackup.deleted_at.is_(None),
+            InstanceBackup.storage_key.isnot(None),
+        )
+    )
+    s3_keys = [row[0] for row in backup_result.all()]
+    await db.execute(
+        update(InstanceBackup)
+        .where(InstanceBackup.instance_id == instance.id, InstanceBackup.deleted_at.is_(None))
+        .values(deleted_at=func.now())
+    )
     await db.commit()
+    if s3_keys:
+        _fire_task(_cleanup_backup_s3_objects(s3_keys))
 
 
 async def scale_instance(instance_id: str, replicas: int, db: AsyncSession, org_id: str | None = None):
@@ -1041,6 +1068,8 @@ async def batch_upgrade_image_version(
         InstanceStatus.updating,
         InstanceStatus.restarting,
         InstanceStatus.deleting,
+        InstanceStatus.rebuilding,
+        InstanceStatus.restoring,
     ]
     result = await db.execute(
         select(Instance).where(
