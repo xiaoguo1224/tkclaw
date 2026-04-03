@@ -95,18 +95,26 @@ async def create_cluster(
     return ClusterInfo.model_validate(cluster)
 
 
-async def get_cluster(cluster_id: str, db: AsyncSession) -> Cluster:
-    result = await db.execute(
-        select(Cluster).where(Cluster.id == cluster_id, Cluster.deleted_at.is_(None))
+async def get_cluster(
+    cluster_id: str, db: AsyncSession, org_id: str | None = None,
+) -> Cluster:
+    stmt = select(Cluster).where(
+        Cluster.id == cluster_id,
+        Cluster.deleted_at.is_(None),
     )
+    if org_id:
+        stmt = stmt.where(Cluster.org_id == org_id)
+    result = await db.execute(stmt)
     cluster = result.scalar_one_or_none()
     if not cluster:
         raise NotFoundError("集群不存在")
     return cluster
 
 
-async def update_cluster(cluster_id: str, data: ClusterUpdate, db: AsyncSession) -> ClusterInfo:
-    cluster = await get_cluster(cluster_id, db)
+async def update_cluster(
+    cluster_id: str, data: ClusterUpdate, db: AsyncSession, org_id: str | None = None,
+) -> ClusterInfo:
+    cluster = await get_cluster(cluster_id, db, org_id)
     if data.name is not None:
         cluster.name = data.name
     if data.provider is not None:
@@ -124,9 +132,11 @@ async def update_cluster(cluster_id: str, data: ClusterUpdate, db: AsyncSession)
     return ClusterInfo.model_validate(cluster)
 
 
-async def delete_cluster(cluster_id: str, db: AsyncSession) -> None:
+async def delete_cluster(
+    cluster_id: str, db: AsyncSession, org_id: str | None = None,
+) -> None:
     """逻辑删除集群，级联逻辑删除其下所有实例和部署记录。"""
-    cluster = await get_cluster(cluster_id, db)
+    cluster = await get_cluster(cluster_id, db, org_id)
 
     # 查询该集群下所有未删除的实例
     inst_result = await db.execute(
@@ -193,8 +203,10 @@ async def delete_cluster(cluster_id: str, db: AsyncSession) -> None:
     await db.commit()
 
 
-async def update_kubeconfig(cluster_id: str, kubeconfig: str, db: AsyncSession) -> ClusterInfo:
-    cluster = await get_cluster(cluster_id, db)
+async def update_kubeconfig(
+    cluster_id: str, kubeconfig: str, db: AsyncSession, org_id: str | None = None,
+) -> ClusterInfo:
+    cluster = await get_cluster(cluster_id, db, org_id)
     api_server_url, auth_type = _parse_kubeconfig_meta(kubeconfig)
     cluster.credentials_encrypted = encrypt_kubeconfig(kubeconfig)
     cluster.set_provider_value("auth_type", auth_type)
@@ -301,9 +313,11 @@ async def _create_docker_cluster(
     return ClusterInfo.model_validate(cluster)
 
 
-async def test_connection(cluster_id: str, db: AsyncSession) -> ConnectionTestResult:
+async def test_connection(
+    cluster_id: str, db: AsyncSession, org_id: str | None = None,
+) -> ConnectionTestResult:
     """Test cluster connectivity."""
-    cluster = await get_cluster(cluster_id, db)
+    cluster = await get_cluster(cluster_id, db, org_id)
 
     if cluster.compute_provider == "docker":
         return await _test_docker_connection(cluster, db)
