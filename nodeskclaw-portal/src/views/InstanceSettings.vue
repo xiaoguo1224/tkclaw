@@ -90,6 +90,39 @@ interface ProviderConfig {
   isDefault: boolean
 }
 
+function normalizeModelItem(model: ModelItem | null): ModelItem | null {
+  if (!model) return null
+  return {
+    ...model,
+    input: model.input?.length ? [...model.input] : ['text', 'image'],
+  }
+}
+
+function updateSelectedModel(cfg: ProviderConfig, model: ModelItem | null) {
+  cfg.selectedModel = normalizeModelItem(model)
+  dirty.value = true
+}
+
+function updateSelectedModelContextWindow(cfg: ProviderConfig, rawValue: string) {
+  if (!cfg.selectedModel) return
+  const value = rawValue.trim()
+  const parsed = Number(value)
+  cfg.selectedModel.context_window = Number.isFinite(parsed) && parsed > 0 ? parsed : null
+  dirty.value = true
+}
+
+function toggleSelectedModelInput(cfg: ProviderConfig, inputType: 'text' | 'image', checked: boolean) {
+  if (!cfg.selectedModel) return
+  const current = new Set(cfg.selectedModel.input?.length ? cfg.selectedModel.input : ['text', 'image'])
+  if (checked) {
+    current.add(inputType)
+  } else {
+    current.delete(inputType)
+  }
+  cfg.selectedModel.input = Array.from(current)
+  dirty.value = true
+}
+
 const orgKeyProviders = ref<Set<string>>(new Set())
 
 const isWorkingPlanAvailable = (provider: string) =>
@@ -171,7 +204,7 @@ async function loadAll() {
         apiType: c.api_type ?? pk?.api_type ?? (isCustom ? 'openai-completions' : ''),
         isCustom,
         showBaseUrl: isCustom || !!(c.base_url || pk?.base_url),
-        selectedModel: (c.selected_models ?? [])[0] ?? defaultModelForProvider(c.provider),
+        selectedModel: normalizeModelItem((c.selected_models ?? [])[0] ?? defaultModelForProvider(c.provider)),
         isDefault: !!c.is_default,
       })
     }
@@ -212,7 +245,7 @@ function addProvider(provider: string) {
     apiType: pk?.api_type ?? (isCustom ? 'openai-completions' : ''),
     isCustom,
     showBaseUrl: isCustom || !!pk?.base_url,
-    selectedModel: defaultModelForProvider(provider),
+    selectedModel: normalizeModelItem(defaultModelForProvider(provider)),
     isDefault: providerConfigs.value.length === 0,
   })
   newProviderOpen.value = false
@@ -231,7 +264,7 @@ function addLocalModelProvider() {
     apiType: LOCAL_MODEL_API_TYPE,
     isCustom: true,
     showBaseUrl: true,
-    selectedModel: { ...LOCAL_MODEL_DEFAULT },
+    selectedModel: normalizeModelItem({ ...LOCAL_MODEL_DEFAULT }),
     isDefault: providerConfigs.value.length === 0,
   })
   newProviderOpen.value = false
@@ -263,7 +296,7 @@ function addCustomProvider() {
     apiType: 'openai-completions',
     isCustom: true,
     showBaseUrl: true,
-    selectedModel: null,
+    selectedModel: normalizeModelItem(null),
     isDefault: providerConfigs.value.length === 0,
   })
   customSlug.value = ''
@@ -682,11 +715,51 @@ watch(() => instanceId.value, (val) => {
             <!-- Model selection -->
             <ModelSelect
               :provider="cfg.provider"
-              v-model="cfg.selectedModel"
+              :model-value="cfg.selectedModel"
               :allow-manual-input="!!cfg.isCustom"
               @fetch-models="handleFetchModels"
-              @update:model-value="markDirty"
+              @update:model-value="(value) => updateSelectedModel(cfg, value)"
             />
+            <div v-if="cfg.selectedModel" class="space-y-2 rounded-md border border-border/60 bg-background/40 p-3">
+              <div class="grid gap-3 md:grid-cols-2">
+                <div class="space-y-1">
+                  <label class="text-xs text-muted-foreground">{{ t('llm.contextWindow') }}</label>
+                  <input
+                    :value="cfg.selectedModel.context_window ?? ''"
+                    type="number"
+                    min="1"
+                    :placeholder="t('llm.contextWindowPlaceholder')"
+                    class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
+                    @input="updateSelectedModelContextWindow(cfg, ($event.target as HTMLInputElement).value)"
+                  />
+                </div>
+                <div class="space-y-1">
+                  <label class="text-xs text-muted-foreground">{{ t('llm.modelInputTypes') }}</label>
+                  <div class="flex h-[38px] items-center gap-4 rounded-md border border-border bg-background px-3">
+                    <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                      <input
+                        type="checkbox"
+                        value="text"
+                        class="accent-primary"
+                        :checked="cfg.selectedModel.input?.includes('text')"
+                        @change="toggleSelectedModelInput(cfg, 'text', ($event.target as HTMLInputElement).checked)"
+                      />
+                      text
+                    </label>
+                    <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                      <input
+                        type="checkbox"
+                        value="image"
+                        class="accent-primary"
+                        :checked="cfg.selectedModel.input?.includes('image')"
+                        @change="toggleSelectedModelInput(cfg, 'image', ($event.target as HTMLInputElement).checked)"
+                      />
+                      image
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
             <div class="flex justify-end">
               <button
                 type="button"

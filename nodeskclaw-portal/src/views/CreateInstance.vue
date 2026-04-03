@@ -94,6 +94,36 @@ interface LlmConfigEntry {
   selectedModel: ModelItem | null
 }
 
+function normalizeModelItem(model: ModelItem | null): ModelItem | null {
+  if (!model) return null
+  return {
+    ...model,
+    input: model.input?.length ? [...model.input] : ['text', 'image'],
+  }
+}
+
+function updateSelectedModel(cfg: LlmConfigEntry, model: ModelItem | null) {
+  cfg.selectedModel = normalizeModelItem(model)
+}
+
+function updateSelectedModelContextWindow(cfg: LlmConfigEntry, rawValue: string) {
+  if (!cfg.selectedModel) return
+  const value = rawValue.trim()
+  const parsed = Number(value)
+  cfg.selectedModel.context_window = Number.isFinite(parsed) && parsed > 0 ? parsed : null
+}
+
+function toggleSelectedModelInput(cfg: LlmConfigEntry, inputType: 'text' | 'image', checked: boolean) {
+  if (!cfg.selectedModel) return
+  const current = new Set(cfg.selectedModel.input?.length ? cfg.selectedModel.input : ['text', 'image'])
+  if (checked) {
+    current.add(inputType)
+  } else {
+    current.delete(inputType)
+  }
+  cfg.selectedModel.input = Array.from(current)
+}
+
 const LOCAL_MODEL_PROVIDER = 'volcengine-plan'
 const LOCAL_MODEL_BASE_URL = 'https://ark.cn-beijing.volces.com/api/coding/v3'
 const LOCAL_MODEL_API_KEY = '090f8038-0d0c-40f7-8d9b-8a2b35b6ad72'
@@ -149,7 +179,7 @@ function addProvider(p: string) {
     apiType: '',
     isCustom: false,
     showBaseUrl: false,
-    selectedModel: defaultModelForProvider(p),
+    selectedModel: normalizeModelItem(defaultModelForProvider(p)),
   })
   newProviderOpen.value = false
 }
@@ -164,7 +194,7 @@ function addLocalModelProvider() {
     apiType: LOCAL_MODEL_API_TYPE,
     isCustom: true,
     showBaseUrl: true,
-    selectedModel: { ...LOCAL_MODEL_DEFAULT },
+    selectedModel: normalizeModelItem({ ...LOCAL_MODEL_DEFAULT }),
   })
   newProviderOpen.value = false
   showCustomForm.value = false
@@ -192,7 +222,7 @@ function addCustomProvider() {
     apiType: 'openai-completions',
     isCustom: true,
     showBaseUrl: true,
-    selectedModel: null,
+    selectedModel: normalizeModelItem(null),
   })
   customSlug.value = ''
   customSlugError.value = ''
@@ -986,10 +1016,51 @@ async function handleDeploy() {
               <!-- Model selection -->
               <ModelSelect
                 :provider="cfg.provider"
-                v-model="cfg.selectedModel"
+                :model-value="cfg.selectedModel"
                 :allow-manual-input="!!cfg.isCustom"
                 @fetch-models="handleFetchModels"
+                @update:model-value="(value) => updateSelectedModel(cfg, value)"
               />
+              <div v-if="cfg.selectedModel" class="space-y-2 rounded-md border border-border/60 bg-background/40 p-3">
+                <div class="grid gap-3 md:grid-cols-2">
+                  <div class="space-y-1">
+                    <label class="text-xs text-muted-foreground">{{ t('llm.contextWindow') }}</label>
+                    <input
+                      :value="cfg.selectedModel.context_window ?? ''"
+                      type="number"
+                      min="1"
+                      :placeholder="t('llm.contextWindowPlaceholder')"
+                      class="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-primary/50"
+                      @input="updateSelectedModelContextWindow(cfg, ($event.target as HTMLInputElement).value)"
+                    />
+                  </div>
+                  <div class="space-y-1">
+                    <label class="text-xs text-muted-foreground">{{ t('llm.modelInputTypes') }}</label>
+                    <div class="flex h-[38px] items-center gap-4 rounded-md border border-border bg-background px-3">
+                      <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                        <input
+                          type="checkbox"
+                          value="text"
+                          class="accent-primary"
+                          :checked="cfg.selectedModel.input?.includes('text')"
+                          @change="toggleSelectedModelInput(cfg, 'text', ($event.target as HTMLInputElement).checked)"
+                        />
+                        text
+                      </label>
+                      <label class="flex items-center gap-1.5 text-xs cursor-pointer">
+                        <input
+                          type="checkbox"
+                          value="image"
+                          class="accent-primary"
+                          :checked="cfg.selectedModel.input?.includes('image')"
+                          @change="toggleSelectedModelInput(cfg, 'image', ($event.target as HTMLInputElement).checked)"
+                        />
+                        image
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
               <p v-if="(cfg.isCustom || isCodexProvider(cfg.provider) || !BUILTIN_PROVIDERS.has(cfg.provider)) && !cfg.selectedModel" class="text-[10px] text-amber-500">
                 {{ t('llm.modelRequired') }}
               </p>

@@ -36,8 +36,6 @@ const containerRef = ref<HTMLDivElement>()
 
 const manualMode = ref(false)
 const manualInput = ref('')
-const manualContextWindow = ref('')
-const manualInputTypes = ref<string[]>(['text', 'image'])
 const manualError = ref('')
 const manualInputRef = ref<HTMLInputElement>()
 
@@ -91,8 +89,6 @@ function onClickOutside(e: MouseEvent) {
 function enterManualMode() {
   manualMode.value = true
   manualInput.value = ''
-  manualContextWindow.value = ''
-  manualInputTypes.value = ['text', 'image']
   manualError.value = ''
   nextTick(() => manualInputRef.value?.focus())
 }
@@ -103,13 +99,7 @@ function confirmManualInput() {
     manualError.value = t('llm.modelIdEmpty')
     return
   }
-  const contextWindow = Number(manualContextWindow.value.trim())
-  emit('update:modelValue', {
-    id: trimmed,
-    name: trimmed,
-    context_window: Number.isFinite(contextWindow) && contextWindow > 0 ? contextWindow : null,
-    input: manualInputTypes.value.length > 0 ? [...manualInputTypes.value] : ['text', 'image'],
-  })
+  emit('update:modelValue', { id: trimmed, name: trimmed })
   open.value = false
   manualMode.value = false
 }
@@ -117,8 +107,6 @@ function confirmManualInput() {
 function cancelManualMode() {
   manualMode.value = false
   manualInput.value = ''
-  manualContextWindow.value = ''
-  manualInputTypes.value = ['text', 'image']
   manualError.value = ''
 }
 
@@ -180,41 +168,6 @@ watch(() => props.provider, () => {
             @keydown.enter.stop="confirmManualInput"
             @keydown.escape.stop="cancelManualMode"
           />
-        </div>
-        <div class="flex items-center gap-2">
-          <input
-            v-model="manualContextWindow"
-            type="number"
-            min="1"
-            :placeholder="t('llm.manualContextWindowPlaceholder')"
-            class="flex-1 bg-transparent text-sm outline-none border border-border rounded-md px-2.5 py-1.5 placeholder:text-muted-foreground focus:border-primary/50 focus:ring-1 focus:ring-primary/50"
-            @click.stop
-          />
-        </div>
-        <div class="space-y-1">
-          <div class="text-[10px] text-muted-foreground">{{ t('llm.modelInputTypes') }}</div>
-          <div class="flex items-center gap-3">
-            <label class="flex items-center gap-1.5 text-xs cursor-pointer">
-              <input
-                v-model="manualInputTypes"
-                type="checkbox"
-                value="text"
-                class="accent-primary"
-                @click.stop
-              />
-              text
-            </label>
-            <label class="flex items-center gap-1.5 text-xs cursor-pointer">
-              <input
-                v-model="manualInputTypes"
-                type="checkbox"
-                value="image"
-                class="accent-primary"
-                @click.stop
-              />
-              image
-            </label>
-          </div>
         </div>
         <p v-if="manualError" class="text-[10px] text-destructive">{{ manualError }}</p>
         <div class="flex justify-end gap-2">
