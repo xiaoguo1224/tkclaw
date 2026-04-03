@@ -1397,6 +1397,18 @@ const zhCN = {
     instance: {
       not_found: "实例不存在",
       slug_conflict: "实例标识已存在，请更换标识",
+      in_transitional_state: "实例正在执行其他操作，请等待完成后再试",
+    },
+    backup: {
+      instance_not_running: "实例必须处于运行中才能创建备份",
+      not_found: "备份不存在",
+      wrong_instance: "该备份不属于当前实例",
+      not_completed: "只能从已完成的备份恢复",
+      incompatible_schema: "备份格式版本不兼容，无法恢复",
+      no_running_pod: "找不到可用的 Pod，无法执行备份",
+    },
+    clone: {
+      instance_not_running: "实例必须处于运行中才能克隆",
     },
     llm: {
       api_key_required: "新建 Key 时 api_key 不能为空",

@@ -187,6 +187,12 @@ API 路由同时挂载在两个前缀下：
 | `/api/v1/enterprise-files/agents/{id}/files` | 企业空间 | 列出 Agent 目录文件（query: path） |
 | `/api/v1/enterprise-files/agents/{id}/files/content` | 企业空间 | 读取文件内容（仅文本） |
 | `/api/v1/enterprise-files/agents/{id}/files/download` | 企业空间 | 下载文件 |
+| `POST /api/v1/instances/{id}/rebuild` | 实例灾备 | 从 DB 状态重建 K8s 资源 |
+| `POST /api/v1/instances/{id}/backups` | 实例灾备 | 创建备份 |
+| `GET /api/v1/instances/{id}/backups` | 实例灾备 | 备份列表 |
+| `DELETE /api/v1/instances/{id}/backups/{bid}` | 实例灾备 | 删除备份 |
+| `POST /api/v1/instances/{id}/restore` | 实例灾备 | 从备份恢复（body: `{ backup_id }`） |
+| `POST /api/v1/instances/{id}/clone` | 实例灾备 | 克隆实例（body: `{ name, cluster_id? }`） |
 | `/api/v1/instances/{id}/files` | 实例文件 | 列出实例目录文件（instance admin） |
 | `/api/v1/instances/{id}/files/content` | 实例文件 | 读取/写入文件内容（GET 读、PUT 写） |
 | `/api/v1/instances/{id}/files/download` | 实例文件 | 下载文件 |

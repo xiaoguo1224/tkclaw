@@ -1397,6 +1397,18 @@ const enUS = {
     instance: {
       not_found: "Instance not found",
       slug_conflict: "Instance slug already exists. Please choose another one",
+      in_transitional_state: "Instance is in a transitional state, please wait for the current operation to complete",
+    },
+    backup: {
+      instance_not_running: "Instance must be running to create a backup",
+      not_found: "Backup not found",
+      wrong_instance: "This backup does not belong to the current instance",
+      not_completed: "Can only restore from a completed backup",
+      incompatible_schema: "Backup schema version is incompatible and cannot be restored",
+      no_running_pod: "No running Pod found, cannot perform backup",
+    },
+    clone: {
+      instance_not_running: "Instance must be running to clone",
     },
     llm: {
       api_key_required: "api_key is required when creating a new key",
