@@ -21,12 +21,29 @@ interface EngineItem {
   runtime_id: string
   display_name: string
   image_registry_key: string
+  image_registry_protocol_key: string
   default_registry_url: string
+  default_registry_protocol: 'http' | 'https'
 }
 
 const engines = ref<EngineItem[]>([])
 const engineRegistryUrls = ref<Record<string, string>>({})
+const engineRegistryProtocols = ref<Record<string, 'http' | 'https'>>({})
 const testingEngine = ref<string | null>(null)
+
+function splitRegistryConfig(
+  raw: string | null | undefined,
+  fallbackProtocol: 'http' | 'https' = 'http',
+): { protocol: 'http' | 'https'; url: string } {
+  const value = (raw || '').trim()
+  if (value.startsWith('https://')) {
+    return { protocol: 'https', url: value.slice('https://'.length) }
+  }
+  if (value.startsWith('http://')) {
+    return { protocol: 'http', url: value.slice('http://'.length) }
+  }
+  return { protocol: fallbackProtocol, url: value }
+}
 
 async function loadSettings() {
   loading.value = true
@@ -43,10 +60,16 @@ async function loadSettings() {
     hasPassword.value = data.registry_password === '******'
 
     const urls: Record<string, string> = {}
+    const protocols: Record<string, 'http' | 'https'> = {}
     for (const eng of engines.value) {
-      urls[eng.runtime_id] = data[eng.image_registry_key] || ''
+      const storedProtocol = (data[eng.image_registry_protocol_key] || '').toLowerCase()
+      const fallbackProtocol = storedProtocol === 'https' ? 'https' : (eng.default_registry_protocol || 'http')
+      const parsed = splitRegistryConfig(data[eng.image_registry_key], fallbackProtocol)
+      urls[eng.runtime_id] = parsed.url
+      protocols[eng.runtime_id] = parsed.protocol
     }
     engineRegistryUrls.value = urls
+    engineRegistryProtocols.value = protocols
   } catch {
     // first-time setup may have no config
   } finally {
@@ -66,7 +89,9 @@ async function handleSave() {
     const promises: Promise<unknown>[] = []
     for (const eng of engines.value) {
       const url = engineRegistryUrls.value[eng.runtime_id]?.trim() || null
+      const protocol = engineRegistryProtocols.value[eng.runtime_id] || eng.default_registry_protocol || 'http'
       promises.push(api.put(`/settings/${eng.image_registry_key}`, { value: url }))
+      promises.push(api.put(`/settings/${eng.image_registry_protocol_key}`, { value: url ? protocol : null }))
     }
     promises.push(api.put('/settings/registry_username', { value: registryUsername.value.trim() || null }))
     if (registryPassword.value) {
@@ -92,7 +117,8 @@ async function handleTestEngine(engineId: string) {
 
   testingEngine.value = engineId
   try {
-    const res = await api.get('/registry/tags', { params: { registry_url: url } })
+    const protocol = engineRegistryProtocols.value[engineId] || 'http'
+    const res = await api.get('/registry/tags', { params: { registry_url: url, registry_protocol: protocol } })
     const tags = (res.data.data ?? []) as { tag: string }[]
     toast.success(t('orgSettings.registryTestSuccess', { count: tags.length }))
   } catch (e: unknown) {
@@ -159,12 +185,25 @@ onMounted(() => {
               {{ t('orgSettings.registryTest') }}
             </button>
           </div>
-          <input
-            v-model="engineRegistryUrls[eng.runtime_id]"
-            type="text"
-            :placeholder="`cr.example.com/namespace/${eng.runtime_id}`"
-            class="w-full h-9 px-3 rounded-md border border-input bg-background text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
-          />
+          <div class="flex gap-2">
+            <select
+              v-model="engineRegistryProtocols[eng.runtime_id]"
+              class="h-9 w-24 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
+            >
+              <option value="http">http</option>
+              <option value="https">https</option>
+            </select>
+            <input
+              v-model="engineRegistryUrls[eng.runtime_id]"
+              type="text"
+              :placeholder="`cr.example.com/namespace/${eng.runtime_id}`"
+              class="flex-1 h-9 px-3 rounded-md border border-input bg-background text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1"
+            />
+          </div>
+          <p class="text-xs text-muted-foreground">
+            {{ t('orgSettings.registryUrlHint') }}
+            {{ t('orgSettings.registryProtocolHint') }}
+          </p>
         </div>
 
         <div class="border-t border-border pt-5 space-y-4">

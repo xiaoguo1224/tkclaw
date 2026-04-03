@@ -11,6 +11,12 @@ from app.startup.seed import DEFAULT_REGISTRY_CONFIGS
 router = APIRouter()
 
 
+def _protocol_key_for_runtime(runtime_id: str) -> str:
+    if runtime_id == "openclaw":
+        return "image_registry_protocol"
+    return f"image_registry_protocol_{runtime_id}"
+
+
 @router.get("", response_model=ApiResponse[list])
 async def list_engines(_user: User = Depends(get_current_user)):
     engines = []
@@ -23,7 +29,9 @@ async def list_engines(_user: User = Depends(get_current_user)):
             "display_powered_by": spec.display_powered_by,
             "order": spec.order,
             "image_registry_key": spec.image_registry_key,
+            "image_registry_protocol_key": _protocol_key_for_runtime(spec.runtime_id),
             "default_registry_url": DEFAULT_REGISTRY_CONFIGS.get(spec.image_registry_key, ""),
+            "default_registry_protocol": "http",
             "available": spec.available,
         })
     engines.sort(key=lambda r: r["order"])

@@ -1136,6 +1136,7 @@ const zhCN = {
     registryDescription: "配置 Docker 镜像仓库地址和认证信息，用于自动获取可部署的镜像版本",
     registryUrl: "仓库地址",
     registryUrlHint: "完整地址需包含命名空间和镜像名，如 cr.example.com/namespace/openclaw",
+    registryProtocolHint: "协议单独选择，保存时不会写入镜像名本身。",
     registryUsername: "用户名",
     registryPassword: "密码",
     registryPasswordHint: "已配置，留空不修改",

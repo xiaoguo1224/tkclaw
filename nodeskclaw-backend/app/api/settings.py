@@ -20,6 +20,7 @@ router = APIRouter()
 
 _ALLOWED_KEYS = {
     "image_registry", "registry_username", "registry_password",
+    "image_registry_protocol",
     "ingress_base_domain", "ingress_subdomain_suffix", "tls_secret_name",
     "ingress_tls_enabled",
     "allowed_storage_classes",
@@ -36,6 +37,9 @@ def _is_allowed_key(key: str) -> bool:
     if key in _ALLOWED_KEYS:
         return True
     if key.startswith("image_registry_"):
+        if key.startswith("image_registry_protocol_"):
+            runtime_id = key[len("image_registry_protocol_"):]
+            return RUNTIME_REGISTRY.get(runtime_id) is not None
         runtime_id = key[len("image_registry_"):]
         return RUNTIME_REGISTRY.get(runtime_id) is not None
     return False

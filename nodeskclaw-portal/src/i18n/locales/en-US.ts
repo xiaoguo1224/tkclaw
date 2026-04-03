@@ -1136,6 +1136,7 @@ const enUS = {
     registryDescription: "Configure Docker image registry address and credentials for fetching deployable image versions",
     registryUrl: "Registry URL",
     registryUrlHint: "Full URL including namespace and image name, e.g. cr.example.com/namespace/openclaw",
+    registryProtocolHint: "Protocol is selected separately and will not be written into the image name itself.",
     registryUsername: "Username",
     registryPassword: "Password",
     registryPasswordHint: "Configured, leave empty to keep",

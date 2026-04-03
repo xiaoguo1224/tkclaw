@@ -21,6 +21,12 @@ logger = logging.getLogger(__name__)
 _TIMEOUT = 10.0
 
 
+def _protocol_key_for_runtime(runtime: str | None) -> str:
+    if runtime and runtime != "openclaw":
+        return f"image_registry_protocol_{runtime}"
+    return "image_registry_protocol"
+
+
 async def resolve_image_registry(
     db: AsyncSession, runtime: str | None = None,
 ) -> str | None:
@@ -32,6 +38,16 @@ async def resolve_image_registry(
             if per_engine:
                 return per_engine
     return await get_config("image_registry", db)
+
+
+async def resolve_image_registry_protocol(
+    db: AsyncSession, runtime: str | None = None,
+) -> str:
+    key = _protocol_key_for_runtime(runtime)
+    protocol = (await get_config(key, db) or "").strip().lower()
+    if protocol in {"http", "https"}:
+        return protocol
+    return "http"
 
 
 async def _get_registry_auth(db: AsyncSession) -> tuple[str, str] | None:
@@ -88,6 +104,7 @@ async def list_image_tags(
     db: AsyncSession,
     registry_url: str | None = None,
     runtime: str | None = None,
+    registry_protocol: str | None = None,
 ) -> list[dict]:
     """
     Query a Docker Registry v2 for available tags.
@@ -108,7 +125,10 @@ async def list_image_tags(
     if "://" in registry:
         url = registry
     else:
-        url = f"http://{registry}"
+        protocol = (registry_protocol or "").strip().lower()
+        if protocol not in {"http", "https"}:
+            protocol = await resolve_image_registry_protocol(db, runtime)
+        url = f"{protocol}://{registry}"
 
     parts = url.split("/")
     if len(parts) >= 4:
