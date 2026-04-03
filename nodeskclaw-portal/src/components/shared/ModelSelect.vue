@@ -10,6 +10,7 @@ export interface ModelItem {
   name: string
   context_window?: number | null
   max_tokens?: number | null
+  input?: string[] | null
 }
 
 const props = withDefaults(defineProps<{

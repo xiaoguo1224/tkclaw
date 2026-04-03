@@ -240,7 +240,18 @@ async def _fetch_openai_compatible(api_key: str, base_url: str) -> list[ModelInf
         name = m.get("name") or mid
         ctx = m.get("context_length") or m.get("context_window")
         max_tok = m.get("max_tokens") or m.get("max_output_tokens")
-        models.append(ModelInfo(id=mid, name=name, context_window=ctx, max_tokens=max_tok))
+        input_types = m.get("input")
+        if not isinstance(input_types, list):
+            input_types = None
+        models.append(
+            ModelInfo(
+                id=mid,
+                name=name,
+                context_window=ctx,
+                max_tokens=max_tok,
+                input=input_types,
+            )
+        )
     models.sort(key=lambda x: x.id)
     return models
 

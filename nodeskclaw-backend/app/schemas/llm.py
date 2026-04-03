@@ -10,6 +10,7 @@ class ModelInfo(BaseModel):
     name: str
     context_window: int | None = None
     max_tokens: int | None = None
+    input: list[str] | None = None
 
 
 class ProviderModelsResponse(BaseModel):

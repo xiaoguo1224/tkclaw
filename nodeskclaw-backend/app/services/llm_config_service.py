@@ -160,10 +160,15 @@ def _to_openclaw_models(selected: list[dict]) -> list[dict]:
     result = []
     for m in selected:
         item: dict = {"id": m["id"], "name": m.get("name", m["id"])}
-        if m.get("context_window"):
-            item["contextWindow"] = m["context_window"]
-        if m.get("max_tokens"):
-            item["maxTokens"] = m["max_tokens"]
+        context_window = m.get("context_window") or m.get("contextWindow")
+        if context_window:
+            item["contextWindow"] = context_window
+        max_tokens = m.get("max_tokens") or m.get("maxTokens")
+        if max_tokens:
+            item["maxTokens"] = max_tokens
+        input_types = m.get("input")
+        if isinstance(input_types, list) and input_types:
+            item["input"] = input_types
         result.append(item)
     return result
 
@@ -388,6 +393,8 @@ def _from_openclaw_models(models: list[dict]) -> list[dict]:
             item["context_window"] = m["contextWindow"]
         if m.get("maxTokens"):
             item["max_tokens"] = m["maxTokens"]
+        if isinstance(m.get("input"), list) and m["input"]:
+            item["input"] = m["input"]
         result.append(item)
     return result
 
