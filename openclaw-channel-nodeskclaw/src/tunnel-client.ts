@@ -45,28 +45,6 @@ function deriveTunnelUrl(apiUrl: string): string {
 
 const LOCAL_GATEWAY_MODELS = ["openclaw", "openclaw/default", "openclaw/main"];
 
-function buildSessionKey(payload: Record<string, unknown>): string | undefined {
-  const workspaceId =
-    typeof payload.workspace_id === "string" ? payload.workspace_id.trim() : "";
-  if (!workspaceId) return undefined;
-
-  const sourceInstanceId =
-    typeof payload.source_instance_id === "string"
-      ? payload.source_instance_id.trim()
-      : "";
-  const target = typeof payload.target === "string" ? payload.target.trim() : "";
-
-  if (!sourceInstanceId || !target) {
-    return `workspace:${workspaceId}`;
-  }
-
-  return [
-    `workspace:${workspaceId}`,
-    `source:${encodeURIComponent(sourceInstanceId)}`,
-    `target:${encodeURIComponent(target)}`,
-  ].join(";");
-}
-
 function deriveDefaultChatModel(cfg: OpenClawConfig): string {
   const agents = (cfg as Record<string, unknown>).agents as Record<string, unknown> | undefined;
   const defaults = agents?.defaults as Record<string, unknown> | undefined;
@@ -343,7 +321,9 @@ export class TunnelClient {
       role: string;
       content: string;
     }>;
-    const sessionKey = buildSessionKey(msg.payload);
+    const sessionKey = msg.payload.workspace_id
+      ? `workspace:${msg.payload.workspace_id}`
+      : undefined;
 
     if (msg.payload.no_reply === true) {
       fetch(url, {
