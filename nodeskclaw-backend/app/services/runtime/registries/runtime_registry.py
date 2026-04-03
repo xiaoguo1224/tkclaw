@@ -38,6 +38,10 @@ class RuntimeSpec:
     has_init_script: bool = True
     available: bool = True
     docker_command: tuple[str, ...] | None = None
+    backup_dirs: tuple[str, ...] = ()
+    backup_exclude_patterns: tuple[str, ...] = (
+        "node_modules", "dist", "__pycache__", ".git", "cache", "*.pyc",
+    )
 
 
 class RuntimeRegistry:
@@ -82,6 +86,7 @@ def _register_builtins() -> None:
         display_powered_by="OpenClaw",
         readiness_probe_path="/readyz",
         order=0,
+        backup_dirs=(".openclaw", ".deskclaw/tools"),
     ))
     RUNTIME_REGISTRY.register(RuntimeSpec(
         runtime_id="nanobot",
@@ -107,6 +112,7 @@ def _register_builtins() -> None:
         has_web_ui=False,
         has_init_script=False,
         available=False,
+        backup_dirs=(".nanobot", ".deskclaw/skills"),
     ))
 
 
