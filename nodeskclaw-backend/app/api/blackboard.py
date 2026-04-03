@@ -355,8 +355,8 @@ async def read_file_content(
     result = await workspace_service.read_shared_file(db, workspace_id, file_id)
     if result is None:
         return _ok(None, "not found")
-    b64, ct, filename = result
-    return _ok({"content": b64, "content_type": ct, "filename": filename})
+    b64, ct = result
+    return _ok({"content": b64, "content_type": ct})
 
 
 @router.delete("/{workspace_id}/blackboard/files/{file_id}")

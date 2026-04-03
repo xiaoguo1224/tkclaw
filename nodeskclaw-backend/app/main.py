@@ -359,7 +359,6 @@ async def lifespan(app: FastAPI):
                     "mcp_performance_reader.json",
                     "mcp_topology_awareness.json",
                     "mcp_shared_files.json",
-                    "mcp_file_reader.json",
                     "meta_gene_ai_hc.json",
                     "meta_gene_reorg.json",
                     "meta_gene_culture.json",

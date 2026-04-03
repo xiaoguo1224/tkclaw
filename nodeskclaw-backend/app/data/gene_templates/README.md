@@ -21,15 +21,14 @@ gene_templates/
 ├── mcp_proposals.json               # 提案/审批基因
 ├── mcp_gene_discovery.json          # 基因发现/安装基因
 ├── mcp_shared_files.json            # 共享文件管理基因
-├── mcp_file_reader.json             # 文档读取基因
 ├── meta_gene_ai_hc.json             # AI HC 招聘元基因
 ├── meta_gene_reorg.json             # 自组织重构元基因
 ├── meta_gene_culture.json           # 团队文化元基因
 ├── meta_gene_self_improve.json      # 自我改进元基因
 ├── meta_gene_innovation.json        # 创新探索元基因
 ├── meta_gene_akr_decomposer.json    # AKR 分解元基因（O -> KR -> Task）
-├── genome_self_management.json      # 自管理基因组（捆绑 6 个工具基因，旧版）
-├── genome_ai_employee_basics.json   # AI 员工基础技能基因组（捆绑 7 个工具基因 + 1 个元基因）
+├── genome_self_management.json      # 自管理基因组（捆绑 5 个工具基因，旧版）
+├── genome_ai_employee_basics.json   # AI 员工基础技能基因组（捆绑 6 个工具基因 + 1 个元基因）
 ├── workflow_genome_example.json     # 内容创作流水线基因组（含拓扑推荐）
 └── workflow_step_template.json      # 工作流步骤基因的 manifest 模板（不入库）
 ```
@@ -55,7 +54,6 @@ gene_templates/
 | 工具基因 | mcp_proposals.json | nodeskclaw-proposals | 已上传 |
 | 工具基因 | mcp_gene_discovery.json | nodeskclaw-gene-discovery | 已上传 |
 | 工具基因 | mcp_shared_files.json | nodeskclaw-shared-files | 待上传 |
-| 工具基因 | mcp_file_reader.json | nodeskclaw-file-reader | 待上传 |
 | 元基因 | meta_gene_ai_hc.json | ai-hc-recruiter | 已上传 |
 | 元基因 | meta_gene_reorg.json | self-reorg | 已上传 |
 | 元基因 | meta_gene_culture.json | team-culture-concise | 已上传 |
