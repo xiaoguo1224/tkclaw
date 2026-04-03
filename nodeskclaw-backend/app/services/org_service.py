@@ -280,6 +280,7 @@ async def list_members(
         .where(
             OrgMembership.org_id == org_id,
             not_deleted(OrgMembership),
+            not_deleted(User),
             admin_filter,
         )
     )
@@ -352,6 +353,7 @@ async def update_member_role(org_id: str, membership_id: str, role: str, db: Asy
             OrgMembership.id == membership_id,
             OrgMembership.org_id == org_id,
             not_deleted(OrgMembership),
+            not_deleted(User),
         )
     )
     row = result.first()
