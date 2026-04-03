@@ -84,36 +84,6 @@ function jsonResult(payload: unknown) {
   };
 }
 
-function looksLikeBase64(content: string): boolean {
-  const normalized = content.replace(/\s+/g, "");
-  if (!normalized || normalized.length < 16 || normalized.length % 4 === 1) {
-    return false;
-  }
-  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(normalized)) {
-    return false;
-  }
-  try {
-    return Buffer.from(normalized, "base64").toString("base64").replace(/=+$/, "") === normalized.replace(/=+$/, "");
-  } catch {
-    return false;
-  }
-}
-
-function decodeBase64Content(content: string): Uint8Array | null {
-  let normalized = content.trim();
-  if (!normalized) {
-    return new Uint8Array();
-  }
-  if (normalized.startsWith("data:") && normalized.includes(",")) {
-    normalized = normalized.split(",", 2)[1] ?? "";
-  }
-  normalized = normalized.replace(/\s+/g, "");
-  if (!looksLikeBase64(normalized)) {
-    return null;
-  }
-  return Uint8Array.from(Buffer.from(normalized, "base64"));
-}
-
 function buildSharedFileFormData(
   parentPath: string,
   filename: string,
@@ -129,12 +99,6 @@ function buildSharedFileFormData(
       new Blob([JSON.stringify(content ?? "")], { type: resolvedContentType }),
       filename,
     );
-    return formData;
-  }
-
-  const decoded = decodeBase64Content(content);
-  if (decoded) {
-    formData.append("file", new Blob([decoded], { type: resolvedContentType }), filename);
     return formData;
   }
 
@@ -529,7 +493,7 @@ function createSharedFilesTool(cfg: ToolConfig): AnyAgentTool {
         parent_path: { type: "string", description: "list_files / write_file / mkdir: directory path (default '/')." },
         file_id: { type: "string", description: "read_file / delete_file: target file ID." },
         filename: { type: "string", description: "write_file: file name." },
-        content: { type: "string", description: "write_file: file content. Plain text is uploaded directly; legacy base64 input is still accepted for compatibility." },
+        content: { type: "string", description: "write_file: file content. Uploaded directly as-is." },
         content_type: { type: "string", description: "write_file: MIME type. If omitted or generic, the backend infers it from the filename." },
         name: { type: "string", description: "mkdir: directory name." },
       },

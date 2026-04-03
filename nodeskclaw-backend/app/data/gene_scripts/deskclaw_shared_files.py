@@ -7,9 +7,9 @@ Usage:
 Actions:
   list_files [--path /]              List files in a directory
   read_file --file-id ID             Read file content (returns base64)
-  write_file --filename NAME [--content TEXT | --file-path PATH | --content-b64 DATA]
+  write_file --filename NAME [--content TEXT | --file-path PATH]
              [--parent-path /] [--content-type TYPE]
-                                     Upload a file directly; legacy base64 input is still supported
+                                     Upload a file directly
   delete_file --file-id ID           Delete a file
   mkdir --name NAME [--parent-path /]  Create a directory
   get_file_url --file-id ID          Get download URL for a file
@@ -23,8 +23,6 @@ Environment:
 from __future__ import annotations
 
 import argparse
-import base64
-import binascii
 from pathlib import Path
 import sys
 
@@ -46,7 +44,6 @@ def _build_parser() -> argparse.ArgumentParser:
     group = sp.add_mutually_exclusive_group(required=True)
     group.add_argument("--content", help="Raw UTF-8 text content")
     group.add_argument("--file-path", help="Local file path to upload directly")
-    group.add_argument("--content-b64", help="Legacy base64-encoded file content")
     sp.add_argument("--parent-path", default="/")
     sp.add_argument("--content-type", default="application/octet-stream")
 
@@ -61,22 +58,6 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--file-id", required=True)
 
     return p
-
-
-def _decode_legacy_content(raw: str) -> bytes:
-    normalized = raw.strip()
-    if not normalized:
-        return b""
-    if normalized.startswith("data:") and "," in normalized:
-        normalized = normalized.split(",", 1)[1].strip()
-    compact = "".join(normalized.split())
-    padded = compact + ("=" * (-len(compact) % 4))
-    for candidate in (compact, padded):
-        try:
-            return base64.b64decode(candidate, validate=True)
-        except (binascii.Error, ValueError):
-            pass
-    return raw.encode("utf-8")
 
 
 def main() -> None:
@@ -94,10 +75,8 @@ def main() -> None:
     elif action == "write_file":
         if args.file_path:
             file_content = Path(args.file_path).read_bytes()
-        elif args.content is not None:
-            file_content = args.content.encode("utf-8")
         else:
-            file_content = _decode_legacy_content(args.content_b64)
+            file_content = args.content.encode("utf-8")
         _output(api_upload_file(
             f"{base}/upload",
             fields={"parent_path": args.parent_path},

@@ -314,7 +314,7 @@ class FileInfo(BaseModel):
 
 class FileWriteRequest(BaseModel):
     parent_path: str = Field("/", max_length=1024)
-    content: str = Field(..., description="Base64-encoded file content or raw UTF-8 text")
+    content: str = Field(..., description="Raw UTF-8 text content")
     filename: str = Field(..., min_length=1, max_length=255)
     content_type: str = "application/octet-stream"
 

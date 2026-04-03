@@ -2,7 +2,6 @@
 
 import asyncio
 import base64
-import binascii
 from collections.abc import Sequence
 import io
 import logging
@@ -81,22 +80,10 @@ def _decode_shared_file_content(content: str, content_type: str) -> bytes:
     if not raw:
         raise BadRequestError("文件内容不能为空")
 
-    if raw.startswith("data:") and "," in raw:
-        raw = raw.split(",", 1)[1].strip()
-
-    normalized = re.sub(r"\s+", "", raw)
-    if normalized:
-        padded = normalized + ("=" * (-len(normalized) % 4))
-        for candidate in (normalized, padded):
-            try:
-                return base64.b64decode(candidate, validate=True)
-            except (binascii.Error, ValueError):
-                pass
-
     if content_type.startswith("text/") or "json" in content_type or "xml" in content_type:
         return raw.encode("utf-8")
 
-    raise BadRequestError("文件内容格式不正确，请传入 base64 编码内容")
+    raise BadRequestError("文件内容格式不正确，请直接传入文本内容")
 
 
 def _fire_task(coro: Coroutine) -> asyncio.Task:
