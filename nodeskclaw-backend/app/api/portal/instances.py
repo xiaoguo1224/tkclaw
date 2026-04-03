@@ -17,6 +17,7 @@ from app.models.instance import Instance
 from app.models.instance_member import InstanceMember, InstanceRole
 from app.models.base import not_deleted
 from app.models.user import User
+from app.schemas.backup import CloneRequest, RestoreRequest
 from app.schemas.common import ApiResponse
 from app.schemas.deploy import DeployRecordInfo
 from app.schemas.instance import InstanceDetail, InstanceInfo, UpdateConfigRequest
@@ -304,6 +305,124 @@ async def pod_logs_stream(
             yield f"event: error\ndata: {json.dumps({'message': str(e)})}\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream")
+
+
+# ── Disaster recovery: rebuild / backup / restore / clone ──
+
+
+@router.post("/{instance_id}/rebuild", response_model=ApiResponse[dict])
+async def rebuild_instance(
+    instance_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    import asyncio
+    from app.services import deploy_service
+
+    await instance_member_service.check_instance_access(
+        instance_id, current_user, InstanceRole.admin, db
+    )
+    deploy_id, ctx = await deploy_service.rebuild_instance(
+        instance_id, current_user.id, db, org_id=current_user.current_org_id
+    )
+    task = asyncio.create_task(deploy_service.execute_rebuild_pipeline(ctx))
+    deploy_service.register_deploy_task(deploy_id, task)
+    await hooks.emit("operation_audit", action="instance.rebuild", target_type="instance", target_id=instance_id, actor_id=current_user.id, org_id=current_user.current_org_id, details={"deploy_id": deploy_id, "source": "portal"})
+    return ApiResponse(data={"deploy_id": deploy_id})
+
+
+@router.post("/{instance_id}/backups", response_model=ApiResponse[dict])
+async def create_backup(
+    instance_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services import backup_service
+
+    await instance_member_service.check_instance_access(
+        instance_id, current_user, InstanceRole.editor, db
+    )
+    backup = await backup_service.create_backup(
+        instance_id, current_user.id, db, org_id=current_user.current_org_id
+    )
+    await hooks.emit("operation_audit", action="instance.backup_created", target_type="instance", target_id=instance_id, actor_id=current_user.id, org_id=current_user.current_org_id, details={"backup_id": backup.id, "source": "portal"})
+    return ApiResponse(data={"backup_id": backup.id})
+
+
+@router.get("/{instance_id}/backups", response_model=ApiResponse[list])
+async def list_backups(
+    instance_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services import backup_service
+    from app.schemas.backup import BackupInfo
+
+    await instance_member_service.check_instance_access(
+        instance_id, current_user, InstanceRole.viewer, db
+    )
+    backups = await backup_service.list_backups(
+        instance_id, db, org_id=current_user.current_org_id
+    )
+    return ApiResponse(data=[BackupInfo.model_validate(b) for b in backups])
+
+
+@router.delete("/{instance_id}/backups/{backup_id}", response_model=ApiResponse)
+async def delete_backup(
+    instance_id: str,
+    backup_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services import backup_service
+
+    await instance_member_service.check_instance_access(
+        instance_id, current_user, InstanceRole.admin, db
+    )
+    await backup_service.delete_backup(backup_id, db)
+    await hooks.emit("operation_audit", action="instance.backup_deleted", target_type="instance", target_id=instance_id, actor_id=current_user.id, org_id=current_user.current_org_id, details={"backup_id": backup_id, "source": "portal"})
+    return ApiResponse(message="备份已删除")
+
+
+@router.post("/{instance_id}/restore", response_model=ApiResponse[dict])
+async def restore_from_backup(
+    instance_id: str,
+    body: RestoreRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services import backup_service
+
+    await instance_member_service.check_instance_access(
+        instance_id, current_user, InstanceRole.admin, db
+    )
+    deploy_id = await backup_service.restore_from_backup(
+        instance_id, body.backup_id, current_user.id, db,
+        org_id=current_user.current_org_id,
+    )
+    await hooks.emit("operation_audit", action="instance.restored", target_type="instance", target_id=instance_id, actor_id=current_user.id, org_id=current_user.current_org_id, details={"deploy_id": deploy_id, "source": "portal"})
+    return ApiResponse(data={"deploy_id": deploy_id})
+
+
+@router.post("/{instance_id}/clone", response_model=ApiResponse[dict])
+async def clone_instance(
+    instance_id: str,
+    body: CloneRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    from app.services import backup_service
+
+    await instance_member_service.check_instance_access(
+        instance_id, current_user, InstanceRole.admin, db
+    )
+    new_id, deploy_id = await backup_service.clone_instance(
+        instance_id, body.name, current_user.id, db,
+        org_id=current_user.current_org_id,
+        cluster_id=body.cluster_id,
+    )
+    await hooks.emit("operation_audit", action="instance.cloned", target_type="instance", target_id=instance_id, actor_id=current_user.id, org_id=current_user.current_org_id, details={"new_instance_id": new_id, "deploy_id": deploy_id, "source": "portal"})
+    return ApiResponse(data={"instance_id": new_id, "deploy_id": deploy_id})
 
 
 async def _cascade_soft_delete_members(instance_id: str, db: AsyncSession) -> None:
