@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import delete, update
+from sqlalchemy import func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -40,8 +40,6 @@ async def compact_warm_event_logs(db: AsyncSession) -> int:
 
 async def cleanup_event_logs(db: AsyncSession, retention_days: int = WARM_RETENTION_DAYS) -> int:
     """Soft-delete event_logs older than warm tier."""
-    from sqlalchemy import func
-
     from app.models.event_log import EventLog
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
@@ -64,14 +62,17 @@ async def cleanup_consumed_queue_items(db: AsyncSession, retention_days: int = M
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
     result = await db.execute(
-        delete(MessageQueueItem).where(
+        update(MessageQueueItem)
+        .where(
             MessageQueueItem.status == "delivered",
             MessageQueueItem.created_at < cutoff,
+            MessageQueueItem.deleted_at.is_(None),
         )
+        .values(deleted_at=func.now())
     )
     count = result.rowcount or 0
     if count > 0:
-        logger.info("Retention: deleted %d consumed queue items older than %d days", count, retention_days)
+        logger.info("Retention: soft-deleted %d consumed queue items older than %d days", count, retention_days)
     return count
 
 
