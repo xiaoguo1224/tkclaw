@@ -94,6 +94,21 @@ async def set_default(version_id: str, db: AsyncSession) -> EngineVersion:
     return ev
 
 
+async def update_notes(version_id: str, notes: str, db: AsyncSession) -> EngineVersion:
+    result = await db.execute(
+        select(EngineVersion).where(
+            EngineVersion.id == version_id,
+            not_deleted(EngineVersion),
+        )
+    )
+    ev = result.scalar_one_or_none()
+    if not ev:
+        raise NotFoundError("版本不存在", "errors.engine_version.not_found")
+    ev.release_notes = notes
+    await db.flush()
+    return ev
+
+
 async def deprecate(version_id: str, db: AsyncSession) -> EngineVersion:
     result = await db.execute(
         select(EngineVersion).where(

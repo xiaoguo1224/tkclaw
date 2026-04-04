@@ -64,12 +64,13 @@ async def update_version(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ):
-    ev = None
     if body.is_default is True:
         ev = await engine_version_service.set_default(version_id, db)
-    if body.status == "deprecated":
+    elif body.status == "deprecated":
         ev = await engine_version_service.deprecate(version_id, db)
-    if ev is None:
+    elif body.release_notes is not None:
+        ev = await engine_version_service.update_notes(version_id, body.release_notes, db)
+    else:
         from app.core.exceptions import BadRequestError
         raise BadRequestError("无效的更新操作", "errors.engine_version.invalid_update")
     await db.commit()
