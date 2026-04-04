@@ -488,6 +488,7 @@ async def seed_engine_versions(
             select(Instance.runtime, Instance.image_version)
             .where(
                 Instance.image_version.isnot(None),
+                Instance.image_version != "",
                 Instance.deleted_at.is_(None),
             )
             .distinct()
