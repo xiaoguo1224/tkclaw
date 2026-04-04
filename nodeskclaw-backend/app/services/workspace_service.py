@@ -23,6 +23,10 @@ from app.models.workspace_objective import WorkspaceObjective
 from app.models.workspace_schedule import WorkspaceSchedule
 from app.models.workspace_task import WorkspaceTask
 from app.services import storage_service
+from app.services.workspace_defaults import (
+    DEFAULT_WORKSPACE_SCHEDULE_MESSAGE,
+    DEFAULT_WORKSPACE_SCHEDULE_NAME,
+)
 from app.services.runtime import node_card as node_card_service
 from app.schemas.workspace import (
     AddAgentRequest,
@@ -123,9 +127,9 @@ async def create_workspace(db: AsyncSession, org_id: str, user_id: str, data: Wo
 
     schedule = WorkspaceSchedule(
         workspace_id=ws.id,
-        name="定时巡检",
+        name=DEFAULT_WORKSPACE_SCHEDULE_NAME,
         cron_expr="0 */4 * * *",
-        message_template="请检查黑板待办任务队列，接取并执行优先级最高的任务。完成后汇报进展。",
+        message_template=DEFAULT_WORKSPACE_SCHEDULE_MESSAGE,
         is_active=False,
     )
     db.add(schedule)

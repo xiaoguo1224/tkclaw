@@ -437,6 +437,12 @@ async def seed_default_required_genes(
 
 
 async def _ensure_workspace_schedules(session_factory: async_sessionmaker[AsyncSession]) -> None:
+    from app.services.workspace_defaults import (
+        DEFAULT_WORKSPACE_SCHEDULE_MESSAGE,
+        DEFAULT_WORKSPACE_SCHEDULE_NAME,
+        LEGACY_WORKSPACE_SCHEDULE_NAMES,
+    )
+
     async with session_factory() as db:
         from app.models.workspace import Workspace
         from app.models.workspace_schedule import WorkspaceSchedule
@@ -449,16 +455,16 @@ async def _ensure_workspace_schedules(session_factory: async_sessionmaker[AsyncS
             existing = (await db.execute(
                 select(WorkspaceSchedule).where(
                     WorkspaceSchedule.workspace_id == ws.id,
-                    WorkspaceSchedule.name.in_(["任务巡检", "定时巡检"]),
+                    WorkspaceSchedule.name.in_(LEGACY_WORKSPACE_SCHEDULE_NAMES),
                     WorkspaceSchedule.deleted_at.is_(None),
                 ).order_by(WorkspaceSchedule.created_at.desc())
             )).scalars().first()
             if existing is None:
                 db.add(WorkspaceSchedule(
                     workspace_id=ws.id,
-                    name="定时巡检",
+                    name=DEFAULT_WORKSPACE_SCHEDULE_NAME,
                     cron_expr="0 */4 * * *",
-                    message_template="请检查黑板待办任务队列，接取并执行优先级最高的任务。完成后汇报进展。",
+                    message_template=DEFAULT_WORKSPACE_SCHEDULE_MESSAGE,
                     is_active=False,
                 ))
         await db.commit()
