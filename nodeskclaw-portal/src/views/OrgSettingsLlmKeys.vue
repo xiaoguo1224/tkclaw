@@ -2,7 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useOrgStore } from '@/stores/org'
-import { Plus, Pencil, Trash2, Loader2, KeyRound, ChevronDown } from 'lucide-vue-next'
+import { Settings, Loader2, KeyRound, Check, X } from 'lucide-vue-next'
 import api from '@/services/api'
 import { useToast } from '@/composables/useToast'
 import { useConfirm } from '@/composables/useConfirm'
@@ -16,11 +16,11 @@ const { confirm } = useConfirm()
 
 const orgId = computed(() => orgStore.currentOrgId)
 
-interface OrgLlmKey {
+interface ModelProvider {
   id: string
   org_id: string
   provider: string
-  label: string
+  label: string | null
   api_key_masked: string
   base_url: string | null
   org_token_limit: number | null
@@ -32,18 +32,16 @@ interface OrgLlmKey {
 
 const NON_CODEX_PROVIDERS = PROVIDERS.filter(p => p !== 'codex')
 
-const keys = ref<OrgLlmKey[]>([])
+const providers = ref<ModelProvider[]>([])
 const loading = ref(true)
 
 const showDialog = ref(false)
+const dialogProvider = ref('')
 const isEditing = ref(false)
-const editingKey = ref<OrgLlmKey | null>(null)
+const editingId = ref<string | null>(null)
 const saving = ref(false)
-const providerDropdownOpen = ref(false)
 
 const form = ref({
-  provider: '',
-  label: '',
   api_key: '',
   base_url: '',
   org_token_limit: '',
@@ -52,15 +50,23 @@ const form = ref({
 })
 
 function resetForm() {
-  form.value = { provider: '', label: '', api_key: '', base_url: '', org_token_limit: '', system_token_limit: '', is_active: true }
+  form.value = { api_key: '', base_url: '', org_token_limit: '', system_token_limit: '', is_active: true }
 }
 
-async function fetchKeys() {
+function configuredMap(): Record<string, ModelProvider> {
+  const map: Record<string, ModelProvider> = {}
+  for (const p of providers.value) {
+    map[p.provider] = p
+  }
+  return map
+}
+
+async function fetchProviders() {
   if (!orgId.value) return
   loading.value = true
   try {
-    const res = await api.get(`/orgs/${orgId.value}/llm-keys`)
-    keys.value = res.data.data ?? []
+    const res = await api.get(`/orgs/${orgId.value}/model-providers`)
+    providers.value = res.data.data ?? []
   } catch (e: any) {
     toast.error(resolveApiErrorMessage(e))
   } finally {
@@ -68,24 +74,23 @@ async function fetchKeys() {
   }
 }
 
-function openCreate() {
+function openConfigure(providerName: string) {
   resetForm()
-  isEditing.value = false
-  editingKey.value = null
-  showDialog.value = true
-}
-
-function openEdit(key: OrgLlmKey) {
-  editingKey.value = key
-  isEditing.value = true
-  form.value = {
-    provider: key.provider,
-    label: key.label,
-    api_key: '',
-    base_url: key.base_url || '',
-    org_token_limit: key.org_token_limit?.toString() ?? '',
-    system_token_limit: key.system_token_limit?.toString() ?? '',
-    is_active: key.is_active,
+  dialogProvider.value = providerName
+  const existing = configuredMap()[providerName]
+  if (existing) {
+    isEditing.value = true
+    editingId.value = existing.id
+    form.value = {
+      api_key: '',
+      base_url: existing.base_url || '',
+      org_token_limit: existing.org_token_limit?.toString() ?? '',
+      system_token_limit: existing.system_token_limit?.toString() ?? '',
+      is_active: existing.is_active,
+    }
+  } else {
+    isEditing.value = false
+    editingId.value = null
   }
   showDialog.value = true
 }
@@ -94,18 +99,17 @@ async function handleSave() {
   if (!orgId.value) return
   saving.value = true
   try {
-    if (isEditing.value && editingKey.value) {
-      const payload: Record<string, any> = { label: form.value.label, is_active: form.value.is_active }
+    if (isEditing.value && editingId.value) {
+      const payload: Record<string, any> = { is_active: form.value.is_active }
       if (form.value.api_key) payload.api_key = form.value.api_key
-      if (form.value.base_url !== (editingKey.value.base_url || '')) payload.base_url = form.value.base_url || null
+      payload.base_url = form.value.base_url || null
       payload.org_token_limit = form.value.org_token_limit ? Number(form.value.org_token_limit) : null
       payload.system_token_limit = form.value.system_token_limit ? Number(form.value.system_token_limit) : null
-      await api.patch(`/orgs/${orgId.value}/llm-keys/${editingKey.value.id}`, payload)
+      await api.patch(`/orgs/${orgId.value}/model-providers/${editingId.value}`, payload)
       toast.success(t('orgSettings.llmKeysUpdated'))
     } else {
-      await api.post(`/orgs/${orgId.value}/llm-keys`, {
-        provider: form.value.provider,
-        label: form.value.label,
+      await api.post(`/orgs/${orgId.value}/model-providers`, {
+        provider: dialogProvider.value,
         api_key: form.value.api_key,
         base_url: form.value.base_url || undefined,
         org_token_limit: form.value.org_token_limit ? Number(form.value.org_token_limit) : undefined,
@@ -114,7 +118,7 @@ async function handleSave() {
       toast.success(t('orgSettings.llmKeysCreated'))
     }
     showDialog.value = false
-    await fetchKeys()
+    await fetchProviders()
   } catch (e: any) {
     toast.error(resolveApiErrorMessage(e) || t(isEditing.value ? 'orgSettings.llmKeysUpdateFailed' : 'orgSettings.llmKeysCreateFailed'))
   } finally {
@@ -122,7 +126,9 @@ async function handleSave() {
   }
 }
 
-async function handleDelete(key: OrgLlmKey) {
+async function handleDelete(providerName: string) {
+  const existing = configuredMap()[providerName]
+  if (!existing) return
   const ok = await confirm({
     title: t('common.delete'),
     description: t('orgSettings.llmKeysDeleteConfirm'),
@@ -131,15 +137,15 @@ async function handleDelete(key: OrgLlmKey) {
   })
   if (!ok) return
   try {
-    await api.delete(`/orgs/${orgId.value}/llm-keys/${key.id}`)
+    await api.delete(`/orgs/${orgId.value}/model-providers/${existing.id}`)
     toast.success(t('orgSettings.llmKeysDeleted'))
-    await fetchKeys()
+    await fetchProviders()
   } catch (e: any) {
     toast.error(resolveApiErrorMessage(e) || t('orgSettings.llmKeysDeleteFailed'))
   }
 }
 
-function formatTokens(n: number | null): string {
+function formatTokens(n: number | null | undefined): string {
   if (n == null) return t('orgSettings.llmKeysNoLimit')
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`
@@ -152,162 +158,105 @@ function usagePercent(used: number, limit: number | null): number {
 }
 
 const canSave = computed(() => {
-  if (isEditing.value) return !!form.value.label
-  return !!form.value.provider && !!form.value.label && !!form.value.api_key
+  if (isEditing.value) return true
+  return !!form.value.api_key
 })
 
-onMounted(fetchKeys)
+onMounted(fetchProviders)
 </script>
 
 <template>
   <div class="space-y-6">
-    <!-- Header -->
-    <div class="flex items-center justify-between">
-      <div>
-        <h2 class="text-lg font-semibold flex items-center gap-2">
-          <KeyRound class="w-5 h-5" />
-          {{ t('orgSettings.llmKeysTitle') }}
-        </h2>
-        <p class="text-sm text-muted-foreground mt-1">{{ t('orgSettings.llmKeysDescription') }}</p>
-      </div>
-      <button
-        class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90 transition-colors"
-        @click="openCreate"
-      >
-        <Plus class="w-4 h-4" />
-        {{ t('orgSettings.llmKeysAdd') }}
-      </button>
+    <div>
+      <h2 class="text-lg font-semibold flex items-center gap-2">
+        <KeyRound class="w-5 h-5" />
+        {{ t('orgSettings.llmKeysTitle') }}
+      </h2>
+      <p class="text-sm text-muted-foreground mt-1">{{ t('orgSettings.llmKeysDescription') }}</p>
     </div>
 
-    <!-- Loading -->
     <div v-if="loading" class="flex items-center justify-center py-12">
       <Loader2 class="w-5 h-5 animate-spin text-muted-foreground" />
     </div>
 
-    <!-- Empty state -->
-    <div v-else-if="keys.length === 0" class="text-center py-12">
-      <KeyRound class="w-10 h-10 mx-auto text-muted-foreground/50 mb-3" />
-      <p class="text-sm text-muted-foreground">{{ t('orgSettings.llmKeysEmpty') }}</p>
-      <p class="text-xs text-muted-foreground/70 mt-1">{{ t('orgSettings.llmKeysEmptyHint') }}</p>
+    <div v-else class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div
+        v-for="providerName in NON_CODEX_PROVIDERS"
+        :key="providerName"
+        class="rounded-lg border border-border bg-card p-4 hover:border-primary/30 transition-colors"
+      >
+        <div class="flex items-center justify-between mb-3">
+          <span class="font-medium text-sm">{{ PROVIDER_LABELS[providerName] || providerName }}</span>
+          <span
+            v-if="configuredMap()[providerName]"
+            class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium"
+            :class="configuredMap()[providerName].is_active
+              ? 'bg-green-500/10 text-green-500'
+              : 'bg-muted text-muted-foreground'"
+          >
+            <Check v-if="configuredMap()[providerName].is_active" class="w-3 h-3" />
+            <X v-else class="w-3 h-3" />
+            {{ configuredMap()[providerName].is_active ? t('orgSettings.llmKeysConfigured') : t('orgSettings.llmKeysDisabled') }}
+          </span>
+        </div>
+
+        <template v-if="configuredMap()[providerName]">
+          <div class="space-y-2 text-xs text-muted-foreground">
+            <div class="font-mono">{{ configuredMap()[providerName].api_key_masked }}</div>
+            <div class="flex items-center gap-2">
+              <span>{{ formatTokens(configuredMap()[providerName].usage_total_tokens) }} / {{ formatTokens(configuredMap()[providerName].org_token_limit) }}</span>
+              <div v-if="configuredMap()[providerName].org_token_limit" class="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                <div
+                  class="h-full rounded-full transition-all"
+                  :class="usagePercent(configuredMap()[providerName].usage_total_tokens, configuredMap()[providerName].org_token_limit) > 90 ? 'bg-destructive' : 'bg-primary'"
+                  :style="{ width: usagePercent(configuredMap()[providerName].usage_total_tokens, configuredMap()[providerName].org_token_limit) + '%' }"
+                />
+              </div>
+            </div>
+          </div>
+          <div class="flex items-center gap-2 mt-3">
+            <button
+              class="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-sm hover:bg-muted transition-colors"
+              @click="openConfigure(providerName)"
+            >
+              <Settings class="w-3.5 h-3.5" />
+              {{ t('orgSettings.llmKeysSettings') }}
+            </button>
+            <button
+              class="px-3 py-1.5 rounded-md text-sm text-destructive hover:bg-destructive/10 transition-colors"
+              @click="handleDelete(providerName)"
+            >
+              {{ t('common.delete') }}
+            </button>
+          </div>
+        </template>
+
+        <template v-else>
+          <div class="text-xs text-muted-foreground/60 mb-3">{{ t('orgSettings.llmKeysNotConfigured') }}</div>
+          <button
+            class="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-sm hover:bg-primary/90 transition-colors"
+            @click="openConfigure(providerName)"
+          >
+            {{ t('orgSettings.llmKeysConfigure') }}
+          </button>
+        </template>
+      </div>
     </div>
 
-    <!-- Key table -->
-    <div v-else class="rounded-lg border border-border overflow-hidden">
-      <table class="w-full text-sm">
-        <thead>
-          <tr class="border-b border-border bg-muted/30">
-            <th class="text-left px-4 py-2.5 font-medium text-muted-foreground">{{ t('orgSettings.llmKeysColProvider') }}</th>
-            <th class="text-left px-4 py-2.5 font-medium text-muted-foreground">{{ t('orgSettings.llmKeysColLabel') }}</th>
-            <th class="text-left px-4 py-2.5 font-medium text-muted-foreground">{{ t('orgSettings.llmKeysColKey') }}</th>
-            <th class="text-left px-4 py-2.5 font-medium text-muted-foreground">{{ t('orgSettings.llmKeysColUsage') }}</th>
-            <th class="text-left px-4 py-2.5 font-medium text-muted-foreground">{{ t('orgSettings.llmKeysColStatus') }}</th>
-            <th class="text-left px-4 py-2.5 font-medium text-muted-foreground w-20">{{ t('orgSettings.llmKeysColActions') }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="key in keys" :key="key.id" class="border-b border-border last:border-0 hover:bg-muted/20 transition-colors">
-            <td class="px-4 py-3">
-              <span class="inline-flex px-2 py-0.5 rounded text-xs font-medium bg-primary/10 text-primary">
-                {{ PROVIDER_LABELS[key.provider] || key.provider }}
-              </span>
-            </td>
-            <td class="px-4 py-3 font-medium">{{ key.label }}</td>
-            <td class="px-4 py-3 font-mono text-xs text-muted-foreground">{{ key.api_key_masked }}</td>
-            <td class="px-4 py-3">
-              <div class="space-y-1">
-                <div class="text-xs">
-                  {{ formatTokens(key.usage_total_tokens) }} / {{ formatTokens(key.org_token_limit) }}
-                </div>
-                <div v-if="key.org_token_limit" class="w-24 h-1.5 bg-muted rounded-full overflow-hidden">
-                  <div
-                    class="h-full rounded-full transition-all"
-                    :class="usagePercent(key.usage_total_tokens, key.org_token_limit) > 90 ? 'bg-destructive' : 'bg-primary'"
-                    :style="{ width: usagePercent(key.usage_total_tokens, key.org_token_limit) + '%' }"
-                  />
-                </div>
-              </div>
-            </td>
-            <td class="px-4 py-3">
-              <span
-                class="inline-flex px-2 py-0.5 rounded text-xs font-medium"
-                :class="key.is_active ? 'bg-green-500/10 text-green-500' : 'bg-muted text-muted-foreground'"
-              >
-                {{ key.is_active ? t('orgSettings.llmKeysStatusActive') : t('orgSettings.llmKeysStatusInactive') }}
-              </span>
-            </td>
-            <td class="px-4 py-3">
-              <div class="flex items-center gap-1">
-                <button
-                  class="p-1.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-                  @click="openEdit(key)"
-                >
-                  <Pencil class="w-3.5 h-3.5" />
-                </button>
-                <button
-                  class="p-1.5 rounded hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive"
-                  @click="handleDelete(key)"
-                >
-                  <Trash2 class="w-3.5 h-3.5" />
-                </button>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <!-- Create / Edit Dialog -->
     <Teleport to="body">
       <div v-if="showDialog" class="fixed inset-0 z-50 flex items-center justify-center">
         <div class="absolute inset-0 bg-black/50" @click="showDialog = false" />
         <div class="relative w-full max-w-md mx-4 rounded-lg border border-border bg-card shadow-lg">
           <div class="px-6 pt-6 pb-4">
             <h3 class="text-lg font-semibold">
-              {{ isEditing ? t('orgSettings.llmKeysEditTitle') : t('orgSettings.llmKeysAddTitle') }}
+              {{ PROVIDER_LABELS[dialogProvider] || dialogProvider }}
+              <span class="text-sm font-normal text-muted-foreground ml-2">
+                {{ isEditing ? t('orgSettings.llmKeysEditTitle') : t('orgSettings.llmKeysAddTitle') }}
+              </span>
             </h3>
           </div>
 
           <div class="px-6 space-y-4">
-            <!-- Provider (create only) -->
-            <div v-if="!isEditing" class="space-y-1.5">
-              <label class="text-sm font-medium">{{ t('orgSettings.llmKeysProvider') }}</label>
-              <div class="relative">
-                <button
-                  class="w-full flex items-center justify-between px-3 py-2 rounded-md border border-border bg-background text-sm hover:border-primary/50 transition-colors"
-                  @click="providerDropdownOpen = !providerDropdownOpen"
-                >
-                  <span :class="form.provider ? '' : 'text-muted-foreground'">
-                    {{ form.provider ? (PROVIDER_LABELS[form.provider] || form.provider) : t('orgSettings.llmKeysProvider') }}
-                  </span>
-                  <ChevronDown class="w-4 h-4 text-muted-foreground" />
-                </button>
-                <div
-                  v-if="providerDropdownOpen"
-                  class="absolute z-10 mt-1 w-full rounded-lg border border-border bg-card shadow-lg overflow-hidden"
-                >
-                  <button
-                    v-for="p in NON_CODEX_PROVIDERS"
-                    :key="p"
-                    class="w-full px-4 py-2 text-left text-sm hover:bg-accent transition-colors"
-                    @click="form.provider = p; providerDropdownOpen = false"
-                  >
-                    {{ PROVIDER_LABELS[p] || p }}
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <!-- Label -->
-            <div class="space-y-1.5">
-              <label class="text-sm font-medium">{{ t('orgSettings.llmKeysLabel') }}</label>
-              <input
-                v-model="form.label"
-                class="w-full px-3 py-2 rounded-md border border-border bg-background text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
-                :placeholder="t('orgSettings.llmKeysLabelPlaceholder')"
-              />
-            </div>
-
-            <!-- API Key -->
             <div class="space-y-1.5">
               <label class="text-sm font-medium">{{ t('orgSettings.llmKeysApiKey') }}</label>
               <input
@@ -318,7 +267,6 @@ onMounted(fetchKeys)
               />
             </div>
 
-            <!-- Base URL -->
             <div class="space-y-1.5">
               <label class="text-sm font-medium">{{ t('orgSettings.llmKeysBaseUrl') }}</label>
               <input
@@ -328,7 +276,6 @@ onMounted(fetchKeys)
               />
             </div>
 
-            <!-- Token limits -->
             <div class="grid grid-cols-2 gap-3">
               <div class="space-y-1.5">
                 <label class="text-sm font-medium">{{ t('orgSettings.llmKeysOrgTokenLimit') }}</label>
@@ -350,7 +297,6 @@ onMounted(fetchKeys)
               </div>
             </div>
 
-            <!-- Active toggle (edit only) -->
             <div v-if="isEditing" class="flex items-center gap-2">
               <input type="checkbox" id="edit-active" v-model="form.is_active" class="accent-primary" />
               <label for="edit-active" class="text-sm cursor-pointer">{{ t('orgSettings.llmKeysStatusActive') }}</label>
@@ -373,7 +319,7 @@ onMounted(fetchKeys)
                 <Loader2 class="w-3.5 h-3.5 animate-spin" />
                 {{ t('common.saving') }}
               </span>
-              <span v-else>{{ isEditing ? t('common.save') : t('common.create') }}</span>
+              <span v-else>{{ t('common.save') }}</span>
             </button>
           </div>
         </div>
