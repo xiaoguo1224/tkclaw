@@ -169,6 +169,23 @@ const isOrgKeyAvailable = (provider: string) =>
 
 const orgKeyLabel = computed(() => isEE.value ? 'Working Plan' : t('llm.teamKey'))
 
+function autoPopulateOrgProviders() {
+  for (const p of orgKeyProviders.value) {
+    if (isCodexProvider(p)) continue
+    if (llmConfigs.value.some(c => c.provider === p)) continue
+    llmConfigs.value.push({
+      provider: p,
+      keySource: 'org',
+      personalKey: '',
+      baseUrl: '',
+      apiType: '',
+      isCustom: false,
+      showBaseUrl: false,
+      selectedModel: defaultModelForProvider(p),
+    })
+  }
+}
+
 async function handleFetchModels(provider: string, callback: (models: ModelItem[], error?: string) => void) {
   const cfg = llmConfigs.value.find(c => c.provider === provider)
   const params: Record<string, string> = {}
@@ -367,12 +384,13 @@ onMounted(async () => {
       api.get('/engines'),
     ]
     if (orgId) {
-      fetches.push(api.get(`/orgs/${orgId}/available-llm-keys`).catch(() => ({ data: { data: [] } })))
+      fetches.push(api.get(`/orgs/${orgId}/model-providers/available`).catch(() => ({ data: { data: [] } })))
     }
     const [clustersRes, enginesRes, orgKeysRes] = await Promise.all(fetches)
     if (orgKeysRes) {
       const keys = orgKeysRes.data.data ?? []
       orgKeyProviders.value = new Set(keys.map((k: any) => k.provider))
+      autoPopulateOrgProviders()
     }
     engines.value = (enginesRes.data.data ?? []) as EngineItem[]
     if (engines.value.length > 0 && !engines.value.find(e => e.runtime_id === selectedRuntime.value)) {
@@ -871,7 +889,7 @@ async function handleDeploy() {
             <label class="text-sm font-medium">配置大模型</label>
           </div>
           <p class="text-xs text-muted-foreground">
-            {{ t('llm.providerAccessHint') }}
+            {{ orgKeyProviders.size > 0 ? t('llm.orgAutoPopulatedHint') : t('llm.providerAccessHint') }}
           </p>
 
           <template v-if="!llmSkipped">
@@ -881,6 +899,9 @@ async function handleDeploy() {
                 <div class="flex items-center gap-2">
                   <span class="font-medium text-sm">{{ PROVIDER_LABELS[cfg.provider] || cfg.provider }}</span>
                   <span v-if="cfg.isCustom" class="text-[10px] px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-400">{{ t('llm.customProvider') }}</span>
+                  <span v-else-if="cfg.keySource === 'org' && isOrgKeyAvailable(cfg.provider)" class="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500">
+                    {{ orgKeyLabel }}
+                  </span>
                 </div>
                 <button class="text-muted-foreground hover:text-destructive transition-colors" @click="removeProvider(idx)">
                   <Trash2 class="w-4 h-4" />
@@ -988,9 +1009,9 @@ async function handleDeploy() {
               </p>
             </div>
 
-            <!-- 选择 Provider -->
+            <!-- 选择 Provider（当没有预填且有可选时显示） -->
             <div v-if="llmConfigs.length === 0 && unusedProviders.length > 0" class="space-y-2">
-              <p class="text-xs text-muted-foreground">选择你使用的大模型服务商</p>
+              <p class="text-xs text-muted-foreground">{{ t('llm.selectProviderHint') }}</p>
               <div class="grid grid-cols-2 gap-2">
                 <button
                   v-for="p in unusedProviders"

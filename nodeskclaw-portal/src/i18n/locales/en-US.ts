@@ -1575,6 +1575,8 @@ const enUS = {
     codexCliCurrentAuth: "Current auth",
     codexCliLabel: "Codex CLI",
     providerAccessHint: "DeskClaw needs at least one available LLM access method to work normally.",
+    selectProviderHint: "Select your LLM provider",
+    orgAutoPopulatedHint: "The following providers are configured by your organization and ready to use",
   },
   engine: {
     title: "Work Engine",

@@ -1575,6 +1575,8 @@ const zhCN = {
     codexCliCurrentAuth: "当前认证",
     codexCliLabel: "Codex CLI",
     providerAccessHint: "DeskClaw 需要至少一个可用的大模型访问方式才能正常使用",
+    selectProviderHint: "选择你使用的大模型服务商",
+    orgAutoPopulatedHint: "以下供应商已由组织配置，可直接使用",
   },
   engine: {
     title: "工作引擎",
