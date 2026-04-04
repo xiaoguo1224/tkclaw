@@ -11,23 +11,8 @@ jobs:
     name: 后端 Ruff / Pytest
     runs-on: ubuntu-latest
     env:
-      DATABASE_URL: postgresql+asyncpg://nodeskclaw:nodeskclaw@127.0.0.1:5432/nodeskclaw_test
       JWT_SECRET: ci-jwt-secret-not-for-production
       ENCRYPTION_KEY: ci-encryption-key-not-for-prod
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: nodeskclaw
-          POSTGRES_PASSWORD: nodeskclaw
-          POSTGRES_DB: nodeskclaw_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U nodeskclaw -d nodeskclaw_test"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
 
     steps:
       - name: Checkout
