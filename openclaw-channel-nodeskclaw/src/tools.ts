@@ -1,3 +1,6 @@
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { AnyAgentTool } from "openclaw/plugin-sdk";
 import { isProtocolDowngraded } from "./tunnel-client.js";
@@ -16,6 +19,7 @@ export const NODESKCLAW_TOOL_NAMES = [
   "nodeskclaw_proposals",
   "nodeskclaw_gene_discovery",
   "nodeskclaw_shared_files",
+  "nodeskclaw_file_download",
 ] as const;
 
 function resolveToolConfig(config: OpenClawConfig, sessionWorkspaceId?: string): ToolConfig {
@@ -509,6 +513,102 @@ function createSharedFilesTool(cfg: ToolConfig): AnyAgentTool {
   };
 }
 
+function parseContentDispositionFilename(header: string | null): string | undefined {
+  if (!header) return undefined;
+  const utf8Match = header.match(/filename\*=UTF-8''(.+)/i);
+  if (utf8Match) return decodeURIComponent(utf8Match[1]);
+  const match = header.match(/filename="?([^";\n]+)"?/i);
+  return match ? match[1].trim() : undefined;
+}
+
+async function resolveUniqueFilePath(dir: string, filename: string): Promise<string> {
+  const ext = path.extname(filename);
+  const base = path.basename(filename, ext);
+  let candidate = path.join(dir, filename);
+  let counter = 0;
+  while (true) {
+    try {
+      await fs.access(candidate);
+      counter++;
+      candidate = path.join(dir, `${base}(${counter})${ext}`);
+    } catch {
+      return candidate;
+    }
+  }
+}
+
+function createFileDownloadTool(cfg: ToolConfig): AnyAgentTool {
+  return {
+    name: "nodeskclaw_file_download",
+    description:
+      "Download a chat attachment to the local workspace. " +
+      "When a user sends a message with attachments, each attachment includes a file_id. " +
+      "Use this tool to download the file to the workspace uploads/ directory, " +
+      "then read it with normal file tools.",
+    parameters: {
+      type: "object",
+      properties: {
+        file_id: {
+          type: "string",
+          description: "The file_id of the attachment to download.",
+        },
+        save_as: {
+          type: "string",
+          description: "Optional filename to save as. Defaults to the original filename.",
+        },
+      },
+      required: ["file_id"],
+    },
+    execute: async (_toolCallId, args) => {
+      const p = args as Record<string, unknown>;
+      const fileId = p.file_id as string;
+      if (!fileId) return jsonResult({ error: "file_id is required" });
+
+      const ws = cfg.workspaceId;
+      const url = `${cfg.apiUrl}/workspaces/${ws}/files/${fileId}/download`;
+
+      let res: Response;
+      try {
+        res = await fetch(url, {
+          headers: { Authorization: `Bearer ${cfg.token}` },
+        });
+      } catch (err) {
+        return jsonResult({ error: `Network error: ${(err as Error).message}` });
+      }
+
+      if (!res.ok) {
+        if (res.status === 404)
+          return jsonResult({ error: "File not found or has been deleted." });
+        if (res.status === 403)
+          return jsonResult({ error: "No permission to access this file." });
+        let detail: string;
+        try { detail = await res.text(); } catch { detail = ""; }
+        return jsonResult({ error: `Download failed (HTTP ${res.status}): ${detail || res.statusText}` });
+      }
+
+      const disposition = res.headers.get("content-disposition");
+      const contentType = res.headers.get("content-type") || "application/octet-stream";
+      const originalName = parseContentDispositionFilename(disposition) || "unnamed";
+      const saveName = (p.save_as as string) || originalName;
+
+      const workspaceDir = path.join(os.homedir(), ".openclaw", "workspace");
+      const uploadsDir = path.join(workspaceDir, "uploads");
+      await fs.mkdir(uploadsDir, { recursive: true });
+
+      const localPath = await resolveUniqueFilePath(uploadsDir, saveName);
+      const buffer = Buffer.from(await res.arrayBuffer());
+      await fs.writeFile(localPath, buffer);
+
+      return jsonResult({
+        path: localPath,
+        name: saveName,
+        size: buffer.length,
+        content_type: contentType,
+      });
+    },
+  };
+}
+
 export function createNoDeskClawTools(config: OpenClawConfig, sessionWorkspaceId?: string): AnyAgentTool[] {
   const cfg = resolveToolConfig(config, sessionWorkspaceId);
   return [
@@ -518,5 +618,6 @@ export function createNoDeskClawTools(config: OpenClawConfig, sessionWorkspaceId
     createProposalsTool(cfg),
     createGeneDiscoveryTool(cfg),
     createSharedFilesTool(cfg),
+    createFileDownloadTool(cfg),
   ];
 }
