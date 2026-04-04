@@ -11,6 +11,8 @@ import { useToast } from '@/composables/useToast'
 import { useConfirm } from '@/composables/useConfirm'
 import { getStatusDisplay } from '@/utils/instanceStatus'
 import { copyToClipboard } from '@/utils/clipboard'
+import { formatDateTime, formatNumber } from '@/utils/localeFormat'
+import { buildEngineInfoMap } from '@/utils/instanceFlow'
 
 const router = useRouter()
 const toast = useToast()
@@ -62,10 +64,7 @@ interface EngineInfo {
   poweredBy: string
   tags: string[]
 }
-const ENGINE_INFO: Record<string, EngineInfo> = {
-  openclaw: { name: '全能工作引擎', description: '支持工具调用、基因系统、多技能管理', poweredBy: 'OpenClaw', tags: ['默认'] },
-  nanobot:  { name: '轻量工作引擎', description: '超轻量，快速部署，适合简单对话场景', poweredBy: 'Nanobot', tags: [] },
-}
+const ENGINE_INFO: Record<string, EngineInfo> = buildEngineInfoMap(t)
 const engineInfo = computed(() => ENGINE_INFO[instance.value?.runtime ?? 'openclaw'] ?? null)
 const loading = ref(true)
 const pageError = ref('')
@@ -125,9 +124,12 @@ async function handleClone() {
 function formatCpu(val: string): string {
   if (val.endsWith('m')) {
     const cores = parseInt(val.slice(0, -1), 10) / 1000
-    return Number.isInteger(cores) ? `${cores} 核` : `${cores.toFixed(2)} 核`
+    const formatted = Number.isInteger(cores)
+      ? formatNumber(cores, String(locale.value))
+      : formatNumber(cores, String(locale.value), { maximumFractionDigits: 2, minimumFractionDigits: 0 })
+    return `${formatted} ${t('orgSettings.specsCpuUnit')}`
   }
-  return `${val} 核`
+  return `${val} ${t('orgSettings.specsCpuUnit')}`
 }
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
@@ -205,7 +207,7 @@ async function pollOnce() {
     if (instance.value && instance.value.status !== 'restarting') {
       stopPolling()
       restarting.value = false
-      toast.success('重启完成，AI 员工已恢复运行')
+      toast.success(t('agentDetailDialog.restartDone'))
     }
   } catch {
     // 轮询期间忽略网络错误
@@ -218,7 +220,7 @@ function startPolling() {
   pollTimeout = setTimeout(() => {
     stopPolling()
     restarting.value = false
-    toast.error('重启超时，请手动刷新查看状态')
+    toast.error(t('agentDetailDialog.restartTimeout'))
   }, 120_000)
 }
 
@@ -232,12 +234,12 @@ async function handleRestart() {
   restarting.value = true
   try {
     const res = await api.post(`/instances/${instanceId.value}/restart`)
-    toast.success(res.data?.message || '已触发重启，AI 员工将在数秒后恢复')
+    toast.success(res.data?.message || t('instanceDetail.restartTriggered'))
     await refreshInstanceBasic()
     startPolling()
   } catch (e: any) {
     restarting.value = false
-    const msg = e?.response?.data?.message || e?.message || '重启失败'
+    const msg = e?.response?.data?.message || e?.message || t('agentDetailDialog.restartFailed')
     toast.error(msg)
     console.error('[handleRestart]', e)
   }
@@ -286,11 +288,11 @@ async function handleDelete() {
   deleting.value = true
   try {
     await api.delete(`/instances/${instanceId.value}`)
-    toast.success('AI 员工已删除')
+    toast.success(t('agentDetailDialog.deleted'))
     router.push('/instances')
   } catch (e: any) {
     deleting.value = false
-    toast.error(e?.response?.data?.message || '删除失败')
+    toast.error(e?.response?.data?.message || t('agentDetailDialog.deleteFailed'))
   }
 }
 </script>
@@ -338,22 +340,22 @@ async function handleDelete() {
 
       <!-- 基本信息 -->
       <div class="p-4 rounded-xl border border-border bg-card">
-        <h2 class="text-sm font-medium mb-3">基本信息</h2>
+        <h2 class="text-sm font-medium mb-3">{{ t('agentDetailDialog.basicInfo') }}</h2>
         <div class="grid grid-cols-2 gap-4 text-sm">
           <div>
-            <span class="text-muted-foreground">镜像版本</span>
+            <span class="text-muted-foreground">{{ t('agentDetailDialog.imageVersion') }}</span>
             <span class="ml-2 font-mono text-xs bg-muted px-1.5 py-0.5 rounded">{{ instance.image_version }}</span>
           </div>
           <div>
-            <span class="text-muted-foreground">CPU</span>
+            <span class="text-muted-foreground">{{ t('agentDetailDialog.cpu') }}</span>
             <span class="ml-2">{{ formatCpu(instance.cpu_limit) }}</span>
           </div>
           <div>
-            <span class="text-muted-foreground">内存</span>
+            <span class="text-muted-foreground">{{ t('agentDetailDialog.memory') }}</span>
             <span class="ml-2">{{ instance.mem_limit }}</span>
           </div>
           <div>
-            <span class="text-muted-foreground">存储</span>
+            <span class="text-muted-foreground">{{ t('orgUsage.storage') }}</span>
             <span class="ml-2">{{ instance.storage_size }}</span>
           </div>
           <div v-if="instance.runtime" class="col-span-2">
@@ -378,8 +380,8 @@ async function handleDelete() {
             </span>
           </div>
           <div class="col-span-2">
-            <span class="text-muted-foreground">创建时间</span>
-            <span class="ml-2">{{ new Date(instance.created_at).toLocaleString('zh-CN') }}</span>
+            <span class="text-muted-foreground">{{ t('agentDetailDialog.createdAt') }}</span>
+            <span class="ml-2">{{ formatDateTime(instance.created_at, String(locale)) }}</span>
           </div>
           <div class="col-span-2">
             <span class="text-muted-foreground">{{ t('instanceDetail.workStatus') }}</span>
@@ -429,7 +431,7 @@ async function handleDelete() {
           @click="fetchDetail"
         >
           <RefreshCw class="w-4 h-4" />
-          刷新
+          {{ t('agentDetailDialog.refresh') }}
         </button>
         <button
           v-if="canEdit"
@@ -438,7 +440,7 @@ async function handleDelete() {
           @click="showRestartDialog = true"
         >
           <RotateCcw class="w-4 h-4" :class="restarting ? 'animate-spin' : ''" />
-          {{ restarting ? '重启中...' : '重启AI 员工' }}
+          {{ restarting ? t('agentDetailDialog.restarting') : t('agentDetailDialog.restart') }}
         </button>
         <button
           v-if="canEdit && instance?.status === 'running'"
@@ -472,7 +474,7 @@ async function handleDelete() {
         >
           <Loader2 v-if="deleting" class="w-4 h-4 animate-spin" />
           <Trash2 v-else class="w-4 h-4" />
-          {{ deleting ? '删除中...' : '删除AI 员工' }}
+          {{ deleting ? t('agentDetailDialog.deleting') : t('agentDetailDialog.delete') }}
         </button>
       </div>
 
@@ -522,14 +524,14 @@ async function handleDelete() {
               <div class="p-2 rounded-lg bg-amber-500/10">
                 <AlertTriangle class="w-5 h-5 text-amber-400" />
               </div>
-              <h3 class="text-base font-semibold">重启AI 员工</h3>
+              <h3 class="text-base font-semibold">{{ t('agentDetailDialog.restartConfirmTitle') }}</h3>
             </div>
             <div class="text-sm text-muted-foreground space-y-2">
-              <p>即将重启AI 员工，这将会：</p>
+              <p>{{ t('instanceDetail.restartConfirmIntro') }}</p>
               <ul class="list-disc list-inside space-y-1 text-xs">
-                <li>关闭AI 员工中所有运行的程序</li>
-                <li>重启期间服务将短暂不可用</li>
-                <li>正在进行的对话和任务会被中断</li>
+                <li>{{ t('instanceDetail.restartImpactProcesses') }}</li>
+                <li>{{ t('instanceDetail.restartImpactAvailability') }}</li>
+                <li>{{ t('instanceDetail.restartImpactTasks') }}</li>
               </ul>
             </div>
             <div class="flex justify-end gap-3 pt-2">
@@ -537,13 +539,13 @@ async function handleDelete() {
                 class="px-4 py-2 rounded-lg border border-border text-sm hover:bg-muted transition-colors"
                 @click="showRestartDialog = false"
               >
-                取消
+                {{ t('common.cancel') }}
               </button>
               <button
                 class="px-4 py-2 rounded-lg bg-amber-500 text-white text-sm font-medium hover:bg-amber-600 transition-colors"
                 @click="handleRestart"
               >
-                确认重启
+                {{ t('instanceDetail.confirmRestart') }}
               </button>
             </div>
           </div>
@@ -561,7 +563,7 @@ async function handleDelete() {
               <div class="p-2 rounded-lg bg-red-500/10">
                 <AlertTriangle class="w-5 h-5 text-red-400" />
               </div>
-              <h3 class="text-base font-semibold">删除AI 员工</h3>
+              <h3 class="text-base font-semibold">{{ t('agentDetailDialog.deleteConfirmTitle') }}</h3>
             </div>
             <div v-if="instance?.workspaces?.length" class="text-sm text-muted-foreground space-y-2">
               <p>{{ t('instanceDetail.cannotDeleteInWorkspaces', { names: joinNames(instance.workspaces.map(w => w.name)) }) }}</p>
@@ -578,11 +580,11 @@ async function handleDelete() {
               </div>
             </div>
             <div v-else class="text-sm text-muted-foreground space-y-2">
-              <p>确定删除AI 员工「<span class="text-foreground font-medium">{{ instanceBasic?.name }}</span>」？</p>
+              <p>{{ t('instanceDetail.deleteConfirmQuestion', { name: instanceBasic?.name }) }}</p>
               <ul class="list-disc list-inside space-y-1 text-xs">
-                <li>AI 员工及其{{ isDocker ? '容器' : ' K8s' }}资源将被永久删除</li>
-                <li>所有对话记录和办公室数据将丢失</li>
-                <li>此操作不可恢复</li>
+                <li>{{ t(isDocker ? 'instanceDetail.deleteImpactDocker' : 'instanceDetail.deleteImpactK8s') }}</li>
+                <li>{{ t('instanceDetail.deleteImpactData') }}</li>
+                <li>{{ t('instanceDetail.deleteImpactIrreversible') }}</li>
               </ul>
             </div>
             <div class="flex justify-end gap-3 pt-2">
@@ -597,7 +599,7 @@ async function handleDelete() {
                 class="px-4 py-2 rounded-lg bg-red-500 text-white text-sm font-medium hover:bg-red-600 transition-colors"
                 @click="handleDelete"
               >
-                确认删除
+                {{ t('common.delete') }}
               </button>
             </div>
           </div>

@@ -1,25 +1,25 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import {
   CheckCircle, XCircle, Loader2, Circle, Rocket,
   ExternalLink, ArrowLeft, ChevronDown, ChevronRight, Square,
 } from 'lucide-vue-next'
 import { fetchEventSource } from '@microsoft/fetch-event-source'
+import {
+  buildDefaultBackendStepNames,
+  buildPortalDeploySteps,
+  sanitizeDeployLogs,
+} from '@/utils/instanceFlow'
 
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n()
 
 const deployId = route.params.deployId as string
 const instanceName = (route.query.name as string) || ''
 const instanceId = (route.query.instanceId as string) || ''
-
-const K8S_PORTAL_STEPS = [
-  '预检查',
-  '创建相关前置资源',
-  '部署AI 员工',
-  '等待就绪',
-]
 
 const K8S_BACKEND_STEP_COUNT = 9
 let useDirectMapping = false
@@ -30,7 +30,7 @@ function buildPortalSteps(backendStepNames: string[]): string[] {
     return [...backendStepNames]
   }
   useDirectMapping = false
-  const portal = [...K8S_PORTAL_STEPS]
+  const portal = buildPortalDeploySteps(t)
   if (backendStepNames.length > K8S_BACKEND_STEP_COUNT) {
     for (const name of backendStepNames.slice(K8S_BACKEND_STEP_COUNT)) {
       portal.push(name)
@@ -78,36 +78,7 @@ function toggleLogs(idx: number) {
 }
 
 function sanitizeLogs(lines: string[]): string[] {
-  const result: string[] = []
-  for (const line of lines) {
-    if (line.startsWith('开始等待') || line === '尚未发现 Pod（调度中）') {
-      result.push('等待AI 员工启动...')
-      continue
-    }
-    if (/^已等待\s/.test(line)) {
-      result.push(line)
-      continue
-    }
-    if (line.includes('phase=')) {
-      const m = line.match(/phase=(\w+)/)
-      const phase = m?.[1] || 'Unknown'
-      const friendly = phase === 'Running' ? 'Pod 运行中'
-        : phase === 'Pending' ? 'Pod 调度中'
-        : `Pod 状态异常 (${phase})`
-      if (!result.includes(friendly)) result.push(friendly)
-      continue
-    }
-    if (line.startsWith('PVC ')) {
-      const friendly = line.includes('Bound') ? '存储已就绪' : '存储准备中'
-      if (!result.includes(friendly)) result.push(friendly)
-      continue
-    }
-    if (line === '无法获取 Pod 状态') {
-      result.push('AI 员工状态获取中...')
-      continue
-    }
-  }
-  return result
+  return sanitizeDeployLogs(lines, t)
 }
 
 function updateSteps(backendStep: number, status: string, message?: string, logs?: string[]) {
@@ -128,7 +99,7 @@ function updateSteps(backendStep: number, status: string, message?: string, logs
       s.expanded = false
     }
     finalStatus.value = 'success'
-    finalMessage.value = message || '部署成功'
+    finalMessage.value = message || t('deployProgress.successTitle')
   } else if (status === 'failed') {
     const s = steps.value[portalIdx]
     if (s) {
@@ -138,7 +109,7 @@ function updateSteps(backendStep: number, status: string, message?: string, logs
       s.expanded = true
     }
     finalStatus.value = 'failed'
-    finalMessage.value = message || '部署失败'
+    finalMessage.value = message || t('deployProgress.failedTitle')
   } else {
     const s = steps.value[portalIdx]
     if (s) {
@@ -162,7 +133,7 @@ function subscribeSSE() {
     abortCtrl?.abort()
     if (finalStatus.value === 'in_progress') {
       finalStatus.value = 'failed'
-      finalMessage.value = '部署超时（6 分钟），请在AI 员工列表查看状态'
+      finalMessage.value = t('deployProgress.timeoutMessage')
     }
   }, 360_000)
 
@@ -176,11 +147,7 @@ function subscribeSSE() {
         percent.value = data.percent ?? 0
 
         if (!stepsInitialized.value) {
-          const backendNames: string[] = data.step_names ?? [
-            '预检', '创建命名空间', '创建 ConfigMap', '创建 PVC',
-            '创建 Deployment', '创建 Service', '创建 Ingress（自动路由）',
-            '配置网络策略', '等待 Deployment 就绪',
-          ]
+          const backendNames: string[] = data.step_names ?? buildDefaultBackendStepNames(t)
           initPortalSteps(backendNames)
         }
 
@@ -200,7 +167,7 @@ function subscribeSSE() {
     if (e instanceof DOMException && e.name === 'AbortError') return
     if (finalStatus.value === 'in_progress') {
       finalStatus.value = 'failed'
-      finalMessage.value = 'SSE 连接异常，请刷新页面或在AI 员工列表查看部署状态'
+      finalMessage.value = t('deployProgress.sseErrorMessage')
     }
   })
 }
@@ -251,7 +218,7 @@ function lineColor(status: StepStatus) {
       <div class="flex items-center gap-3">
         <Rocket class="w-5 h-5 text-primary" />
         <div>
-          <h1 class="text-xl font-bold">部署AI 员工</h1>
+          <h1 class="text-xl font-bold">{{ t('deployProgress.title') }}</h1>
           <p v-if="instanceName" class="text-sm text-muted-foreground">{{ instanceName }}</p>
         </div>
       </div>
@@ -268,7 +235,7 @@ function lineColor(status: StepStatus) {
 
     <!-- Steps Timeline -->
     <div class="rounded-xl border border-border bg-card p-5">
-      <h2 class="text-sm font-medium mb-4">部署步骤</h2>
+      <h2 class="text-sm font-medium mb-4">{{ t('deployProgress.stepsTitle') }}</h2>
       <div class="space-y-0">
         <div
           v-for="(step, idx) in steps"
@@ -338,8 +305,8 @@ function lineColor(status: StepStatus) {
       <div v-if="finalStatus === 'success'" class="text-center space-y-4">
         <CheckCircle class="w-12 h-12 text-green-500 mx-auto" />
         <div>
-          <p class="text-lg font-semibold text-green-500">部署成功</p>
-          <p class="text-sm text-muted-foreground mt-1">AI 员工 {{ instanceName }} 已就绪</p>
+          <p class="text-lg font-semibold text-green-500">{{ t('deployProgress.successTitle') }}</p>
+          <p class="text-sm text-muted-foreground mt-1">{{ t('deployProgress.successDesc', { name: instanceName }) }}</p>
         </div>
         <div class="flex justify-center gap-3">
           <button
@@ -348,13 +315,13 @@ function lineColor(status: StepStatus) {
             @click="router.push(`/instances/${instanceId}`)"
           >
             <ExternalLink class="w-4 h-4" />
-            查看AI 员工
+            {{ t('deployProgress.viewInstance') }}
           </button>
           <button
             class="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-border text-sm hover:bg-card transition-colors"
             @click="router.push('/instances')"
           >
-            AI 员工列表
+            {{ t('deployProgress.instanceList') }}
           </button>
         </div>
       </div>
@@ -363,7 +330,7 @@ function lineColor(status: StepStatus) {
       <div v-else class="text-center space-y-4">
         <XCircle class="w-12 h-12 text-red-500 mx-auto" />
         <div>
-          <p class="text-lg font-semibold text-red-500">部署失败</p>
+          <p class="text-lg font-semibold text-red-500">{{ t('deployProgress.failedTitle') }}</p>
           <p class="text-sm text-muted-foreground mt-1 max-w-md mx-auto break-all">
             {{ finalMessage }}
           </p>
@@ -374,13 +341,13 @@ function lineColor(status: StepStatus) {
             @click="router.push('/instances/create')"
           >
             <ArrowLeft class="w-4 h-4" />
-            重新创建
+            {{ t('deployProgress.createAgain') }}
           </button>
           <button
             class="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-border text-sm hover:bg-card transition-colors"
             @click="router.push('/instances')"
           >
-            AI 员工列表
+            {{ t('deployProgress.instanceList') }}
           </button>
         </div>
       </div>
