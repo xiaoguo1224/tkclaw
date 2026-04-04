@@ -92,10 +92,10 @@ async function loadAll() {
 
   try {
     const orgKeysPromise = instanceOrgId.value
-      ? api.get(`/orgs/${instanceOrgId.value}/available-llm-keys`).catch(() => ({ data: { data: [] } }))
+      ? api.get(`/orgs/${instanceOrgId.value}/model-providers/available`).catch(() => ({ data: { data: [] } }))
       : Promise.resolve({ data: { data: [] } })
     const [configsResult, keysResult, orgKeysResult] = await Promise.allSettled([
-      api.get(`/instances/${instanceId.value}/llm-configs`),
+      api.get(`/instances/${instanceId.value}/provider-configs`),
       api.get('/users/me/llm-keys'),
       orgKeysPromise,
     ])
@@ -303,7 +303,7 @@ async function handleSave() {
     }
 
     // 2. Write configs directly to Pod file
-    await api.put(`/instances/${instanceId.value}/llm-configs`, {
+    await api.put(`/instances/${instanceId.value}/provider-configs`, {
       configs: providerConfigs.value.map(c => {
         const selectedModel = c.selectedModel ?? defaultModelForProvider(c.provider)
         return {
@@ -454,6 +454,9 @@ watch(() => instanceId.value, (val) => {
               <div class="flex items-center gap-2">
                 <span class="font-medium text-sm">{{ PROVIDER_LABELS[cfg.provider] || cfg.provider }}</span>
                 <span v-if="cfg.isCustom" class="text-[10px] px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-400">{{ t('llm.customProvider') }}</span>
+                <span v-else-if="cfg.keySource === 'org' && isOrgKeyAvailable(cfg.provider)" class="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-500">
+                  {{ orgKeyLabel }}
+                </span>
               </div>
               <button
                 class="text-muted-foreground hover:text-destructive transition-colors"
