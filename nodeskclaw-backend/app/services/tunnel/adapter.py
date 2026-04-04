@@ -50,6 +50,37 @@ def _parse_delegation(response: str) -> tuple[str, str] | None:
     return None
 
 
+def _format_attachment_refs(attachments: list[dict]) -> str:
+    if not attachments:
+        return ""
+    lines = []
+    for idx, att in enumerate(attachments, 1):
+        name = att.get("name", "unnamed")
+        size = att.get("size", 0)
+        ct = att.get("content_type", "")
+        fid = att.get("id", "")
+        if size >= 1024 * 1024:
+            size_str = f"{size / (1024 * 1024):.1f}MB"
+        elif size >= 1024:
+            size_str = f"{size / 1024:.0f}KB"
+        else:
+            size_str = f"{size}B"
+        parts = [name, size_str]
+        if ct:
+            parts.append(ct)
+        lines.append(f"[附件{idx}: {', '.join(parts)}, file_id: {fid}]")
+    lines.append("(可使用 nodeskclaw_file_download 工具下载附件到工作台)")
+    return "\n".join(lines)
+
+
+def _format_user_content(sender_name: str, text: str, attachments: list[dict]) -> str:
+    content = f"[{sender_name}]: {text}"
+    ref = _format_attachment_refs(attachments)
+    if ref:
+        content += "\n" + ref
+    return content
+
+
 def _extract_mentions(
     text: str, members: list[dict], self_name: str,
 ) -> list[dict]:
@@ -470,7 +501,7 @@ class TunnelAdapter:
                 "Mention skip for %s: targets=%s, mentioned=%s",
                 agent_name, mention_targets, is_mentioned,
             )
-            user_content = f"[{data.sender.name}]: {data.content}"
+            user_content = _format_user_content(data.sender.name, data.content, data.attachments)
             messages = [
                 {"role": "system", "content": context_prompt},
                 {"role": "user", "content": user_content},
@@ -502,7 +533,7 @@ class TunnelAdapter:
             "agent_name": agent_name,
         })
 
-        user_content = f"[{data.sender.name}]: {data.content}"
+        user_content = _format_user_content(data.sender.name, data.content, data.attachments)
         messages = [
             {"role": "system", "content": context_prompt},
             {"role": "user", "content": user_content},
