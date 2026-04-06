@@ -239,6 +239,7 @@ const canSave = computed(() => {
 })
 
 onMounted(async () => {
+  if (!orgStore.currentOrg) await orgStore.fetchMyOrg()
   await fetchProviders()
   if (isEE.value) {
     initWpSelections()
