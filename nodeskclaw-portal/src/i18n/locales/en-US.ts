@@ -791,8 +791,6 @@ const enUS = {
     nextStep: "Next",
     apiKeyPlaceholder: "Enter API key",
     providerHint: "Choose the LLM provider you use",
-    llmSkippedHint: "LLM configuration was skipped. You can configure it later in AI employee settings.",
-    skipLlmForNow: "Skip and configure LLM later",
   },
   deployProgress: {
     title: "Deploy AI Employee",
@@ -1665,9 +1663,8 @@ const enUS = {
     codexCliRuntimeHint: "After saving, requests will go through llm-proxy to the Codex CLI logged in on the server. Make sure the runtime environment has completed `codex login`.",
     codexCliCurrentAuth: "Current auth",
     codexCliLabel: "Codex CLI",
-    providerAccessHint: "DeskClaw needs at least one available LLM access method to work normally.",
+    providerOptionalHint: "Add model providers as needed, or skip and configure later",
     selectProviderHint: "Select your LLM provider",
-    orgAutoPopulatedHint: "The following providers are configured by your organization and ready to use",
   },
   engine: {
     title: "Work Engine",

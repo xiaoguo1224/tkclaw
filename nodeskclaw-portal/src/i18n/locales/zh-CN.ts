@@ -791,8 +791,6 @@ const zhCN = {
     nextStep: "下一步",
     apiKeyPlaceholder: "输入 API Key",
     providerHint: "选择你使用的大模型服务商",
-    llmSkippedHint: "已跳过大模型配置，创建后可在 AI 员工设置中配置",
-    skipLlmForNow: "跳过，稍后配置大模型",
   },
   deployProgress: {
     title: "部署 AI 员工",
@@ -1665,9 +1663,8 @@ const zhCN = {
     codexCliRuntimeHint: "保存后将通过 llm-proxy 调用当前服务端已登录的 codex CLI，请先确保运行环境已完成 codex login。",
     codexCliCurrentAuth: "当前认证",
     codexCliLabel: "Codex CLI",
-    providerAccessHint: "DeskClaw 需要至少一个可用的大模型访问方式才能正常使用",
+    providerOptionalHint: "按需选择模型供应商，也可以跳过稍后配置",
     selectProviderHint: "选择你使用的大模型服务商",
-    orgAutoPopulatedHint: "以下供应商已由组织配置，可直接使用",
   },
   engine: {
     title: "工作引擎",

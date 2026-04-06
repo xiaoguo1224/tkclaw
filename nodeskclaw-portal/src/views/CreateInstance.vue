@@ -98,12 +98,10 @@ interface LlmConfigEntry {
 }
 
 const llmConfigs = ref<LlmConfigEntry[]>([])
-const llmSkipped = ref(false)
 const newProvider = ref('')
 const customSlug = ref('')
 const customSlugError = ref('')
 const showCustomForm = ref(false)
-const newProviderOpen = ref(false)
 
 const unusedProviders = computed(() =>
   PROVIDERS.filter(p => !llmConfigs.value.some(c => c.provider === p))
@@ -121,7 +119,6 @@ function addProvider(p: string) {
     showBaseUrl: false,
     selectedModel: defaultModelForProvider(p),
   })
-  newProviderOpen.value = false
 }
 
 async function loadStorageClasses(clusterId: string) {
@@ -170,23 +167,6 @@ const isOrgKeyAvailable = (provider: string) =>
   orgKeyProviders.value.has(provider)
 
 const orgKeyLabel = computed(() => isEE.value ? 'Working Plan' : t('llm.teamKey'))
-
-function autoPopulateOrgProviders() {
-  for (const p of orgKeyProviders.value) {
-    if (isCodexProvider(p)) continue
-    if (llmConfigs.value.some(c => c.provider === p)) continue
-    llmConfigs.value.push({
-      provider: p,
-      keySource: 'org',
-      personalKey: '',
-      baseUrl: '',
-      apiType: '',
-      isCustom: false,
-      showBaseUrl: false,
-      selectedModel: defaultModelForProvider(p),
-    })
-  }
-}
 
 async function handleFetchModels(provider: string, callback: (models: ModelItem[], error?: string) => void) {
   const cfg = llmConfigs.value.find(c => c.provider === provider)
@@ -395,7 +375,6 @@ onMounted(async () => {
       for (const k of keys) {
         orgAllowedModels.value[k.provider] = k.allowed_models ?? null
       }
-      autoPopulateOrgProviders()
     }
     engines.value = (enginesRes.data.data ?? []) as EngineItem[]
     if (engines.value.length > 0 && !engines.value.find(e => e.runtime_id === selectedRuntime.value)) {
@@ -449,8 +428,6 @@ const runtimeHasLlm = computed(() => getRuntimeCaps(selectedRuntime.value).llmCo
 
 const llmReady = computed(() => {
   if (!runtimeHasLlm.value) return true
-  if (llmSkipped.value) return true
-  if (llmConfigs.value.length === 0) return false
   return llmConfigs.value.every(c => {
     if (c.isCustom) return !!c.baseUrl && !!c.personalKey && !!c.selectedModel
     if (isCodexProvider(c.provider)) return !!c.selectedModel
@@ -894,10 +871,9 @@ async function handleDeploy() {
             <label class="text-sm font-medium">{{ t('createInstance.stepLlmConfig') }}</label>
           </div>
           <p class="text-xs text-muted-foreground">
-            {{ orgKeyProviders.size > 0 ? t('llm.orgAutoPopulatedHint') : t('llm.providerAccessHint') }}
+            {{ t('llm.providerOptionalHint') }}
           </p>
 
-          <template v-if="!llmSkipped">
             <!-- 已添加的 Provider -->
             <div v-for="(cfg, idx) in llmConfigs" :key="cfg.provider" class="rounded-lg border border-border bg-card p-4 space-y-3">
               <div class="flex items-center justify-between">
@@ -1014,9 +990,8 @@ async function handleDeploy() {
               </p>
             </div>
 
-            <!-- 选择 Provider（当没有预填且有可选时显示） -->
-            <div v-if="llmConfigs.length === 0 && unusedProviders.length > 0" class="space-y-2">
-              <p class="text-xs text-muted-foreground">{{ t('createInstance.providerHint') }}</p>
+            <!-- 选择 Provider -->
+            <div v-if="unusedProviders.length > 0" class="space-y-2">
               <div class="grid grid-cols-2 gap-2">
                 <button
                   v-for="p in unusedProviders"
@@ -1042,46 +1017,6 @@ async function handleDeploy() {
                   </div>
                 </button>
               </div>
-            </div>
-
-            <!-- 已有 Provider 时的添加按钮 -->
-            <div v-if="llmConfigs.length > 0" class="flex gap-2 items-start">
-              <div v-if="unusedProviders.length > 0" class="relative">
-                <button
-                  class="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                  @click="newProviderOpen = !newProviderOpen"
-                >
-                  <Plus class="w-3.5 h-3.5" />
-                  {{ t('common.add') }} Provider
-                  <ChevronDown class="w-3 h-3 transition-transform" :class="newProviderOpen ? 'rotate-180' : ''" />
-                </button>
-                <div
-                  v-if="newProviderOpen"
-                  class="absolute z-10 mt-1 w-56 rounded-lg border border-border bg-card shadow-lg overflow-hidden"
-                >
-                  <button
-                    v-for="p in unusedProviders"
-                    :key="p"
-                    class="w-full px-4 py-2 text-left text-sm hover:bg-accent transition-colors"
-                    @click="addProvider(p)"
-                  >
-                    <div class="flex items-center gap-1.5">
-                      {{ PROVIDER_LABELS[p] || p }}
-                      <span v-if="orgKeyProviders.has(p)" class="inline-flex items-center gap-0.5 text-[10px] text-amber-500">
-                        <Star class="w-3 h-3 fill-amber-500 text-amber-500" />
-                        {{ orgKeyLabel }}
-                      </span>
-                    </div>
-                  </button>
-                </div>
-              </div>
-              <button
-                class="px-3 py-1.5 rounded-md border border-dashed border-violet-400/50 text-sm text-violet-400 hover:border-violet-400 hover:bg-violet-500/5 transition-colors flex items-center gap-1"
-                @click="showCustomForm = true"
-              >
-                <Plus class="w-3.5 h-3.5" />
-                {{ t('llm.addCustomProvider') }}
-              </button>
             </div>
 
             <!-- 自定义 Provider 表单 -->
@@ -1113,12 +1048,6 @@ async function handleDeploy() {
                 {{ t('common.add') }}
               </button>
             </div>
-          </template>
-
-          <p v-else class="text-xs text-muted-foreground italic">
-            {{ t('createInstance.llmSkippedHint') }}
-            <button class="text-primary ml-1 not-italic" @click="llmSkipped = false">{{ t('common.undo') }}</button>
-          </p>
         </div>
 
         <!-- 部署 -->
@@ -1149,13 +1078,6 @@ async function handleDeploy() {
             <Loader2 v-if="deploying" class="w-4 h-4 animate-spin" />
             <Rocket v-else class="w-4 h-4" />
             {{ deploying ? t('createInstance.deploying') : t('createInstance.deployNow') }}
-          </button>
-          <button
-            v-if="!llmSkipped"
-            class="w-full py-2.5 px-4 rounded-lg border border-border text-sm text-muted-foreground hover:text-foreground hover:border-foreground/20 transition-colors text-center"
-            @click="llmSkipped = true; llmConfigs.splice(0); handleDeploy()"
-          >
-            {{ t('createInstance.skipLlmForNow') }}
           </button>
         </div>
       </div>
