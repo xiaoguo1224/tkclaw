@@ -10,7 +10,7 @@ import { useWorkspaceStore, type GroupChatMessage, type AgentBrief, type FileAtt
 import FileAttachmentList from './FileAttachmentList.vue'
 import BaseTooltip from '@/components/shared/BaseTooltip.vue'
 import { useAuthStore } from '@/stores/auth'
-import { Send, Loader2, Bot, User, Users, AtSign, Slash, RotateCw, Trash2, Activity, XCircle, Copy, ThumbsUp, ThumbsDown, Paperclip, X, FileText, Search, AlertTriangle, ChevronDown, ChevronRight, Wrench, Check } from 'lucide-vue-next'
+import { Send, Loader2, Bot, User, Users, AtSign, Slash, RotateCw, Trash2, Activity, XCircle, Copy, ThumbsUp, ThumbsDown, Paperclip, X, FileText, Search, AlertTriangle, ChevronDown, ChevronRight } from 'lucide-vue-next'
 import { useToast } from '@/composables/useToast'
 import api from '@/services/api'
 import { resolveApiErrorMessage } from '@/i18n/error'
@@ -813,41 +813,6 @@ function formatTime(dateStr: string): string {
   }
 }
 
-function isTraceMessage(msg: GroupChatMessage): boolean {
-  return msg.message_type === 'trace'
-}
-
-function traceStatus(msg: GroupChatMessage): 'running' | 'completed' | 'failed' {
-  return msg.meta?.status || 'running'
-}
-
-function traceTitle(msg: GroupChatMessage): string {
-  const meta = msg.meta
-  if (meta?.title) return meta.title
-  if (meta?.tool_name) {
-    if (meta.status === 'completed') return t('chat.traceToolCompleted', { tool: meta.tool_name })
-    if (meta.status === 'failed') return t('chat.traceToolFailed', { tool: meta.tool_name })
-    return t('chat.traceToolRunning', { tool: meta.tool_name })
-  }
-  if (meta?.step_type === 'thinking') return t('chat.traceThinking')
-  return t('chat.traceWorking')
-}
-
-function traceSummary(msg: GroupChatMessage): string {
-  const summary = msg.meta?.summary?.trim()
-  if (summary) return summary
-  const content = msg.content?.trim()
-  if (content && content !== traceTitle(msg)) return content
-  return ''
-}
-
-function traceStatusLabel(msg: GroupChatMessage): string {
-  const status = traceStatus(msg)
-  if (status === 'completed') return t('chat.traceStatusCompleted')
-  if (status === 'failed') return t('chat.traceStatusFailed')
-  return t('chat.traceStatusRunning')
-}
-
 function selectSuggestionItem(state: SuggestionState, item: SuggestionItem) {
   state.command(item)
 }
@@ -989,12 +954,6 @@ function updateSuggestionIndex(state: SuggestionState, idx: number) {
                 collaboration
               </span>
               <span
-                v-if="isTraceMessage(msg)"
-                class="text-[10px] px-1 py-0.5 rounded bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300 shrink-0"
-              >
-                {{ t('chat.traceLabel') }}
-              </span>
-              <span
                 v-if="msg.intent"
                 class="text-[10px] px-1 py-0.5 rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 shrink-0"
               >
@@ -1009,49 +968,7 @@ function updateSuggestionIndex(state: SuggestionState, idx: number) {
               </span>
             </div>
             <div
-              v-if="isTraceMessage(msg)"
-              class="rounded-lg border border-sky-200/80 bg-sky-50/80 dark:bg-sky-950/20 dark:border-sky-900/50 px-3 py-2 text-sm text-foreground"
-            >
-              <div class="flex items-start gap-2">
-                <div class="mt-0.5 shrink-0">
-                  <Loader2
-                    v-if="traceStatus(msg) === 'running'"
-                    class="w-3.5 h-3.5 text-sky-500 animate-spin"
-                  />
-                  <AlertTriangle
-                    v-else-if="traceStatus(msg) === 'failed'"
-                    class="w-3.5 h-3.5 text-orange-500"
-                  />
-                  <Check
-                    v-else
-                    class="w-3.5 h-3.5 text-green-500"
-                  />
-                </div>
-                <div class="min-w-0 flex-1 space-y-1">
-                  <div class="flex items-center gap-2 flex-wrap">
-                    <span class="font-medium">{{ traceTitle(msg) }}</span>
-                    <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-background/80 border border-border/60 text-muted-foreground">
-                      {{ traceStatusLabel(msg) }}
-                    </span>
-                    <span
-                      v-if="msg.meta?.tool_name"
-                      class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full bg-background/80 border border-border/60 text-muted-foreground"
-                    >
-                      <Wrench class="w-3 h-3" />
-                      {{ msg.meta.tool_name }}
-                    </span>
-                  </div>
-                  <p
-                    v-if="traceSummary(msg)"
-                    class="text-xs text-muted-foreground whitespace-pre-wrap break-words"
-                  >
-                    {{ traceSummary(msg) }}
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div
-              v-else-if="msg.sender_type === 'agent' && msg.content"
+              v-if="msg.sender_type === 'agent' && msg.content"
               class="rounded-lg px-3 py-2 text-sm bg-muted text-foreground chat-markdown"
               v-html="renderMarkdownHighlighted(msg.content)"
             />
@@ -1080,7 +997,7 @@ function updateSuggestionIndex(state: SuggestionState, idx: number) {
               </div>
             </div>
             <div
-              v-if="msg.sender_type === 'agent' && msg.message_type === 'chat' && !msg.streaming && msg.content && !msg.error"
+              v-if="msg.sender_type === 'agent' && !msg.streaming && msg.content && !msg.error"
               class="flex items-center gap-1 mt-1"
             >
               <button

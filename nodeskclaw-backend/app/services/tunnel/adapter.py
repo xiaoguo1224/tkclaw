@@ -239,10 +239,6 @@ class TunnelAdapter:
                 TunnelMessageType.CHAT_RESPONSE_CHUNK,
                 TunnelMessageType.CHAT_RESPONSE_DONE,
                 TunnelMessageType.CHAT_RESPONSE_ERROR,
-                TunnelMessageType.CHAT_STEP_STARTED,
-                TunnelMessageType.CHAT_STEP_UPDATED,
-                TunnelMessageType.CHAT_STEP_COMPLETED,
-                TunnelMessageType.CHAT_STEP_FAILED,
             ):
                 self._on_chat_response(conn, msg)
             elif msg.type == TunnelMessageType.STATUS_REPORT:
@@ -487,25 +483,7 @@ class TunnelAdapter:
                     stream=True,
                     no_reply=True,
                 )
-                async for chunk_msg in chat_stream:
-                    if chunk_msg.type in {
-                        TunnelMessageType.CHAT_STEP_STARTED,
-                        TunnelMessageType.CHAT_STEP_UPDATED,
-                        TunnelMessageType.CHAT_STEP_COMPLETED,
-                        TunnelMessageType.CHAT_STEP_FAILED,
-                    }:
-                        from app.api.workspaces import publish_agent_step_event
-                        await publish_agent_step_event(
-                            workspace_id=workspace_id,
-                            instance_id=target_node_id,
-                            agent_name=agent_name,
-                            payload={
-                                **(chunk_msg.payload or {}),
-                                "trace_id": chunk_msg.trace_id or envelope.traceid,
-                                "reply_to": chunk_msg.reply_to,
-                            },
-                        )
-                        continue
+                async for _ in chat_stream:
                     break
             except Exception as e:
                 logger.debug("Context injection for %s failed: %s", agent_name, e)
@@ -551,24 +529,6 @@ class TunnelAdapter:
 
         try:
             async for chunk_msg in chat_stream:
-                if chunk_msg.type in {
-                    TunnelMessageType.CHAT_STEP_STARTED,
-                    TunnelMessageType.CHAT_STEP_UPDATED,
-                    TunnelMessageType.CHAT_STEP_COMPLETED,
-                    TunnelMessageType.CHAT_STEP_FAILED,
-                }:
-                    from app.api.workspaces import publish_agent_step_event
-                    await publish_agent_step_event(
-                        workspace_id=workspace_id,
-                        instance_id=target_node_id,
-                        agent_name=agent_name,
-                        payload={
-                            **(chunk_msg.payload or {}),
-                            "trace_id": chunk_msg.trace_id or envelope.traceid,
-                            "reply_to": chunk_msg.reply_to,
-                        },
-                    )
-                    continue
                 if chunk_msg.type == TunnelMessageType.CHAT_RESPONSE_ERROR:
                     raw_error = chunk_msg.payload.get("error", "unknown_error")
                     error_msg = str(raw_error)[:256]
