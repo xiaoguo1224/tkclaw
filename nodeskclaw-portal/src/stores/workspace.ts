@@ -225,6 +225,19 @@ export interface GroupChatMessage {
     code: string
     detail?: string
   }
+  meta?: {
+    step_id?: string
+    step_type?: 'thinking' | 'tool_call' | 'tool_result' | 'status'
+    tool_name?: string | null
+    status?: 'running' | 'completed' | 'failed'
+    sequence?: number | null
+    trace_id?: string | null
+    started_at?: string | null
+    finished_at?: string | null
+    title?: string | null
+    summary?: string | null
+    reply_to?: string | null
+  }
 }
 
 export interface ChatHistoryQuery {
@@ -644,6 +657,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         message_type: m.message_type as string,
         created_at: m.created_at as string,
         attachments: (m.attachments as FileAttachment[]) || undefined,
+        meta: (m.meta as GroupChatMessage['meta']) || undefined,
       }))
     } catch (e) {
       console.error('fetchChatHistory error:', e)
@@ -704,6 +718,33 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   const _typingTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+  function _sortChatMessages() {
+    chatMessages.value.sort((a, b) => {
+      const timeA = new Date(a.created_at).getTime()
+      const timeB = new Date(b.created_at).getTime()
+      if (timeA !== timeB) return timeA - timeB
+      const seqA = a.meta?.sequence ?? Number.MAX_SAFE_INTEGER
+      const seqB = b.meta?.sequence ?? Number.MAX_SAFE_INTEGER
+      if (seqA !== seqB) return seqA - seqB
+      return a.id.localeCompare(b.id)
+    })
+  }
+
+  function _upsertChatMessage(message: GroupChatMessage) {
+    const idx = chatMessages.value.findIndex((item) => item.id === message.id)
+    if (idx >= 0) {
+      chatMessages.value[idx] = {
+        ...chatMessages.value[idx],
+        ...message,
+      }
+      _sortChatMessages()
+      return false
+    }
+    chatMessages.value.push(message)
+    _sortChatMessages()
+    return true
+  }
 
   function _handleAgentTyping(data: Record<string, unknown>) {
     const instanceId = data.instance_id as string
@@ -839,6 +880,28 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     _incrementUnread()
   }
 
+  function _handleAgentStep(data: Record<string, unknown>) {
+    const msgId = data.id as string
+    const instanceId = data.instance_id as string
+    const agentName = data.agent_name as string
+    const content = data.content as string
+    const meta = (data.meta as GroupChatMessage['meta']) || undefined
+    if (!msgId || !instanceId) return
+
+    const inserted = _upsertChatMessage({
+      id: msgId,
+      sender_type: 'agent',
+      sender_id: instanceId,
+      sender_name: agentName,
+      content,
+      message_type: 'trace',
+      created_at: (data.created_at as string) || new Date().toISOString(),
+      meta,
+      trace_id: meta?.trace_id ?? undefined,
+    })
+    if (inserted) _incrementUnread()
+  }
+
   function _handleSystemWelcome(data: Record<string, unknown>) {
     const agentName = data.agent_name as string
     const content = data.content as string
@@ -915,6 +978,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
     const sseHandlers: Record<string, (data: Record<string, unknown>) => void> = {
       'agent:typing': _handleAgentTyping,
+      'agent:step': _handleAgentStep,
       'agent:chunk': _handleAgentChunk,
       'agent:done': _handleAgentDone,
       'agent:error': _handleAgentError,

@@ -359,6 +359,61 @@ async def _notify_agents_task_done(workspace_id: str, task_title: str):
         logger.warning("通知 Agent 任务完成失败: %s", e)
 
 
+async def publish_agent_step_event(
+    *,
+    workspace_id: str,
+    instance_id: str,
+    agent_name: str,
+    payload: dict,
+) -> None:
+    from app.services import workspace_message_service as msg_service
+
+    step_id = str(payload.get("step_id") or "").strip()
+    if not workspace_id or not instance_id or not step_id:
+        return
+
+    title = str(payload.get("title") or "").strip()
+    summary = str(payload.get("summary") or "").strip()
+    content = summary or title or str(payload.get("tool_name") or "")
+    meta = {
+        "step_id": step_id,
+        "step_type": payload.get("step_type") or "status",
+        "tool_name": payload.get("tool_name"),
+        "status": payload.get("status") or "running",
+        "sequence": payload.get("sequence"),
+        "trace_id": payload.get("trace_id"),
+        "started_at": payload.get("started_at"),
+        "finished_at": payload.get("finished_at"),
+        "title": title,
+        "summary": summary,
+        "reply_to": payload.get("reply_to"),
+    }
+
+    async with async_session_factory() as db:
+        saved = await msg_service.upsert_trace_message(
+            db,
+            workspace_id=workspace_id,
+            sender_id=instance_id,
+            sender_name=agent_name,
+            content=content,
+            meta=meta,
+        )
+
+    broadcast_event(workspace_id, "agent:step", {
+        "id": saved.id,
+        "workspace_id": workspace_id,
+        "instance_id": instance_id,
+        "agent_name": agent_name,
+        "sender_id": instance_id,
+        "sender_name": agent_name,
+        "sender_type": "agent",
+        "content": content,
+        "message_type": "trace",
+        "created_at": saved.created_at.isoformat() if saved.created_at else datetime.now(timezone.utc).isoformat(),
+        "meta": meta,
+    })
+
+
 # ── Tasks ────────────────────────────────────────────
 
 @router.get("/{workspace_id}/blackboard/tasks")
@@ -1141,6 +1196,7 @@ async def list_workspace_messages(
             "content": m.content,
             "message_type": m.message_type,
             "attachments": m.attachments,
+            "meta": m.meta,
             "created_at": m.created_at.isoformat() if m.created_at else None,
         }
         for m in messages
@@ -1181,6 +1237,7 @@ async def list_collaboration_timeline(
             "message_type": m.message_type,
             "target_instance_id": m.target_instance_id,
             "depth": m.depth,
+            "meta": m.meta,
             "created_at": m.created_at.isoformat() if m.created_at else None,
         }
         for m in messages
@@ -1211,6 +1268,7 @@ async def list_agent_collaboration_messages(
             "message_type": m.message_type,
             "target_instance_id": m.target_instance_id,
             "depth": m.depth,
+            "meta": m.meta,
             "created_at": m.created_at.isoformat() if m.created_at else None,
         }
         for m in messages
@@ -1275,6 +1333,23 @@ async def agent_chat(
             )
             async for chunk_msg in chat_stream:
                 from app.services.tunnel.protocol import TunnelMessageType
+                if chunk_msg.type in {
+                    TunnelMessageType.CHAT_STEP_STARTED,
+                    TunnelMessageType.CHAT_STEP_UPDATED,
+                    TunnelMessageType.CHAT_STEP_COMPLETED,
+                    TunnelMessageType.CHAT_STEP_FAILED,
+                }:
+                    await publish_agent_step_event(
+                        workspace_id=workspace_id,
+                        instance_id=instance_id,
+                        agent_name=agent_name,
+                        payload={
+                            **(chunk_msg.payload or {}),
+                            "trace_id": chunk_msg.trace_id,
+                            "reply_to": chunk_msg.reply_to,
+                        },
+                    )
+                    continue
                 if chunk_msg.type == TunnelMessageType.CHAT_RESPONSE_ERROR:
                     yield f"data: {json.dumps({'error': chunk_msg.payload.get('error', 'unknown')})}\n\n"
                     break
@@ -1555,6 +1630,23 @@ async def _stream_agent_response(
             stream=True,
         )
         async for chunk_msg in chat_stream:
+            if chunk_msg.type in {
+                TunnelMessageType.CHAT_STEP_STARTED,
+                TunnelMessageType.CHAT_STEP_UPDATED,
+                TunnelMessageType.CHAT_STEP_COMPLETED,
+                TunnelMessageType.CHAT_STEP_FAILED,
+            }:
+                await publish_agent_step_event(
+                    workspace_id=workspace_id,
+                    instance_id=instance_id,
+                    agent_name=agent_name,
+                    payload={
+                        **(chunk_msg.payload or {}),
+                        "trace_id": chunk_msg.trace_id,
+                        "reply_to": chunk_msg.reply_to,
+                    },
+                )
+                continue
             if chunk_msg.type == TunnelMessageType.CHAT_RESPONSE_ERROR:
                 raw_error = chunk_msg.payload.get("error", "unknown")
                 logger.error("Agent %s returned error: %s", agent_name, raw_error)

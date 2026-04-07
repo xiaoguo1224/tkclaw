@@ -26,3 +26,4 @@ class WorkspaceMessage(BaseModel):
     )
     depth: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     attachments: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    meta: Mapped[dict | None] = mapped_column(JSONB, nullable=True)

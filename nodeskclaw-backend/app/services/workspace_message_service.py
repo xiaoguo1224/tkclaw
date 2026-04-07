@@ -26,6 +26,7 @@ async def record_message(
     target_instance_id: str | None = None,
     depth: int = 0,
     attachments: list[dict] | None = None,
+    meta: dict | None = None,
 ) -> WorkspaceMessage:
     msg = WorkspaceMessage(
         workspace_id=workspace_id,
@@ -37,11 +38,63 @@ async def record_message(
         target_instance_id=target_instance_id,
         depth=depth,
         attachments=attachments,
+        meta=meta,
     )
     db.add(msg)
     await db.commit()
     await db.refresh(msg)
     return msg
+
+
+async def upsert_trace_message(
+    db: AsyncSession,
+    *,
+    workspace_id: str,
+    sender_id: str,
+    sender_name: str,
+    content: str,
+    meta: dict,
+) -> WorkspaceMessage:
+    step_id = str(meta.get("step_id") or "").strip()
+    if not step_id:
+        return await record_message(
+            db,
+            workspace_id=workspace_id,
+            sender_type="agent",
+            sender_id=sender_id,
+            sender_name=sender_name,
+            content=content,
+            message_type="trace",
+            meta=meta,
+        )
+
+    result = await db.execute(
+        select(WorkspaceMessage).where(
+            WorkspaceMessage.workspace_id == workspace_id,
+            WorkspaceMessage.sender_id == sender_id,
+            WorkspaceMessage.message_type == "trace",
+            WorkspaceMessage.deleted_at.is_(None),
+            WorkspaceMessage.meta["step_id"].astext == step_id,
+        ).limit(1)
+    )
+    existing = result.scalar_one_or_none()
+    if existing is None:
+        return await record_message(
+            db,
+            workspace_id=workspace_id,
+            sender_type="agent",
+            sender_id=sender_id,
+            sender_name=sender_name,
+            content=content,
+            message_type="trace",
+            meta=meta,
+        )
+
+    existing.content = content
+    existing.meta = meta
+    await db.commit()
+    await db.refresh(existing)
+    return existing
 
 
 async def get_recent_messages(
@@ -183,7 +236,9 @@ def build_context_prompt(
     )
 
     other_messages = [
-        m for m in recent_messages if m.sender_id != current_instance_id
+        m
+        for m in recent_messages
+        if m.sender_id != current_instance_id and m.message_type != "trace"
     ]
 
     if other_messages:
